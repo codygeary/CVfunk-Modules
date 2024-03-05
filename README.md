@@ -1,4 +1,4 @@
-# CV Funk Module Collection for VCV Rack
+# CV funk Module Collection for VCV Rack
 
 Explore the vast possibilities of modular synthesis with the CV Funk Module Collection, designed for VCV Rack. This suite of modules simplifies generating a complex spectrum of modulation from simple inputs. The modules are each carefully engineered to inject dynamic modulation, intricate sequencing, and immersive soundscapes into your musical creations. From the precise steps of the Penta Sequencer to the wide range of control of the Envelope Array, each module is designed to explore patch-programmable modular synthesis, inviting you to delve into the complexities of sound design with intuitive macro controls.
 
