@@ -114,7 +114,7 @@ struct EnvelopeArray : Module {
 	dsp::TSchmittTrigger<float_4> trigger_4[6][4];
 
     int processSkipCounter = 0;
-    int processSkipRate = 10;  // Update the envelope every 2 process cycles to save CPU
+    int processSkipRate = 10;  // Update the envelope every 10 process cycles to save CPU
 
 
     // Serialization method to save module state
