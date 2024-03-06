@@ -160,7 +160,7 @@ struct ImpulseController : Module {
 	}
 
 	void process(const ProcessArgs& args) override {
-		const float baseSampleTime = 2.0f / 44100.0f; // Base sample time for 44.1 kHz  //cut the CPU by 50% 
+		const float baseSampleTime = 10.0f / 44100.0f; // Base sample time for 44.1 kHz  //cut the CPU by 50% 
 
 		// Accumulate elapsed time
 		accumulatedTime += args.sampleTime;
