@@ -9,7 +9,6 @@
 //
 ////////////////////////////////////////////////////////////
 
-
 #include "rack.hpp"
 #include "plugin.hpp"
 
@@ -81,6 +80,8 @@ struct HexMod : Module {
 		NUM_LIGHTS
 	};
 
+	bool lightsEnabled = true;
+
     float lfoPhase[6] = {}; // Current LFO phase for each channel
     float prevEnvInput[6] = {}; // Previous envelope input, for peak detection
 
@@ -106,7 +107,29 @@ struct HexMod : Module {
 	int SkipProcesses = 20; //Number of process cycles to skip for the big calculation
 
     float lastConnectedInputVoltage = 0.0f;
- 	float SyncInterval = 2;
+ 	float SyncInterval = 2; //default to 2hz
+
+
+	// Serialization method to save module state
+	json_t* dataToJson() override {
+		json_t* rootJ = json_object();
+
+		// Save the state of lightsEnabled as a boolean
+		json_object_set_new(rootJ, "lightsEnabled", json_boolean(lightsEnabled));
+
+		return rootJ;
+	}
+
+	// Deserialization method to load module state
+	void dataFromJson(json_t* rootJ) override {
+		// Load the state of lightsEnabled
+		json_t* lightsEnabledJ = json_object_get(rootJ, "lightsEnabled");
+		if (lightsEnabledJ) {
+			// Use json_is_true() to check if the JSON value is true; otherwise, set to false
+			lightsEnabled = json_is_true(lightsEnabledJ);
+		}
+	}
+
 
 	 HexMod() {
 		config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
@@ -124,6 +147,8 @@ struct HexMod : Module {
 		configInput(RATE_INPUT, "Rate CV");
 		configInput(NODE_INPUT, "Node Distribution CV");
 		configInput(SYNC_INPUT, "Sync");
+		
+		lightsEnabled = true; // Default to true
 
 		for (int i = 0; i < 6; i++) {
 			configOutput(LFO_OUTPUT_1 + i, "LFO " + std::to_string(i + 1));
@@ -260,17 +285,22 @@ void HexMod::process(const ProcessArgs& args) {
 		//Output Voltage
 		outputs[LFO_OUTPUT_1 + i].setVoltage(currentOutput);
 
-		if (LEDprocessCounter > 1500) {
-			// Update LEDs based on LFO output
-			updateLEDs(i, lfoOutput[i]);
+		if (lightsEnabled) {
+			if (LEDprocessCounter > 1500) {
+				// Update LEDs based on LFO output
+				updateLEDs(i, lfoOutput[i]);
 
-			float brightness = lights[IN_LED_1+i].getBrightness(); 
-			lights[IN_LED_1+i].setBrightness(brightness*0.9f);		
-			lights[OUT_LED_1a+i].setBrightness(brightness*0.9f);		
-			lights[OUT_LED_1b+i].setBrightness(brightness*0.9f);		
-			lights[OUT_LED_1c+i].setBrightness(brightness*0.9f);		
-			lights[OUT_LED_1d+i].setBrightness(brightness*0.9f);		
+				float brightness = lights[IN_LED_1+i].getBrightness(); 
+				lights[IN_LED_1+i].setBrightness(brightness*0.9f);		
+				lights[OUT_LED_1a+i].setBrightness(brightness*0.9f);		
+				lights[OUT_LED_1b+i].setBrightness(brightness*0.9f);		
+				lights[OUT_LED_1c+i].setBrightness(brightness*0.9f);		
+				lights[OUT_LED_1d+i].setBrightness(brightness*0.9f);		
+			}
+		} else {
+			for (int i = 0; i < NUM_LIGHTS; i++) {lights[i].setBrightness(0);}
 		}
+		
 		
 		prevEnvInput[i] = envInput;
     }
@@ -313,8 +343,6 @@ struct HexModWidget : ModuleWidget {
 				asset::plugin(pluginInstance, "res/HexMod.svg"),
 				asset::plugin(pluginInstance, "res/HexMod-dark.svg")
 			));
-
-
 
         // Add screws or additional design elements as needed
         addChild(createWidget<ThemedScrew>(Vec(RACK_GRID_WIDTH, 0)));
@@ -405,6 +433,32 @@ struct HexModWidget : ModuleWidget {
         addInput(createInput<PJ301MPort>(knobStartPos.plus(Vec(0.5*knobSpacing+2, 40)), module, HexMod::SYNC_INPUT));
 
     }
+    
+	void appendContextMenu(Menu* menu) override {
+        ModuleWidget::appendContextMenu(menu);
+
+        HexMod* hexMod = dynamic_cast<HexMod*>(module);
+        assert(hexMod);
+
+        menu->addChild(new MenuSeparator);
+
+        struct LightsEnabledItem : MenuItem {
+            HexMod* hexMod;
+            void onAction(const event::Action& e) override {
+                hexMod->lightsEnabled = !hexMod->lightsEnabled;
+            }
+            void step() override {
+                rightText = hexMod->lightsEnabled ? "✔" : "";
+                MenuItem::step();
+            }
+        };
+
+        LightsEnabledItem* lightsItem = new LightsEnabledItem;
+        lightsItem->text = "Enable Lights";
+        lightsItem->hexMod = hexMod;
+        menu->addChild(lightsItem);
+    }
+    
 };
 
 Model* modelHexMod = createModel<HexMod, HexModWidget>("HexMod");
