@@ -14,3 +14,5 @@ extern Model* modelPentaSequencer;
 extern Model* modelImpulseController;
 extern Model* modelSignals;
 extern Model* modelRanges;
+extern Model* modelHexMod;
+
