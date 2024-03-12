@@ -136,9 +136,9 @@ struct ImpulseController : Module {
 	
 	ImpulseController() {
 		config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
-		configParam(LAG_PARAM, 0.0f, 1.0f, 0.1f, "Lag");
-		configParam(SPREAD_PARAM, -1.0f, 1.f, 0.8f, "Spread");
-		configParam(DECAY_PARAM, 0.0f, 1.0f, 0.6f, "Decay");
+		configParam(LAG_PARAM, 0.0f, 1.0f, 0.5f, "Lag");
+		configParam(SPREAD_PARAM, -1.0f, 1.f, 0.5f, "Spread");
+		configParam(DECAY_PARAM, 0.0f, 1.0f, 0.8f, "Decay");
 		
 		configParam(LAG_ATT_PARAM, -1.0f, 1.0f, 0.5f, "Lag Attenuverter");
 		configParam(SPREAD_ATT_PARAM, -1.0f, 1.0f, 0.5f, "Spread Attenuverter");
@@ -188,11 +188,10 @@ struct ImpulseController : Module {
 			// Clamp the param values after adding voltages
 			decay = clamp(decay, 0.00f, 1.0f); 
 			spread = clamp(spread, -1.00f, 1.0f);
-			lag[0] = clamp(lag[0], 0.001f, 1.0f); //prevent lag=0
+			lag[0] = clamp(lag[0], 0.001f, 2.0f); //prevent lag=0
 			
 			// Apply non-linear re-scaling to parameters to make them feel better
-			lag[0] = pow(lag[0], 0.5); //
-			spread = (spread >= 0 ? 1 : -1) * pow(abs(spread), 4);
+			spread = (spread >= 0 ? 1 : -1) * pow(abs(spread), 2);
 
 			decay = 1 - pow(1 - decay, 1.5); 
 			decay = decay*0.005f + 0.99499f;  //since the decay is so exponential, only values .99...1.0 are really useful for scaling.
@@ -202,12 +201,12 @@ struct ImpulseController : Module {
 			decay = clamp(decay, 0.0f, 1.0f); 
 			spread = clamp(spread, -0.9999f, 1.0f);
 			lag[0] = clamp(lag[0], 0.001f, 1.0f);
-			lag[0] *= 0.35f; //rescale the lag values
+			lag[0] *= 0.6f;
 			
 			lag[23] = 1.2f*spread * lag[0] + 1.2f*lag[0];
 			
 			// Scaling factor for the power scale
-			float scalingFactor =  0.20f; // Adjust this to tune the scaling curve
+			float scalingFactor =  1.0f; // Adjust this to tune the scaling curve
 			
 			// Interpolate lag[1] to lag[22] using a power scale
 			for (int i = 1; i < 23; i++) {
@@ -295,7 +294,7 @@ struct ImpulseController : Module {
 			// Dim lights slowly for each light group
 			for (int groupIndex = 0; groupIndex < int(lightGroups.size()); ++groupIndex) {
 				// Calculate the dimming factor for the current group
-				float dimmingFactor = decay + (0.99993f-decay)*2*(lag[groupIndex]);
+				float dimmingFactor = decay + (1.0f-decay)*2*(lag[groupIndex]);
 				dimmingFactor = clamp(dimmingFactor,0.0f,0.99993f);
 
 				// Apply the dimming factor to each light within the current group
