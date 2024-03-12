@@ -9,21 +9,28 @@
 //
 ////////////////////////////////////////////////////////////
 
-
 #include "plugin.hpp"
 using simd::float_4;
 
-//Envelope shape adapted from Befaco shapeDelta function
-static float_4 Envelope(float_4 delta, float_4 tau, float shape) {
-	float_4 lin = simd::sgn(delta) * 10.f / tau;
-	if (shape > 0.f) {
-		float_4 log = simd::sgn(delta) * 40.f / tau / (simd::fabs(delta) + 1.f);
-		return simd::crossfade(lin, log, shape * 1.49f); //1.49 pushes this var to extreme
-	}
-	else {
-		float_4 exp = M_E * delta / tau;
-		return simd::crossfade(lin, exp, -shape * 0.99f); //0.99 is the max we can go also.
-	}
+static float Envelope(float delta, float tau, float shape) {
+    // Determine the sign of delta (-1 for negative, 1 for positive, 0 for zero)
+    float signEnv = (delta > 0) - (delta < 0);
+
+    // Linear envelope component
+    float lin = signEnv * 10.f / tau;
+
+    // Conditional operation based on the shape
+    if (shape > 0.f) {
+        // Logarithmic envelope component
+        float log = signEnv * 40.f / tau / (fabs(delta) + 1.f);
+        // Linear interpolation between linear and logarithmic components
+        return lin + (log - lin) * (shape * 1.49f); // 1.49 pushes this var to the extreme
+    } else {
+        // Exponential envelope component
+        float exp = M_E * delta / tau;
+        // Linear interpolation between linear and exponential components
+        return lin + (exp - lin) * (-shape * 0.99f); // 0.99 is the max we can go also.
+    }
 }
 
 struct EnvelopeArray : Module {
@@ -105,17 +112,20 @@ struct EnvelopeArray : Module {
     SpeedRange time6Range;
 
 	// Define an array to store time variables
-	float time_x[6] = {0.0f}; // Initialize all elements to 0.0f
-	float_4 out[6][4] = {};
-	float_4 gate[6][4] = {}; // use simd __m128 logic instead of bool
+	float time_x[6] = {0.0f,0.0f,0.0f,0.0f,0.0f,0.0f}; 
+	float out[6] = {0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};
+	float gate[6] = {0.0f,0.0f,0.0f,0.0f,0.0f,0.0f}; 
 
-	float_4 gate_no_output[6][4] = {{0.0f}}; // Initialize with all elements set to true
+	float next_chunk[6] = {0.0f,0.0f,0.0f,0.0f,0.0f,0.0f}; 
+	float current_out[6] = {0.0f,0.0f,0.0f,0.0f,0.0f,0.0f}; // For interpolating the outputs
 
-	dsp::TSchmittTrigger<float_4> trigger_4[6][4];
+	float gate_no_output[6] = {0.0f,0.0f,0.0f,0.0f,0.0f,0.0f}; // Initialize with all elements set to true
+
+	// Initialize variables for trigger detection
+	dsp::SchmittTrigger Trigger[6];
 
     int processSkipCounter = 0;
-    int processSkipRate = 10;  // Update the envelope every 10 process cycles to save CPU
-
+    int processSkipRate = 10;  // Skip some cycles to save CPU
 
     // Serialization method to save module state
     json_t* dataToJson() override {
@@ -139,7 +149,6 @@ struct EnvelopeArray : Module {
         if (time6RangeJ) time6Range = static_cast<SpeedRange>(json_integer_value(time6RangeJ));
     }
     
-
 	EnvelopeArray() {
 		config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
 		configParam(SLANT_PARAM, -1.f, 1.f, -.75f, "Slant");
@@ -178,12 +187,9 @@ struct EnvelopeArray : Module {
 		configOutput(EOF5_OUTPUT, "GATE 5");
 		configOutput(EOF6_OUTPUT, "GATE 6");
 
-
 		// Default initialization of time ranges to MID
 		time1Range = MID;
 		time6Range = MID;
-
-
 	}
 
     void process(const ProcessArgs &args) override {	
@@ -230,17 +236,12 @@ struct EnvelopeArray : Module {
 		if (inputs[TIME6_INPUT].isConnected())
 			time_x[5] += inputs[TIME6_INPUT].getVoltage()*params[TIME6_ATTEN_PARAM].getValue()*0.1;
 
-
 		//Clamp voltages after adding CV params
 		slant = clamp(slant, -1.0f, 1.0f);
 		curve = clamp(curve, -1.0f, 1.0f);
-	//	time_x[0] = clamp(time_x[0], 0.0f,1.0f);  //let the CV push the time to the max limits of range, regardless of range settings.
-	//	time_x[5] = clamp(time_x[5], 0.0f,1.0f);
-
 
 		//Apply non-linear scaling to the slant knob to make it scale more naturally
 		slant = copysign(pow(fabs(slant), 2), slant); // Apply the power rule while preserving the sign
-
 
 		//Set time ranges based on the range selectors.
 		//Updated so that all channels use the same, smaller minTime setting
@@ -264,7 +265,6 @@ struct EnvelopeArray : Module {
 		time_x[0] = std::max(time_x[0], 0.0f);
 		time_x[5] = std::max(time_x[5], 0.0f);
 
-
 		//Adjust for non-linearity of the slant control
 		float f_slant;
 		if (abs(slant) <= 0.6f) {
@@ -277,7 +277,6 @@ struct EnvelopeArray : Module {
 		time_x[0] -= slant_abs / (2.4760985f * pow(time_x[0], -1.17f));
 		time_x[5] -= slant_abs / (2.4760985f * pow(time_x[5], -1.17f));
 
-
 		// Adjust for non-linearity of the curve control
 		float f_curve;
 		if (abs(curve) <= 0.75f) {
@@ -287,7 +286,6 @@ struct EnvelopeArray : Module {
 		}
 		float curve_abs = abs(curve) + f_curve * -0.66f;
 		float curve_abs2 = abs(curve) + f_curve * -0.33f;
-
 
 		//Scale the time_x inputs to compensate for the increase in cycle time for different curve values.
 		//For large curve values the slant compensation needs to be readjusted again
@@ -303,13 +301,10 @@ struct EnvelopeArray : Module {
 			time_x[5] = time_x[5]-(curve_abs2/curve_scalefactor2)*(1 - (slant_abs*slant_scalefactor2) );
 		}
 
-
 		//clamp time to a max range where the decay is at least one sample value
 		//(otherwise it will hold forever if the decay is too slow)
 		time_x[0] = clamp(time_x[0], 0.0f,4.3f);
 		time_x[5] = clamp(time_x[5], 0.0f,4.3f);
-
-
 
 		//Adjust slant to be 0-1V range, for the Envelope function.
 		slant = (slant+1.0f)/2; 
@@ -330,132 +325,112 @@ struct EnvelopeArray : Module {
 			time_x[1] = time_x[5] - 2.0f * time_step;
 		}
 	
-
-
-		int channels_in[6] = {};
-		int channels_trig[6] = {};
-		int channels[6] = {}; 	// the larger of in or trig (per-part)
-
-		// determine number of channels:
-		for (int part = 0; part < 6; part++) {
-
-			channels_in[part]   = 0.0f;
-			channels_trig[part] = inputs[_1_INPUT + part].getChannels();
-			channels[part] = std::max(channels_in[part], channels_trig[part]);
-			channels[part] = std::max(1, channels[part]);
-
-			outputs[_1_OUTPUT + part].setChannels(channels[part]);
-			outputs[EOF1_OUTPUT + part].setChannels(channels[part]);					
-		}
-
-		// total number of active polyphony engines, accounting for all parts
-		int channels_max = channels[0]; // Initialize with the first value
-		for (int i = 1; i < 4; ++i) {
-			channels_max = std::max(channels_max, channels[i]);
-		}
-
-
 		//SKIP process computations ever other cycle to save CPU:
         if (++processSkipCounter >= processSkipRate) {
             processSkipCounter = 0;  // Reset counter
 
+			// Initialize the trigger state for each part
+			bool trig[6] = {};
+
 			// loop over six stage parts:
 			for (int part = 0; part < 6; part++) {
 
-				float_4 in[4] = {};
-				float_4 in_trig[6][4] = {};
-				float_4 riseCV[4] = {};
-				float_4 fallCV[4] = {};
-				float_4 cycle[4] = {};
+				float in = {};
+				float in_trig[6] = {};
 
-
-				float minTime = .0001f; //set a very small minTime
-
-				float_4 param_rise  = time_x[part] * (slant) * 10.0f;
-			
-				float_4 param_fall  = time_x[part] * (1.0f - slant) * 10.0f;
-				float_4 param_trig  = 0.0f;
-				float_4 param_cycle = 0.0f;
-
-				for (int c = 0; c < channels[part]; c += 4) {
-					riseCV[c / 4] = param_rise;
-					fallCV[c / 4] = param_fall;
-					cycle[c / 4] = param_cycle;
-					in_trig[part][c / 4] = param_trig;
-				}
-
-				// Read inputs:
+				// Directly use the input trigger voltage if connected
 				if (inputs[_1_INPUT + part].isConnected()) {
-					for (int c = 0; c < channels[part]; c += 4)
-						in_trig[part][c / 4] += inputs[_1_INPUT + part].getPolyVoltageSimd<float_4>(c);
-				} else {
-					// Look for a trigger input in previous parts
-					for (int prevPart = part - 1; prevPart >= 0; prevPart--) {
-						if (inputs[_1_INPUT + prevPart].isConnected()) {
-							// Found a trigger input in a previous part
-							// Use its voltage for the current part's trigger input
-							for (int c = 0; c < channels[prevPart]; c += 4)
-								in_trig[part][c / 4] += inputs[_1_INPUT + prevPart].getPolyVoltageSimd<float_4>(c);
-							break; // Exit the loop since we found a trigger input
-						}
+					in_trig[part] = inputs[_1_INPUT + part].getVoltage();
+				}
+				// Normalize trigger from the left (previous part) if not connected
+				else if (part > 0 && trig[part - 1]) {
+					in_trig[part] = 10.0f; // Assuming 10.0f is the voltage that indicates a trigger
+				}
+ 
+				// Set gate for the current part
+				if ( Trigger[part].process(in_trig[part]) ) {
+					// Open the gate if the current part's trigger is detected
+					// and it is not already outputting, or it can self-trigger
+					if (gate_no_output[part] == 10.0f ) {
+						gate[part] = 1.0f;
+						trig[part]=true;
 					}
+				} 
+
+				float minTime = .0001f/processSkipRate; //set a very small minTime
+
+				float riseCV  = time_x[part] * (slant) * 10.0f;			
+				float fallCV  = time_x[part] * (1.0f - slant) * 10.0f;
+				in_trig[part]  = 0.0f;
+				float cycle = 0.0f;	
+
+				if (gate[part] > 0) { in = 10.0f;}
+
+				float delta = in - out[part];
+				bool delta_gt_0 = delta > 0.f;
+				bool delta_lt_0 = delta < 0.f;
+				bool delta_eq_0 = !delta_gt_0 && !delta_lt_0;
+
+				float rising = 0.0f;
+				if (delta_gt_0 && (in - out[part]) > 1e-6f) {
+					rising = in - out[part];
+				} // else, rising remains 0
+
+				float falling = 0.0f;
+				if (delta_lt_0 && (in - out[part]) < -1e-6f) {
+					falling = in - out[part];
+				} // else, falling remains 0
+
+				float end_of_cycle = 0.0f;
+				if (!delta_lt_0 && falling == 0.0f) {
+					end_of_cycle = 1.0f; 
+				} // else, end_of_cycle remains 0
+
+				float rateCV = 0.0f;
+
+				if (delta_gt_0) {
+					rateCV = riseCV;
+				} else if (delta_lt_0) {
+					rateCV = fallCV;
 				}
 
-				// start processing:
-				for (int c = 0; c < channels[part]; c += 4) {
+				// Clamp rateCV between 0.0f and 1e9f
+				rateCV = clamp(rateCV,0.0f, 1e9f);
 
-					// process SchmittTriggers			
-					// Convert triggers to processed triggers
-					float_4 trig_mask = trigger_4[part][c / 4].process(in_trig[part][c / 4] / 2.0, 0.1, 2.0);
-					//store the gate, but only of the gate_no_output is low
-					gate[part][c / 4] = ifelse(trig_mask & (gate_no_output[part][c / 4] == 10.0f), float_4::mask(), gate[part][c / 4]);
+				// Calculate 'rate' based on 'rateCV'
+				float rate = minTime * pow(2.0f, rateCV);
+							
+				//Compute the change in output value
+				out[part] += Envelope(delta, rate, curve) * args.sampleTime;  
 
-					in[c / 4] = ifelse(gate[part][c / 4], 10.0f, in[c / 4]);			
-					float_4 delta = in[c / 4] - out[part][c / 4];
+				// Clamp the output to ensure it stays between 0 and 10.0V
+				out[part] = clamp(out[part], 0.0f, 10.0f);
 
-					// rise / fall branching
-					float_4 delta_gt_0 = delta > 0.f;
-					float_4 delta_lt_0 = delta < 0.f;
-					float_4 delta_eq_0 = ~(delta_lt_0 | delta_gt_0);
+				if (!rising && delta_gt_0) {gate[part] = 0.0f;}
+				if (end_of_cycle && cycle >= 4.0f) {gate[part] = 1.0f;}
+				if (delta_eq_0) {gate[part] = 0.0f;}
+				if (!(rising || falling)) {out[part] = in;}
 
-					float_4 rising  = simd::ifelse(delta_gt_0, (in[c / 4] - out[part][c / 4]) > 1e-6f, float_4::zero());
-					float_4 falling = simd::ifelse(delta_lt_0, (in[c / 4] - out[part][c / 4]) < -1e-6f, float_4::zero());
-					float_4 end_of_cycle = simd::andnot(falling, delta_lt_0);
+				// Determine the new gate output based on the voltage of 'out'
+				gate_no_output[part] = (out[part] == 0.0f) ? 10.0f : 0.0f;
+	
+				//Compute next interpolation chunk
+				next_chunk[part] = (out[part] - current_out[part]);
 
-					float_4 rateCV = ifelse(delta_gt_0, riseCV[c / 4], 0.f);
-					rateCV = ifelse(delta_lt_0, fallCV[c / 4], rateCV);
-					rateCV = clamp(rateCV, 0.f, 1e9f);
 
-					float_4 rate = minTime * simd::pow(2.0f, rateCV);
-				
-					//Compute the change in output value
-					out[part][c / 4] += Envelope(delta, rate, curve) * args.sampleTime;  
-
-					// Clamp the output to ensure it stays between 0 and 10.0V
-					out[part][c / 4] = simd::clamp(out[part][c / 4], simd::float_4(0.0f), simd::float_4(10.0f));
-
-					gate[part][c / 4] = ifelse(simd::andnot(rising, delta_gt_0), 0.f, gate[part][c / 4]);
-					gate[part][c / 4] = ifelse(end_of_cycle & (cycle[c / 4] >= 4.0f), float_4::mask(), gate[part][c / 4]);
-					gate[part][c / 4] = ifelse(delta_eq_0, 0.f, gate[part][c / 4]);
-
-					out[part][c / 4]  = ifelse(rising | falling, out[part][c / 4], in[c / 4]);
-			
-					// Determine the new gate output based on the voltage of out[part][c / 4]
-					gate_no_output[part][c / 4] = ifelse(out[part][c / 4] == 0.0f, 10.0f, 0.0f);
-				
-					// Set the voltage for the outputs
-					outputs[_1_OUTPUT + part].setVoltageSimd(out[part][c / 4], c);
-					outputs[_1_OUTPUT + part + 6].setVoltageSimd(gate_no_output[part][c / 4], c);			
-
-				} // for(int c, ...)
-
-				if (channels[part] == 1) {
-					lights[_1_LIGHT + part  ].setSmoothBrightness(out[part][0].s[0] / 10.0, args.sampleTime);
-					lights[_1_LIGHT + 6 + part  ].setSmoothBrightness(gate_no_output[part][0].s[0] / 10.0, args.sampleTime);				
-				}
+				lights[_1_LIGHT + part].setBrightness(out[part] / 10.0);
+				lights[_1_LIGHT + 6 + part].setBrightness(gate_no_output[part] / 10.0);
 
 			} // for (int part, ... )
-		}
+		}//if (++processSkipCounter...		
+
+		//Process OUTPUTS	
+		for (int part = 0; part < 6; part++) {
+				current_out[part] += next_chunk[part] * 1/processSkipRate;
+				// Set the voltage for the outputs
+				outputs[_1_OUTPUT + part].setVoltage(current_out[part]);
+				outputs[_1_OUTPUT + part + 6].setVoltage(gate_no_output[part]);				
+		}		
 	}//void
 };//module
 
@@ -473,27 +448,25 @@ struct EnvelopeArrayWidget : ModuleWidget {
 		addChild(createWidget<ThemedScrew>(Vec(RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 		addChild(createWidget<ThemedScrew>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(29.337, 24.514)), module, EnvelopeArray::SLANT_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(47.525, 24.514)), module, EnvelopeArray::CURVE_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(11.228, 28.738)), module, EnvelopeArray::TIME1_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(65.323, 28.738)), module, EnvelopeArray::TIME6_PARAM));
-		addParam(createParamCentered<Trimpot>(mm2px(Vec(29.337, 41.795)), module, EnvelopeArray::SLANT_ATTEN_PARAM));
-		addParam(createParamCentered<Trimpot>(mm2px(Vec(47.525, 41.795)), module, EnvelopeArray::CURVE_ATTEN_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(29.337, 24.514+2.5)), module, EnvelopeArray::SLANT_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(47.525, 24.514+2.5)), module, EnvelopeArray::CURVE_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(11.228, 28.738+2.5)), module, EnvelopeArray::TIME1_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(65.323, 28.738+2.5)), module, EnvelopeArray::TIME6_PARAM));
 
+		addParam(createParamCentered<Trimpot>(mm2px(Vec(29.337, 41.795+2)), module, EnvelopeArray::SLANT_ATTEN_PARAM));
+		addParam(createParamCentered<Trimpot>(mm2px(Vec(47.525, 41.795+2)), module, EnvelopeArray::CURVE_ATTEN_PARAM));
+		addParam(createParamCentered<Trimpot>(mm2px(Vec(11.228, 45.315+2)), module, EnvelopeArray::TIME1_ATTEN_PARAM));
+		addParam(createParamCentered<Trimpot>(mm2px(Vec(65.323, 45.315+2)), module, EnvelopeArray::TIME6_ATTEN_PARAM));
 
         /////////////////////
 		//addParam(createParamCentered<Trimpot>(mm2px(Vec(38.277, 45)), module, EnvelopeArray::SECRET_PARAM));
         /////////////////////
 
-
-		addParam(createParamCentered<Trimpot>(mm2px(Vec(11.228, 45.315)), module, EnvelopeArray::TIME1_ATTEN_PARAM));
-		addParam(createParamCentered<Trimpot>(mm2px(Vec(65.323, 45.315)), module, EnvelopeArray::TIME6_ATTEN_PARAM));
-
 		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(29.337, 55.194)), module, EnvelopeArray::SLANT_INPUT));
 		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(47.525, 55.194)), module, EnvelopeArray::CURVE_INPUT));
 		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(11.228, 58.715)), module, EnvelopeArray::TIME1_INPUT));
 		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(65.323, 58.715)), module, EnvelopeArray::TIME6_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(7.1, 78.815)), module, EnvelopeArray::_1_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(7.1   , 78.815)), module, EnvelopeArray::_1_INPUT));
 		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(19.459, 78.815)), module, EnvelopeArray::_2_INPUT));
 		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(31.818, 78.815)), module, EnvelopeArray::_3_INPUT));
 		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(44.178, 78.815)), module, EnvelopeArray::_4_INPUT));
