@@ -84,6 +84,9 @@ struct ImpulseController : Module {
 	//Keep track of the time the one input is above the threshold
 	float inputAboveThresholdTime = 0.0f; // Time in seconds
 
+	float ImpulseOutput[24] = {0.0f};
+	float nextChunk[24] = {0.0f};
+
 	// Define groups of lights
 	const std::vector<std::vector<LightId>> lightGroups = {
 		{_01OUT_LIGHT, _00A_LIGHT, _00B_LIGHT, _01A_LIGHT},
@@ -160,13 +163,15 @@ struct ImpulseController : Module {
 	}
 
 	void process(const ProcessArgs& args) override {
-		const float baseSampleTime = 10.0f / 44100.0f; // Base sample time for 44.1 kHz  //cut the CPU by 90% 
+		const float baseSampleTime = 2.0f / 44100.0f; // Base sample time for 44.1 kHz 
+		const float ChunkLength = baseSampleTime/args.sampleTime;
 
 		// Accumulate elapsed time
-		accumulatedTime += args.sampleTime;
+		accumulatedTime += args.sampleTime;	
 
 		// Only update at an equivalent frequency of 44.1 kHz
 		if (accumulatedTime >= baseSampleTime) {
+
 			//Process inputs to paramaters
 			float decay = params[DECAY_PARAM].getValue();
 			float spread = params[SPREAD_PARAM].getValue();
@@ -183,9 +188,8 @@ struct ImpulseController : Module {
 			// Clamp the param values after adding voltages
 			decay = clamp(decay, 0.00f, 1.0f); 
 			spread = clamp(spread, -1.00f, 1.0f);
-			lag[0] = clamp(lag[0], 0.0f, 1.0f);
+			lag[0] = clamp(lag[0], 0.001f, 1.0f); //prevent lag=0
 			
-
 			// Apply non-linear re-scaling to parameters to make them feel better
 			lag[0] = pow(lag[0], 0.5); //
 			spread = (spread >= 0 ? 1 : -1) * pow(abs(spread), 4);
@@ -211,10 +215,8 @@ struct ImpulseController : Module {
 				lag[i] = lag[0] + (lag[23] - lag[0]) * factor;
 			}
 			
-
 			//Set threshold to drop to before propagating to the next node, based on the spread input		
 			//This function is an ellipse with the left at -1,1 and the right at 0.5,0
-
 			float propagate_thresh = 0.0f;
 			if (spread <0.25){
 				propagate_thresh = 10.0f - 10.0f * sqrtf(1.0f - powf((spread + 0.25f) / 0.75f, 2.0f));
@@ -238,11 +240,10 @@ struct ImpulseController : Module {
 			if (manualTriggerPressed) {
 				params[TRIGGER_BUTTON].setValue(0.0f);
 			}		
-
 			 
 			if (inputs[_00_INPUT].isConnected()){
 				float brightness = inputs[_00_INPUT].getVoltage() / 10.0f;
-				lights[_00OUT_LIGHT].setSmoothBrightness(brightness, args.sampleTime);         
+				lights[_00OUT_LIGHT].setBrightness(brightness);         
 			}
 
 			// Activate and Deactivate Nodes, Activate Child Nodes
@@ -251,7 +252,7 @@ struct ImpulseController : Module {
 				// Check if the node is active
 				if (activeNodes[node]) {
 					// Increment the elapsed time for each active node
-					groupElapsedTime[node] += args.sampleTime;  // This ensures the elapsed time is updated every cycle
+					groupElapsedTime[node] += accumulatedTime;  // This ensures the elapsed time is updated every cycle
 
 					// Check if the output voltage is below the propagation threshold
 					if (outputs[_01_OUTPUT + node].getVoltage() < propagate_thresh && groupElapsedTime[node]>0.8*lag[node]) {
@@ -262,7 +263,7 @@ struct ImpulseController : Module {
 								// Check if the child node is inactive 
 								if (!activeNodes[childNode] ) { 
 									activeNodes[childNode] = true;         // Activate the child node
-									groupElapsedTime[childNode] = 0.f;     // Reset the child node's elapsed time								//	outputs[_01_OUTPUT + childNode].setVoltage(10.0f); // Set an initial voltage for the child node
+									groupElapsedTime[childNode] = 0.f;     // Reset the child node's elapsed time								
 									for (LightId light : lightGroups[childNode]) {
 										lights[light].setBrightness(1.0f); // Turn on all lights for the child node's group
 									}
@@ -281,15 +282,15 @@ struct ImpulseController : Module {
 				float current_out = outputs[_01_OUTPUT + i].getVoltage(); // Get the voltage of the current output
 				float difference = (brightness * 10.0f) - current_out;
 				float voltageChange = difference;
-
+   
 				// If the voltage is increasing, apply slew limiting
 				if (difference > 0) {
 					 voltageChange = fmin(difference, slewRate);
 				}				
 				
-				outputs[_01_OUTPUT + i].setVoltage( current_out + voltageChange );      // transition to new output voltage based on the light brightness
+				ImpulseOutput[i]=current_out + voltageChange;
+				nextChunk[i]=ImpulseOutput[i]-current_out;
 			}
-
 
 			// Dim lights slowly for each light group
 			for (int groupIndex = 0; groupIndex < int(lightGroups.size()); ++groupIndex) {
@@ -304,12 +305,19 @@ struct ImpulseController : Module {
 					lights[lightId].setBrightness(how_bright);
 				}
 			} 
-
 			
 			// After processing, reset the accumulated time
 			accumulatedTime -= baseSampleTime; // Subtract to maintain precision and handle any excess
 			
 		}//if (accumulated_time...
+
+		//Interpolate outputs in realtime		
+		for (int i=0; i<24; i++){
+			float currentOutput = outputs[_01_OUTPUT+i].getVoltage();
+			currentOutput += nextChunk[i]* 1/ChunkLength;
+			outputs[_01_OUTPUT + i].setVoltage( currentOutput );     
+		}
+				
 	} // void process
 }; //struct
 
@@ -322,15 +330,12 @@ struct ImpulseControllerWidget : ModuleWidget {
 			asset::plugin(pluginInstance, "res/ImpulseController-dark.svg")
 		));
 
-
 		addChild(createWidget<ThemedScrew>(Vec(RACK_GRID_WIDTH, 0)));
 		addChild(createWidget<ThemedScrew>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, 0)));
 		addChild(createWidget<ThemedScrew>(Vec(RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 		addChild(createWidget<ThemedScrew>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 
-
         addParam(createParamCentered<TL1105>(mm2px(Vec(10.916, 65)), module, ImpulseController::TRIGGER_BUTTON));
-
 
 		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(10.916, 72.73)), module, ImpulseController::_00_INPUT));
 
@@ -339,14 +344,12 @@ struct ImpulseControllerWidget : ModuleWidget {
         addParam(createParamCentered<Trimpot>(mm2px(Vec(29.756, 35.728)), module, ImpulseController::SPREAD_ATT_PARAM));
         addParam(createParamCentered<Trimpot>(mm2px(Vec(48.449, 35.728)), module, ImpulseController::DECAY_ATT_PARAM));
 
-
 		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(10.957, 24)), module, ImpulseController::LAG_PARAM));
 		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(29.649, 24)), module, ImpulseController::SPREAD_PARAM));
 		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(48.342, 24)), module, ImpulseController::DECAY_PARAM));
 		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(11.171, 45.049)), module, ImpulseController::LAG_INPUT));
 		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(29.864, 45.049)), module, ImpulseController::SPREAD_INPUT));
 		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(48.556, 45.049)), module, ImpulseController::DECAY_INPUT));
-
 
 		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(29.445, 72.73)), module, ImpulseController::_01_OUTPUT));
 		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(47.974, 72.73)), module, ImpulseController::_02_OUTPUT));
