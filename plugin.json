@@ -62,7 +62,15 @@
    {
       "slug": "Ranges",
       "name": "Ranges",
-      "description": "Convert two input voltages into upto 12 equal intervals.",
+      "description": "Convert two input voltages into up to 12 equal intervals.",
+      "tags": [
+        "Utility"
+      ]
+    },
+   {
+      "slug": "HexMod",
+      "name": "HexMod",
+      "description": "Six phase related LFOs with tempo sync.",
       "tags": [
         "Utility"
       ]
