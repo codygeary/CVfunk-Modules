@@ -25,4 +25,7 @@ Observe and compare six signal inputs. Range from ms to sec. Includes a trigger 
 ### Ranges
 Split two signals into a range of 0-12 fractional mixes. Easily generate musical intervals.
 
+### Hex Mod
+Six phase related LFOs, with Sync and unique controls over the phasing.
+
 See the [User's Manual](/img/CV_funk_Manual.pdf) for more information.
