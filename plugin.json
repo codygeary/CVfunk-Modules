@@ -29,7 +29,6 @@
       "description": "Six related envelopes and gates",
       "tags": [
         "Envelope generator",
-        "Polyphonic",
         "Function generator"
       ]
     },
@@ -70,9 +69,10 @@
    {
       "slug": "HexMod",
       "name": "HexMod",
-      "description": "Six phase related LFOs with tempo sync.",
+      "description": "Six phase related LFOs with rate sync.",
       "tags": [
-        "Utility"
+        "Low-frequency oscillator",
+        "Visual"
       ]
     }
 
