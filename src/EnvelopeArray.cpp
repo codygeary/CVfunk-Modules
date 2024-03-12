@@ -10,9 +10,8 @@
 ////////////////////////////////////////////////////////////
 
 #include "plugin.hpp"
-using simd::float_4;
 
-static float Envelope(float delta, float tau, float shape) {
+static float Envelope(float delta, float tau, float shape) {  
     // Determine the sign of delta (-1 for negative, 1 for positive, 0 for zero)
     float signEnv = (delta > 0) - (delta < 0);
 
