@@ -18,11 +18,6 @@ float linearInterpolate(float a, float b, float fraction) {
     return a + fraction * (b - a);
 }
 
-// Initialize timer dsps
-dsp::Timer SyncTimer;
-
-// Initialize variables for trigger detection
-dsp::SchmittTrigger SyncTrigger;
 
 struct HexMod : Module {
     enum ParamIds {
@@ -80,7 +75,16 @@ struct HexMod : Module {
 		NUM_LIGHTS
 	};
 
+	// Initialize timer dsps
+	dsp::Timer SyncTimer;
+
+	// Initialize variables for trigger detection
+	dsp::SchmittTrigger SyncTrigger;
+
+
 	bool lightsEnabled = true;
+	bool syncEnabled = false;
+
 
     float lfoPhase[6] = {}; // Current LFO phase for each channel
     float prevEnvInput[6] = {}; // Previous envelope input, for peak detection
@@ -109,13 +113,15 @@ struct HexMod : Module {
     float lastConnectedInputVoltage = 0.0f;
  	float SyncInterval = 2; //default to 2hz
 
-
 	// Serialization method to save module state
 	json_t* dataToJson() override {
 		json_t* rootJ = json_object();
 
 		// Save the state of lightsEnabled as a boolean
 		json_object_set_new(rootJ, "lightsEnabled", json_boolean(lightsEnabled));
+
+		// Save the state of syncEnabled as a boolean
+		json_object_set_new(rootJ, "syncEnabled", json_boolean(syncEnabled));
 
 		return rootJ;
 	}
@@ -125,11 +131,15 @@ struct HexMod : Module {
 		// Load the state of lightsEnabled
 		json_t* lightsEnabledJ = json_object_get(rootJ, "lightsEnabled");
 		if (lightsEnabledJ) {
-			// Use json_is_true() to check if the JSON value is true; otherwise, set to false
 			lightsEnabled = json_is_true(lightsEnabledJ);
 		}
-	}
 
+		// Load the state of syncEnabled
+		json_t* syncEnabledJ = json_object_get(rootJ, "syncEnabled");
+		if (syncEnabledJ) {
+			syncEnabled = json_is_true(syncEnabledJ);
+		}
+	}
 
 	 HexMod() {
 		config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
@@ -188,7 +198,12 @@ void HexMod::process(const ProcessArgs& args) {
 			SyncInterval = SyncTimer.time;  // Get the accumulated time since the last reset
 			SyncTimer.reset();  // Reset the timer for the next trigger interval measurement
 		}
-		rate=1/SyncInterval;		//Synchronize the rate to the sync input
+
+		if (syncEnabled) {
+			rate *= 1/SyncInterval;		//Rate knob becomes a multiplier when Sync is patched
+		} else {
+			rate = 1/SyncInterval;      //Rate knob is deactivated when Sync is patched
+		}
 	}
 	
     for (int i = 0; i < 6; i++) {
@@ -434,30 +449,49 @@ struct HexModWidget : ModuleWidget {
 
     }
     
-	void appendContextMenu(Menu* menu) override {
-        ModuleWidget::appendContextMenu(menu);
+	void appendContextMenu(Menu* menu) {
+		ModuleWidget::appendContextMenu(menu);
 
-        HexMod* hexMod = dynamic_cast<HexMod*>(module);
-        assert(hexMod);
+		HexMod* hexMod = dynamic_cast<HexMod*>(module);
+		assert(hexMod);
 
-        menu->addChild(new MenuSeparator);
+		// Separator for visual grouping in the context menu
+		menu->addChild(new MenuSeparator);
 
-        struct LightsEnabledItem : MenuItem {
-            HexMod* hexMod;
-            void onAction(const event::Action& e) override {
-                hexMod->lightsEnabled = !hexMod->lightsEnabled;
-            }
-            void step() override {
-                rightText = hexMod->lightsEnabled ? "✔" : "";
-                MenuItem::step();
-            }
-        };
+		// Lights enabled/disabled menu item
+		struct LightsEnabledItem : MenuItem {
+			HexMod* hexMod;
+			void onAction(const event::Action& e) override {
+				hexMod->lightsEnabled = !hexMod->lightsEnabled;
+			}
+			void step() override {
+				rightText = hexMod->lightsEnabled ? "✔" : "";
+				MenuItem::step();
+			}
+		};
 
-        LightsEnabledItem* lightsItem = new LightsEnabledItem;
-        lightsItem->text = "Enable Lights";
-        lightsItem->hexMod = hexMod;
-        menu->addChild(lightsItem);
-    }
+		LightsEnabledItem* lightsItem = new LightsEnabledItem;
+		lightsItem->text = "Enable Lights";
+		lightsItem->hexMod = hexMod;
+		menu->addChild(lightsItem);
+
+		// Sync enabled/disabled menu item
+		struct SyncEnabledItem : MenuItem {
+			HexMod* hexMod;
+			void onAction(const event::Action& e) override {
+				hexMod->syncEnabled = !hexMod->syncEnabled;
+			}
+			void step() override {
+				rightText = hexMod->syncEnabled ? "✔" : "";
+				MenuItem::step();
+			}
+		};
+
+		SyncEnabledItem* syncItem = new SyncEnabledItem;
+		syncItem->text = "Rate multiplies the Sync Input"; 
+		syncItem->hexMod = hexMod;
+		menu->addChild(syncItem);
+	}
     
 };
 
