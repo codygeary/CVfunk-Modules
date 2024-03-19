@@ -8,24 +8,30 @@ Explore the vast possibilities of modular synthesis with the CV Funk Module Coll
 ## Modules Overview
 
 ### Steps
-A fusion of comparison logic and step sequencing, this module allows for dynamic pattern creation, influenced by external voltage levels. It provides hands-on control over bias, range, and step characteristics, complemented by clear visual feedback on the current state and progression.
+A fusion of comparison logic and step sequencing makes complexity from simple controls. It visually displays the current position within the window.
 
 ### Envelope Array
-An envelope generation powerhouse, the Envelope Array offers unparalleled control over the shape and dynamics of your sound. With six related envelope stages featuring adjustable slant and curve parameters, it opens up a realm of expressive modulation possibilities. Creates single-shot or cycling envelopes ranging from ms to minutes.
+An envelope generation powerhouse, offering smooth controls over the shape and dynamics of your sound. With six related envelope stages featuring adjustable slant and curve parameters. Creates single-shot or cycling envelopes ranging from ms to minutes.
 
 ### Penta Sequencer
-A 5-step sequencer that redefines rhythmic and melodic structuring, offering Circular and Star modes for diverse sequencing, complete with directional control and adjustable slew for smooth transitions, all visually guided by intuitive step indicators.
+A 5-step sequencer that redefines rhythmic and melodic structuring, offering Circle and Star modes for unique sequencing. Directional control and adjustable slew for smooth transitions.
 
 ### Impulse Controller
-Simulate the mesmerizing movement of waves through a network of nodes with the Impulse Controller module. This module not only brings a visual spectacle to your rack but also offers a unique approach to spatial sound design and dynamic modulation, with 24 outputs representing the ebb and flow of energy through the network.
+Simulate the movement of waves through a network of nodes with the Impulse Controller module. This module offers a unique approach to modulation, with 24 outputs representing the ebb and flow of energy through a complex node connected network.
 
 ### Signals
-Observe and compare six signal inputs. Range from ms to sec. Includes a trigger reset toggle.
+Observe and compare six signal inputs. Range from ms to secs with selector switch. With trigger reset toggle for visualizing envelopes.
 
 ### Ranges
-Split two signals into a range of 0-12 fractional mixes. Easily generate musical intervals.
+Split two signals into a range of 0-12 fractional mixes. Easily generate musical intervals, pan or attenuate voltages, or as a source.
 
 ### Hex Mod
 Six phase related LFOs, with Sync and unique controls over the phasing.
+
+### Collatz
+Generate polyrhythmic trigger sequences synchronized to a clock. Uses the Collatz conjecture to generate interesting patterns of polyrhythms.
+
+### Strings
+Generates chord voicings of a guitar. Intuitive button interface makes generating chord progressions a breeze. Displays guitar chords. Allows per string bending, whammy bar bending, and capo.
 
 See the [User's Manual](/img/CV_funk_Manual.pdf) for more information.
