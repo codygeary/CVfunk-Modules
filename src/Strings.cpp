@@ -402,7 +402,6 @@ struct Strings : Module {
             static int lastDisplayedChordIndex = -1;
             static int lastDisplayedRowIndex = -1;
             static int lastFingering = -1;
-            static int lastCapo = -1;
 
 
             // Define a small tolerance value for comparison
@@ -593,7 +592,6 @@ struct StringsWidget : ModuleWidget {
 
         // Chord selection buttons and indicator lights
         Vec buttonStartPos = Vec(70, 110);
-        Vec lightStartPos = Vec(70, 110); // Lights positioned over buttons
         float xSpacing = 25.0;
         float ySpacing = 36.0;
         float xShift = 12.0;
