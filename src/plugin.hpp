@@ -15,4 +15,5 @@ extern Model* modelImpulseController;
 extern Model* modelSignals;
 extern Model* modelRanges;
 extern Model* modelHexMod;
-
+extern Model* modelCollatz;
+extern Model* modelStrings;
