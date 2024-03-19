@@ -32,7 +32,7 @@ struct Ranges : Module {
         OUT4_OUTPUT, OUT5_OUTPUT, OUT6_OUTPUT,
         OUT7_OUTPUT, OUT8_OUTPUT, OUT9_OUTPUT,
         OUT10_OUTPUT, OUT11_OUTPUT, OUT12_OUTPUT,
-		OUT13_OUTPUT,
+        OUT13_OUTPUT,
         NUM_OUTPUTS
     };
     enum LightId {
@@ -40,7 +40,7 @@ struct Ranges : Module {
         OUT4_LIGHT, OUT5_LIGHT, OUT6_LIGHT,
         OUT7_LIGHT, OUT8_LIGHT, OUT9_LIGHT,
         OUT10_LIGHT, OUT11_LIGHT, OUT12_LIGHT,
-		OUT13_LIGHT,
+        OUT13_LIGHT,
         NUM_LIGHTS
     };
 
@@ -53,9 +53,9 @@ struct Ranges : Module {
         configParam(DIVISIONS_PARAM, 0.f, 11.f, 1.f, "Divisions");
 
 
-		configInput(TOP_INPUT, "Top IN");
-		configInput(BOTTOM_INPUT, "Bottom IN");
-		configInput(DIVISIONS_INPUT, "Divisions IN");
+        configInput(TOP_INPUT, "Top IN");
+        configInput(BOTTOM_INPUT, "Bottom IN");
+        configInput(DIVISIONS_INPUT, "Divisions IN");
 
 
         // Initialize lights if needed
@@ -97,11 +97,18 @@ struct RangesWidget : ModuleWidget {
     RangesWidget(Ranges* module) {
         setModule(module);
        setPanel(createPanel(
-			asset::plugin(pluginInstance, "res/Ranges.svg"),
-			asset::plugin(pluginInstance, "res/Ranges-dark.svg")
-		));
+            asset::plugin(pluginInstance, "res/Ranges.svg"),
+            asset::plugin(pluginInstance, "res/Ranges-dark.svg")
+        ));
 
         box.size = Vec(8 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT);
+
+        // Add screws or additional design elements as needed
+        addChild(createWidget<ThemedScrew>(Vec(RACK_GRID_WIDTH, 0)));
+        addChild(createWidget<ThemedScrew>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, 0)));
+        addChild(createWidget<ThemedScrew>(Vec(RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
+        addChild(createWidget<ThemedScrew>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
+
 
         // Left Section
         addParam(createParam<RoundBlackKnob>(mm2px(Vec(5, 12)), module, Ranges::TOP_PARAM));

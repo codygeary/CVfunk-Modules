@@ -74,6 +74,24 @@
         "Low-frequency oscillator",
         "Visual"
       ]
+    },
+   {
+      "slug": "Collatz",
+      "name": "Collatz",
+      "description": "Clock synchronized trigger burst generator, based on sequences of the Collatz conjecture.",
+      "tags": [
+        "Sequencer",
+        "Clock modulator"
+      ]
+    },
+   {
+      "slug": "Strings",
+      "name": "Strings",
+      "description": "Generates guitar chords with a button interface, implements bending per string, whammy bar and capo.",
+      "tags": [
+        "Sequencer",
+        "Quantizer"
+      ]
     }
 
   ]
