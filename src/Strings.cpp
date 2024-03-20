@@ -319,8 +319,8 @@ struct Strings : Module {
         } else {
             // Update based on knobs if no button is currently latched
             if (knobChordPosition != lastKnobChordPosition || knobRowPosition != lastKnobRowPosition) {
-                currentChordIndex = static_cast<int>(floor(clamp(knobChordPosition, 0.0, 6.0)));
-                currentRowIndex = static_cast<int>(floor(clamp(knobRowPosition, 0.0, 3.0)));
+                currentChordIndex = static_cast<int>(floor(clamp(knobChordPosition, 0, 6)));
+                currentRowIndex = static_cast<int>(floor(clamp(knobRowPosition, 0, 3)));
                 lastKnobChordPosition = knobChordPosition;
                 lastKnobRowPosition = knobRowPosition;
             }

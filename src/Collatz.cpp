@@ -145,7 +145,7 @@ void Collatz::process(const ProcessArgs& args) {
 
     // Handle reset logic
     if (resetTrigger.process(params[RESET_BUTTON_PARAM].getValue()) || 
-        resetTrigger.process(inputs[RESET_INPUT].getVoltage())) {
+        resetTrigger.process(inputs[RESET_INPUT].getVoltage()-0.01f)) {
         sequenceRunning = false;
         rhythmStepIndex = 0;
         currentNumber = 0;
@@ -165,7 +165,7 @@ void Collatz::process(const ProcessArgs& args) {
 
     // Clock handling logic
     bool externalClockConnected = inputs[CLOCK_INPUT].isConnected();
-    if (externalClockConnected && clockTrigger.process(inputs[CLOCK_INPUT].getVoltage())) {
+    if (externalClockConnected && clockTrigger.process(inputs[CLOCK_INPUT].getVoltage()-0.01f)) {
         if (sequenceTriggered) {
             // Reset necessary variables for starting the sequence
             currentNumber = startingNumber;
