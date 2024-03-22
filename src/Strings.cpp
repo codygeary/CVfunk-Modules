@@ -390,8 +390,8 @@ struct Strings : Module {
                 outputs[STRING_CV_OUT_1 + stringIdx].setVoltage(pitchVoltage);
                 outputs[MUTE_OUT_1 + stringIdx].setVoltage(0.0);
             } else {
-                // Mute this string
-                outputs[STRING_CV_OUT_1 + stringIdx].setVoltage(-10.f);
+                // Mute this string             
+                outputs[STRING_CV_OUT_1 + stringIdx].setVoltage(currentRoots[currentChordIndex] + CapoAmount - 1.0f);  //set muted string to the root note, just incase you don't mute it
                 outputs[MUTE_OUT_1 + stringIdx].setVoltage(5.0);
             }
         }
