@@ -609,6 +609,7 @@ struct StringsWidget : ModuleWidget {
         digitalDisplay->box.pos = Vec(disp_x, 34); // Position on the module
         digitalDisplay->box.size = Vec(50, 18); // Size of the display
         digitalDisplay->text = "Ready"; // Initial text
+         digitalDisplay->fgColor = nvgRGB(208, 140, 89); // White color text
         digitalDisplay->textPos = Vec(disp_x, 35); // Text position
         digitalDisplay->setFontSize(16.0f); // Set the font size as desired
         addChild(digitalDisplay);
@@ -623,6 +624,7 @@ struct StringsWidget : ModuleWidget {
         fingeringDisplay->box.pos = Vec(disp_x, 54); // Position below the first display
         fingeringDisplay->box.size = Vec(50, 18); // Size of the display
         fingeringDisplay->text = "Chord"; // Initial text or placeholder
+        fingeringDisplay->fgColor = nvgRGB(208, 140, 89); // White color text
         fingeringDisplay->textPos = Vec(disp_x, 55); // Text position
         fingeringDisplay->setFontSize(10.0f); // Set the font size as desired
 

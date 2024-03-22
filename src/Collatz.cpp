@@ -270,10 +270,10 @@ struct CollatzWidget : ModuleWidget {
     CollatzWidget(Collatz* module) {
         setModule(module);
 
-		setPanel(createPanel(
-			asset::plugin(pluginInstance, "res/Collatz.svg"),
-			asset::plugin(pluginInstance, "res/Collatz-dark.svg")
-		));
+        setPanel(createPanel(
+            asset::plugin(pluginInstance, "res/Collatz.svg"),
+            asset::plugin(pluginInstance, "res/Collatz-dark.svg")
+        ));
 
         // Add screws or additional design elements as needed
         addChild(createWidget<ThemedScrew>(Vec(0, 0)));
@@ -319,6 +319,7 @@ struct CollatzWidget : ModuleWidget {
         digitalDisplay->box.pos = Vec(10, 34); // Position on the module
         digitalDisplay->box.size = Vec(100, 18); // Size of the display
         digitalDisplay->text = "Ready"; // Initial text
+        digitalDisplay->fgColor = nvgRGB(208, 140, 89); // White color text
         digitalDisplay->textPos = Vec(0, 15); // Text position
         digitalDisplay->setFontSize(16.0f); // Set the font size as desired
         addChild(digitalDisplay);
@@ -329,10 +330,11 @@ struct CollatzWidget : ModuleWidget {
 
         // Configure and add the second digital display for modNumber
         DigitalDisplay* modNumberDisplay = new DigitalDisplay();
-         modNumberDisplay->fontPath = asset::plugin(pluginInstance, "res/fonts/DejaVuSansMono.ttf");
+        modNumberDisplay->fontPath = asset::plugin(pluginInstance, "res/fonts/DejaVuSansMono.ttf");
         modNumberDisplay->box.pos = Vec(10, 50); // Position below the first display
         modNumberDisplay->box.size = Vec(100, 18); // Size of the display
         modNumberDisplay->text = "Mod: Ready"; // Initial text or placeholder
+        modNumberDisplay->fgColor = nvgRGB(208, 140, 89); // White color text
         modNumberDisplay->textPos = Vec(0, 15); // Text position
         modNumberDisplay->setFontSize(12.0f); // Set the font size as desired
 
