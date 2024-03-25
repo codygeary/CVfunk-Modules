@@ -1,3 +1,15 @@
+////////////////////////////////////////////////////////////
+//
+//   Strings
+//
+//   written by Cody Geary
+//   Copyright 2024, MIT License
+//
+//   Outputs guitar chords
+//
+////////////////////////////////////////////////////////////
+
+
 #include "rack.hpp"
 #include "plugin.hpp"
 #include <string>
@@ -10,13 +22,13 @@ using namespace rack;
 const int MAX_CHORDS_PER_ROW = 7;
 const int MAX_ROWS = 4;
 
-        // Base frequencies for each guitar string
-        const float baseFrequencies[6] =  { -1.666f, // E2
-                                            -1.25f, // A2
-                                            -0.833f, // D3
-                                            -0.417f,  // G3
-                                            -0.084f, // B3
-                                             0.3333f};// E4
+// Base frequencies for each guitar string
+const float baseFrequencies[6] =  { -1.666f, // E2
+                                    -1.25f, // A2
+                                    -0.833f, // D3
+                                    -0.417f,  // G3
+                                    -0.084f, // B3
+                                     0.3333f};// E4
 
 
 
@@ -539,7 +551,6 @@ struct StringsWidget : ModuleWidget {
         addChild(createWidget<ThemedScrew>(Vec(4*RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
         addChild(createWidget<ThemedScrew>(Vec(box.size.x - 5 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 
-
         // Knobs
         addParam(createParamCentered<RoundBlackKnob>(Vec(30,  30), module, Strings::CHORD_SELECTOR_PARAM));
         addInput(createInputCentered<PJ301MPort>(Vec(30,   65), module, Strings::CHORD_SELECTOR_CV));
@@ -561,7 +572,7 @@ struct StringsWidget : ModuleWidget {
         addChild(createLightCentered<SmallLight<RedLight>>(Vec(60, 195), module, Strings::ALT_CHORD_LIGHT));
 
         float left = 35; //sets the left edge
-        float jack = 35;  //sets spacing between jacks
+        float jack = 35; //sets spacing between jacks
 
         // Inputs
         addInput(createInputCentered<PJ301MPort>(Vec(left,        270), module, Strings::ENVELOPE_IN_1));
@@ -609,7 +620,7 @@ struct StringsWidget : ModuleWidget {
         digitalDisplay->box.pos = Vec(disp_x, 34); // Position on the module
         digitalDisplay->box.size = Vec(50, 18); // Size of the display
         digitalDisplay->text = "Ready"; // Initial text
-         digitalDisplay->fgColor = nvgRGB(208, 140, 89); // White color text
+        digitalDisplay->fgColor = nvgRGB(208, 140, 89); // Gold color text
         digitalDisplay->textPos = Vec(disp_x, 35); // Text position
         digitalDisplay->setFontSize(16.0f); // Set the font size as desired
         addChild(digitalDisplay);
@@ -624,7 +635,7 @@ struct StringsWidget : ModuleWidget {
         fingeringDisplay->box.pos = Vec(disp_x, 54); // Position below the first display
         fingeringDisplay->box.size = Vec(50, 18); // Size of the display
         fingeringDisplay->text = "Chord"; // Initial text or placeholder
-        fingeringDisplay->fgColor = nvgRGB(208, 140, 89); // White color text
+        fingeringDisplay->fgColor = nvgRGB(208, 140, 89); // Gold color text
         fingeringDisplay->textPos = Vec(disp_x, 55); // Text position
         fingeringDisplay->setFontSize(10.0f); // Set the font size as desired
 
@@ -659,7 +670,7 @@ struct StringsWidget : ModuleWidget {
         Row2Display->box.pos = Vec(disp_x+xShift, disp_y+ySpacing); // Position below the first display
         Row2Display->box.size = Vec(50, 18); // Size of the display
         Row2Display->text = "Row2"; // Initial text or placeholder
-         Row2Display->setTextAlign(NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
+        Row2Display->setTextAlign(NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
         Row2Display->fgColor = nvgRGB(120, 120, 120); // White color text
         Row2Display->textPos = Vec(disp_x+xShift, disp_y+ySpacing); // Text position
         Row2Display->setFontSize(10.0f); // Set the font size as desired
