@@ -1,3 +1,15 @@
+////////////////////////////////////////////////////////////
+//
+//   Collatz
+//
+//   written by Cody Geary
+//   Copyright 2024, MIT License
+//
+//   Turns Collatz sequences into polyrhythms
+//
+////////////////////////////////////////////////////////////
+
+
 #include "rack.hpp"
 #include "plugin.hpp"
 #include "digital_display.hpp"

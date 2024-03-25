@@ -92,7 +92,15 @@
         "Sequencer",
         "Quantizer"
       ]
+    },
+	{
+      "slug": "Magnets",
+      "name": "Magnets",
+      "description": "Simulates Ising glass on a toroidal network of nodes.",
+      "tags": [
+        "Random",
+        "Low-frequency oscillator"
+      ]
     }
-
   ]
 }

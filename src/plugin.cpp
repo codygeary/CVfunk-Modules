@@ -17,6 +17,7 @@ void init(Plugin* p) {
 	p->addModel(modelHexMod);
 	p->addModel(modelCollatz);
 	p->addModel(modelStrings);
+	p->addModel(modelMagnets);
 
 
 	// Any other plugin initialization may go here.

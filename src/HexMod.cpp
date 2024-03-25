@@ -152,7 +152,7 @@ struct HexMod : Module {
         configParam(NODE_ATT_KNOB, -1.0f, 1.0f, 0.1f, "Node Attenuation"); // 
 
         for (int i = 0; i < 6; i++) {
-            configInput(ENV_INPUT_1 + i, "Envelope " + std::to_string(i + 1));
+            configInput(ENV_INPUT_1 + i, "Trigger/Gate " + std::to_string(i + 1));
         }
         configInput(RATE_INPUT, "Rate CV");
         configInput(NODE_INPUT, "Node Distribution CV");

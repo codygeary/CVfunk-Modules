@@ -34,4 +34,7 @@ Generate polyrhythmic trigger sequences synchronized to a clock. Uses the Collat
 ### Strings
 Generates chord voicings of a guitar. Intuitive button interface makes generating chord progressions a breeze. Displays guitar chords. Allows per string bending, whammy bar bending, and capo.
 
+### Magnets
+Simulate magnetism using an Ising spin-lattice. Interact with the spin-lattice with CV inputs. Outputs 24 4-pole filtered LFO signals.
+
 See the [User's Manual](/img/CV_funk_Manual.pdf) for more information.
