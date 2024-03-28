@@ -58,6 +58,8 @@ struct Magnets : Module {
 
     // Initialize variables for trigger detection
     dsp::SchmittTrigger Reset;
+    dsp::SchmittTrigger ResetBut;
+
 
     float resetCount=0;
     float head = 0.0f;
@@ -146,7 +148,7 @@ struct Magnets : Module {
         polarization = 0.5f * polarization + 0.5f;
         interactionStrength = clamp(interactionStrength, 0.f, 1.f);
 
-		if ( Reset.process( inputs[RESET_INPUT].getVoltage() ) || params[RESET_BUTTON].getValue() > 0.5f ) {
+		if ( Reset.process( inputs[RESET_INPUT].getVoltage() ) || ResetBut.process(params[RESET_BUTTON].getValue()) ) {
 			resetSpinStates(polarization);
 		}
 
