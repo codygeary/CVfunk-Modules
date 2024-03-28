@@ -30,6 +30,7 @@ struct Magnets : Module {
         TEMP_ATTENUATOR,
         POLARIZATION_ATTENUATOR,
         INTERACTION_ATTENUATOR,
+        RESET_BUTTON,
         NUM_PARAMS
     };
     enum InputIds {
@@ -68,6 +69,27 @@ struct Magnets : Module {
 
     float filteredOutputs[NUM_SECTIONS][4] = {{0.0f}}; // Four stages for each output section
 
+    bool VoltRange = false;
+
+	// Serialization method to save module state
+	json_t* dataToJson() override {
+		json_t* rootJ = json_object();
+
+		// Save the state of VoltRange as a boolean
+		json_object_set_new(rootJ, "VoltRange", json_boolean(VoltRange));
+
+		return rootJ;
+	}
+
+	// Deserialization method to load module state
+	void dataFromJson(json_t* rootJ) override {
+		// Load the state of VoltRange
+		json_t* VoltRangeJ = json_object_get(rootJ, "VoltRange");
+		if (VoltRangeJ) { // Adds braces for consistency and future-proofing
+			VoltRange = json_is_true(VoltRangeJ);
+		}
+	}
+	
     Magnets() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
 
@@ -124,9 +146,9 @@ struct Magnets : Module {
         polarization = 0.5f * polarization + 0.5f;
         interactionStrength = clamp(interactionStrength, 0.f, 1.f);
 
-        if ( Reset.process( inputs[RESET_INPUT].getVoltage() ) ) {
-            resetSpinStates(polarization);
-        } 
+		if ( Reset.process( inputs[RESET_INPUT].getVoltage() ) || params[RESET_BUTTON].getValue() > 0.5f ) {
+			resetSpinStates(polarization);
+		}
 
         // Accumulate phase for Magnets model updates
         phase += args.sampleTime * 1000.0f; // Convert ms to seconds
@@ -237,7 +259,12 @@ struct Magnets : Module {
                 interpolatedValue = filteredOutputs[i][stage]; // Use output of current stage as input to next
             }
 
-            outputs[OUTPUTS_START + i].setVoltage(interpolatedValue); // Use the output of the last stage
+            if (VoltRange){
+                outputs[OUTPUTS_START + i].setVoltage(interpolatedValue / 2.0f ); // Scale output of the last stage
+            } else {
+                outputs[OUTPUTS_START + i].setVoltage(interpolatedValue); // Use the output of the last stage
+            }
+ 
         }
         // Correct the central lights of each 5x5 section except the actual central grid
         for (int sectionY = 0; sectionY < 5; sectionY++) {
@@ -385,6 +412,9 @@ struct MagnetsWidget : ModuleWidget {
         // Head input at the blightIndexottom of column 1
         addInput(createInputCentered<PJ301MPort>(Vec(column1Pos.x, column1Pos.y + 8 * verticalSpacing), module, Magnets::HEAD_INPUT));
         addInput(createInputCentered<PJ301MPort>(Vec(column2Pos.x, column1Pos.y + 8 * verticalSpacing), module, Magnets::RESET_INPUT));
+		//Add button for Reset
+        addParam(createParamCentered<TL1105>(Vec(column2Pos.x, column1Pos.y + 7.25 * verticalSpacing ), module, Magnets::RESET_BUTTON));
+
         // Add controls and inputs for column 2
         addParam(createParamCentered<RoundBlackKnob>(Vec(column2Pos.x, column2Pos.y), module, Magnets::POLARIZATION_PARAM));
         addParam(createParamCentered<Trimpot>(Vec(column2Pos.x, column2Pos.y + verticalSpacing + 1), module, Magnets::POLARIZATION_ATTENUATOR));
@@ -393,6 +423,35 @@ struct MagnetsWidget : ModuleWidget {
         addParam(createParamCentered<Trimpot>(Vec(column2Pos.x, column2Pos.y + 5 * verticalSpacing + 1), module, Magnets::INTERACTION_ATTENUATOR));
         addInput(createInputCentered<PJ301MPort>(Vec(column2Pos.x, column2Pos.y + 6 * verticalSpacing), module, Magnets::INTERACTION_INPUT));       
     }
+    
+	void appendContextMenu(Menu* menu) override {
+		ModuleWidget::appendContextMenu(menu);
+
+		Magnets* MagnetsModule = dynamic_cast<Magnets*>(module);
+		assert(MagnetsModule); // Ensure the cast succeeds
+
+		// Separator for visual grouping in the context menu
+		menu->addChild(new MenuSeparator());
+
+		// Retriggering enabled/disabled menu item
+		struct VoltRangeMenuItem : MenuItem {
+			Magnets* MagnetsModule;
+			void onAction(const event::Action& e) override {
+				MagnetsModule->VoltRange = !MagnetsModule->VoltRange;
+			}
+			void step() override {
+				rightText = MagnetsModule->VoltRange ? "✔" : "";
+				MenuItem::step();
+			}
+		};
+
+		VoltRangeMenuItem* item = new VoltRangeMenuItem();
+		item->text = "Voltage Range ±5V";
+		item->MagnetsModule = MagnetsModule; // Ensure we're setting the module
+		menu->addChild(item);
+	}
+
+   
 };
 
 Model* modelMagnets = createModel<Magnets, MagnetsWidget>("Magnets");
