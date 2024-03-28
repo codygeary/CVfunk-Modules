@@ -81,10 +81,8 @@ struct HexMod : Module {
     // Initialize variables for trigger detection
     dsp::SchmittTrigger SyncTrigger;
 
-
     bool lightsEnabled = true;
     bool syncEnabled = false;
-
 
     float lfoPhase[6] = {}; // Current LFO phase for each channel
     float prevEnvInput[6] = {}; // Previous envelope input, for peak detection
@@ -111,7 +109,7 @@ struct HexMod : Module {
     int SkipProcesses = 20; //Number of process cycles to skip for the big calculation
 
     float lastConnectedInputVoltage = 0.0f;
-     float SyncInterval = 2; //default to 2hz
+    float SyncInterval = 2; //default to 2hz
 
     // Serialization method to save module state
     json_t* dataToJson() override {
@@ -122,6 +120,9 @@ struct HexMod : Module {
 
         // Save the state of syncEnabled as a boolean
         json_object_set_new(rootJ, "syncEnabled", json_boolean(syncEnabled));
+
+        // Save the state of SyncInterval as a float
+        json_object_set_new(rootJ, "SyncInterval", json_real(SyncInterval));
 
         return rootJ;
     }
@@ -139,6 +140,14 @@ struct HexMod : Module {
         if (syncEnabledJ) {
             syncEnabled = json_is_true(syncEnabledJ);
         }
+        
+        // Load the state of SyncInterval
+        json_t* SyncIntervalJ = json_object_get(rootJ, "SyncInterval");
+        if (SyncIntervalJ) {
+            SyncInterval = json_number_value(SyncIntervalJ);
+        }        
+        
+        
     }
 
      HexMod() {
@@ -320,8 +329,8 @@ void HexMod::process(const ProcessArgs& args) {
         prevEnvInput[i] = envInput;
     }
    
-         if (LEDprocessCounter > 1500) {LEDprocessCounter=0;    }
-          if (SINprocessCounter > SkipProcesses) {SINprocessCounter=0;    }
+        if (LEDprocessCounter > 1500) {LEDprocessCounter=0;    }
+        if (SINprocessCounter > SkipProcesses) {SINprocessCounter=0;    }
      
 }
 
