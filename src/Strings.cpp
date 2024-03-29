@@ -180,6 +180,91 @@ struct Strings : Module {
         }};
         const std::array<float, 7> Row4_Roots = {0.75f, 0.1667f, 0.583f, 1.0f, 0.417f, 0.833f, 0.25f};
 
+        // Direct initialization of Chords Arrays
+        // Define chord names for row 1
+        const std::array<std::array<std::string, 4>, 7> Row1_NamesB = {{
+            {"B7", "B"     , "B2", "B6"},
+            {"E7", "E"     , "E2", "E6"},
+            {"A7", "A7-Bar", "A2", "A6"},
+            {"D7", "D7-Bar", "D2", "D6"},
+            {"G7", "G7-Bar", "G2", "G6"},
+            {"C7", "C7-Bar", "C2", "C6"},
+            {"F7", "F7-Bar", "F2", "F6"}
+        }};
+        // Define chord fingerings for row 1
+        const std::array<std::array<std::string, 4>, 7> Row1_ChordsB = {{
+             {"X21202", "X24442", "744647", "X21102"},
+             {"020100", "022100", "024100", "042100"},
+             {"X02020", "575685", "X02420", "X04220"},
+             {"XX0212", "X5453X", "X54252", "XX0202"},
+             {"320001", "353433", "300003", "320000"},
+             {"X32310", "X35353", "X30010", "X32253"},
+             {"101211", "131211", "103013", "100211"}
+        }};
+        // Define root notes for row 1
+        const std::array<float, 7> Row1_RootsB = {0.917f, 0.3333f, 0.75f, 0.1667f, 0.5833f, 1.0f, 0.4167f};
+
+        const std::array<std::array<std::string, 4>, 7> Row2_NamesB = {{
+            {"A" ,"A-Bar" ,"Amaj7" ,"A7+5"}, 
+            {"D" ,"D-Bar" ,"Dmaj7" ,"D7+5"}, 
+            {"G" ,"G-Bar" ,"Gmaj7" ,"G7+5"}, 
+            {"C" ,"C-Bar" ,"Cmaj7" ,"C7+5"}, 
+            {"F" ,"F-Bar" ,"Fmaj7" ,"F7+5"}, 
+            {"Bb","Bb-Bar","Bbmaj7","Bb7+5"},
+            {"Eb","Eb-Bar","Ebmaj7","Eb7+5"}
+        }};
+        const std::array<std::array<std::string, 4>, 7> Row2_ChordsB = {{
+            {"X02220", "577655", "X02120", "X03021"}, 
+            {"XX0232", "X57775", "XX0222", "XX0312"}, 
+            {"320003", "355433", "320002", "321001"}, 
+            {"X32010", "X35553", "X32000", "X36354"}, 
+            {"133211", "133211", "102210", "101221"}, 
+            {"X10331", "X13331", "X10231", "X10132"}, 
+            {"XX1343", "X68886", "XX1333", "XX1423"} 
+        }};
+        const std::array<float, 7> Row2_RootsB = { 0.75f, 0.167f, 0.583f, 1.0f, 0.417f, 0.833f ,0.25f };
+
+        const std::array<std::array<std::string, 4>, 7> Row3_NamesB = {{
+            {"Em" ,"Em-Bar" ,"Em7"    ,"Em6"},    
+            {"Am" ,"Am-Bar" ,"Am7"    ,"Am6"},    
+            {"Dm" ,"Dm-Bar" ,"Dm7"    ,"Dm6"},    
+            {"Gm" ,"Gm-Bar" ,"Gm7"    ,"Gm6"},    
+            {"Cm" ,"Cm-Bar" ,"Cm7"    ,"Cm6"},    
+            {"Bb7","Bb7-Bar","Bbm7"   ,"Bb7sus2"},  
+            {"Ab" ,"Ab-Bar" ,"Ab7"    ,"Abm6"}  
+        }};
+        const std::array<std::array<std::string, 4>, 7> Row3_ChordsB = {{
+            {"022000", "X79987", "020000", "042000"},
+            {"X02210", "577555", "X02010", "X04210"},
+            {"XX0231", "X57765", "XX0211", "X53435"},
+            {"310033", "355333", "313333", "312030"},
+            {"X31013", "X35543", "X31313", "X31213"},
+            {"X10131", "X13134", "X13124", "X13314"},
+            {"431114", "466544", "431112", "421141"}
+        }};
+        const std::array<float, 7> Row3_RootsB = {0.333f, 0.75f, 0.1667f, 0.583f, 1.0f, 0.833f, 0.667f };
+
+        const std::array<std::array<std::string, 4>, 7> Row4_NamesB = {{
+            {"Adim" ,"Adim7" ,"A9" ,"Aaug"}, 
+            {"Ddim" ,"Ddim7" ,"D9" ,"Daug"}, 
+            {"Gdim" ,"Gdim7" ,"G9" ,"Gaug"}, 
+            {"Cdim" ,"Cdim7" ,"C9" ,"Caug"}, 
+            {"Fdim" ,"Fdim7" ,"F9" ,"Faug"}, 
+            {"Bbdim","Bbdim7","Bb9","Bbaug"}, 
+            {"Ebdim","Ebdim7","Eb9","Ebaug"} 
+        }};
+        const std::array<std::array<std::string, 4>, 7> Row4_ChordsB = {{
+            {"X0121X", "2312XX", "X02423", "X03221"},
+            {"XX0131", "XX0101", "X52532", "XX0332"},
+            {"XX5323", "X1202X", "300001", "321003"},
+            {"X3454X", "X3424X", "X30310", "X32110"},
+            {"12310X", "1201XX", "101013", "XX3221"},
+            {"X12320", "X1202X", "X10314", "X10332"},
+            {"XX1242", "XX1212", "X63643", "XX1403"}
+        }};
+        const std::array<float, 7> Row4_RootsB = {0.75f, 0.1667f, 0.583f, 1.0f, 0.417f, 0.833f, 0.25f};
+
+
     //Load Digital Display
     DigitalDisplay* digitalDisplay = nullptr;
     DigitalDisplay* fingeringDisplay = nullptr;
@@ -214,11 +299,15 @@ struct Strings : Module {
     int capo_offset = 0;
     bool barreGateActive = false;
     bool altGateActive = false;
+    bool ChordBank = false;
+    bool VOctCV = false;
 
     // Serialization method to save module state
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
 
+        json_object_set_new(rootJ, "VOctCV", json_boolean(VOctCV));
+        json_object_set_new(rootJ, "ChordBank", json_boolean(ChordBank));
         json_object_set_new(rootJ, "barreLatched",    json_boolean(barreLatched));
         json_object_set_new(rootJ, "altLatched",      json_boolean(altLatched));
          return rootJ;
@@ -235,7 +324,18 @@ struct Strings : Module {
         if (altLatchedJ) {
             altLatched = json_is_true(altLatchedJ);
         }
+        
+        // Load the state of VoltRange
+        json_t* ChordBankJ = json_object_get(rootJ, "ChordBank");
+        if (ChordBankJ) {
+            ChordBank = json_is_true(ChordBankJ);
+        }
 
+        // Load the state of VOctCV
+        json_t* VOctCVJ = json_object_get(rootJ, "VOctCV");
+        if (VOctCVJ) {
+            VOctCV = json_is_true(VOctCVJ);
+        }  
     }
 
     Strings() {
@@ -281,23 +381,91 @@ struct Strings : Module {
     }
 
     void process(const ProcessArgs& args) override {
+
+        // Lambda function for selecting the appropriate chord bank
+        auto selectChordBankStrings = [&](
+            bool bank,
+            const std::array<std::array<std::string, 4>, 7>& bank0Row0, const std::array<std::array<std::string, 4>, 7>& bank0Row1,
+            const std::array<std::array<std::string, 4>, 7>& bank0Row2, const std::array<std::array<std::string, 4>, 7>& bank0Row3,
+            const std::array<std::array<std::string, 4>, 7>& bank1Row0, const std::array<std::array<std::string, 4>, 7>& bank1Row1,
+            const std::array<std::array<std::string, 4>, 7>& bank1Row2, const std::array<std::array<std::string, 4>, 7>& bank1Row3
+        ) -> const std::array<std::array<std::string, 4>, 7>& {
+
+            if (bank) { // If ChordBank is true, use Bank B
+                switch (currentRowIndex) {
+                    case 0: return bank1Row0; case 1: return bank1Row1; case 2: return bank1Row2; default: return bank1Row3;
+                }
+            } else { // Else, use Bank A
+                switch (currentRowIndex) {
+                    case 0: return bank0Row0; case 1: return bank0Row1; case 2: return bank0Row2; default: return bank0Row3;
+                }
+            }
+        };
+
         // Calculate the whammy bar effect if connected
         float whammyBarEffect = inputs[WHAMMY_BAR_CV].isConnected() ? std::abs(inputs[WHAMMY_BAR_CV].getVoltage() * (0.2f / 12.0f)) : 0.f;
-
         float CapoAmount = inputs[CAPO_CV].isConnected() ? (floor(inputs[CAPO_CV].getVoltage() + params[CAPO_PARAM].getValue()) * (2.f/12.f)) : floor(params[CAPO_PARAM].getValue()) * (2.f/12.f); 
-        
         float PitchBend[6] = {0.0f};
 
         // Determine the current chord and row selections
-        int knobChordPosition = static_cast<int>(
-            floor(
-                clamp(
-                    params[CHORD_SELECTOR_PARAM].getValue() + 
-                    (inputs[CHORD_SELECTOR_CV].isConnected() ? inputs[CHORD_SELECTOR_CV].getVoltage() : 0) - 1,
-                    0.0,6.0
-                )
-            )
-        );
+  
+
+			int knobChordPosition = static_cast<int>(
+				floor(
+					clamp(
+						params[CHORD_SELECTOR_PARAM].getValue() + 
+						(inputs[CHORD_SELECTOR_CV].isConnected() ? inputs[CHORD_SELECTOR_CV].getVoltage() : 0) - 1,
+						0.0,6.0
+					)
+				)
+			);    
+
+        int semitoneDifference = 0;
+		float octavesDifference = 0.0f;
+
+		if(VOctCV){
+			// Using base notes of B, E, A, D, G, C, F in terms of semitones from C
+			// B=11, E=4, A=9, D=2, G=7, C=0, F=5
+			static const std::array<int, 7> baseNotes = {{11, 4, 9, 2, 7, 0, 5}};
+
+			float chordInputVal = params[CHORD_SELECTOR_PARAM].getValue() + 
+								  (inputs[CHORD_SELECTOR_CV].isConnected() ? inputs[CHORD_SELECTOR_CV].getVoltage() : 0);
+
+			if (chordInputVal>=1){octavesDifference=1.0f;}
+			if (chordInputVal<0){octavesDifference=-1.0f;}
+
+			int noteIndex = static_cast<int>(round(chordInputVal * 12)); // Total semitones from C
+			int noteRelativeToC = (noteIndex % 12 + 12) % 12; // Ensuring a positive result
+
+			// Directly mapping the semitone indices to your specified chord positions
+			//                                                       C      D      E  F     G      A      B
+			static const std::array<int, 12> noteToChordPosition = {{5, -1, 3, -1, 1, 6, -1,4, -1, 2, -1, 0}};
+			int computedChordPosition = noteToChordPosition[noteRelativeToC];
+
+			if (computedChordPosition == -1) {
+				semitoneDifference = 1;
+				// Search for the next lower note that maps to a chord
+				for (int i = noteRelativeToC - 1; i >= 0; --i) {
+					if (noteToChordPosition[i] != -1) {
+						computedChordPosition = noteToChordPosition[i];
+						break;
+					}
+				}
+				// If no lower note is found in the octave, wrap around and look from the top
+				if (computedChordPosition == -1) {
+					for (int i = 11; i > noteRelativeToC; --i) {
+						if (noteToChordPosition[i] != -1) {
+							computedChordPosition = noteToChordPosition[i];
+							break;
+						}
+					}
+				}
+			}
+		
+
+			knobChordPosition = computedChordPosition;
+        }
+        
         int knobRowPosition = static_cast<int>(
             floor(
                 clamp(
@@ -307,6 +475,9 @@ struct Strings : Module {
                 )
             )
         );
+
+		semitoneDifference = clamp(semitoneDifference,0,10);
+		CapoAmount += semitoneDifference/12.f + octavesDifference;
 
         static int latchedChordIndex = -1; // Initialize to invalid index to ensure first update
         static int latchedRowIndex = -1; // Initialize to invalid index to ensure first update
@@ -348,10 +519,12 @@ struct Strings : Module {
         int currentSelectionIndex = currentRowIndex * MAX_CHORDS_PER_ROW + currentChordIndex;
         lights[CHORD_SELECTION_LIGHT_1 + currentSelectionIndex].setBrightness(1.0);
 
-        // Selecting the arrays based on currentRowIndex
-        const auto& currentNames = (currentRowIndex == 0) ? Row1_Names : (currentRowIndex == 1) ? Row2_Names : (currentRowIndex == 2) ? Row3_Names : Row4_Names;
-        const auto& currentChords = (currentRowIndex == 0) ? Row1_Chords : (currentRowIndex == 1) ? Row2_Chords : (currentRowIndex == 2) ? Row3_Chords : Row4_Chords;
-        const auto& currentRoots = (currentRowIndex == 0) ? Row1_Roots : (currentRowIndex == 1) ? Row2_Roots : (currentRowIndex == 2) ? Row3_Roots : Row4_Roots;
+        //        // Selecting the arrays based on currentRowIndex
+        const auto& currentNames = selectChordBankStrings(ChordBank, Row1_Names, Row2_Names, Row3_Names, Row4_Names, Row1_NamesB, Row2_NamesB, Row3_NamesB, Row4_NamesB);
+        const auto& currentChords = selectChordBankStrings(ChordBank, Row1_Chords, Row2_Chords, Row3_Chords, Row4_Chords, Row1_ChordsB, Row2_ChordsB, Row3_ChordsB, Row4_ChordsB);
+        const auto& currentRoots = ChordBank ? 
+        (currentRowIndex == 0) ? Row1_RootsB : (currentRowIndex == 1) ? Row2_RootsB : (currentRowIndex == 2) ? Row3_RootsB : Row4_RootsB :
+        (currentRowIndex == 0) ? Row1_Roots : (currentRowIndex == 1) ? Row2_Roots : (currentRowIndex == 2) ? Row3_Roots : Row4_Roots;
 
         // Set the root note voltage
         outputs[ROOT_NOTE_CV_OUT].setVoltage(currentRoots[currentChordIndex] + CapoAmount - 1.0f);
@@ -415,17 +588,16 @@ struct Strings : Module {
             static int lastDisplayedRowIndex = -1;
             static int lastFingering = -1;
 
-
             // Define a small tolerance value for comparison
             const float capoTolerance = 0.01f; // Adjust tolerance as needed
 
             // Keep track of the last CapoAmount for comparison
             static float lastCapoAmount = -1.0f; // Initialize with an unlikely value
 
-            // Calculate CapoAmount considering both CV input and knob position
-            float CapoAmount = inputs[CAPO_CV].isConnected() ? 
-                (floor(inputs[CAPO_CV].getVoltage() + params[CAPO_PARAM].getValue()) * (1.f/12.f)) : 
-                (floor(params[CAPO_PARAM].getValue()) * (1.f/12.f));
+        //    // Calculate CapoAmount considering both CV input and knob position
+        //    float CapoAmount = inputs[CAPO_CV].isConnected() ? 
+        //        (floor(inputs[CAPO_CV].getVoltage() + params[CAPO_PARAM].getValue()) * (1.f/12.f)) : 
+        //        (floor(params[CAPO_PARAM].getValue()) * (1.f/12.f));
 
             // Determine if CapoAmount has "effectively" changed using the tolerance
             bool capoAmountChanged = std::abs(CapoAmount - lastCapoAmount) > capoTolerance;
@@ -469,47 +641,90 @@ struct Strings : Module {
                     auto semitoneShifts = fingeringToSemitoneShifts(currentChords[currentChordIndex][fingeringVersion]);
                     chordDiagram->setFingering(semitoneShifts);
                 }  
-    
-                if (Row1Display) {        
-                    //{"B7", "B"     , "Bsus4", "Badd9"},
-                    auto row1text = "Row1";
-                    if (fingeringVersion == 0){row1text = "7";}
-                    else if (fingeringVersion == 1){row1text = "7 Bar";}
-                    else if (fingeringVersion == 2){row1text = "sus4";}
-                    else if (fingeringVersion == 3){row1text = "add9";}
-                    Row1Display->text = row1text;
-                }
+ 
+                if (!ChordBank){   
+                    if (Row1Display) {        
+                        //{"B7", "B"     , "Bsus4", "Badd9"},
+                        auto row1text = "Row1";
+                        if (fingeringVersion == 0){row1text = "7";}
+                        else if (fingeringVersion == 1){row1text = "7 Bar";}
+                        else if (fingeringVersion == 2){row1text = "sus4";}
+                        else if (fingeringVersion == 3){row1text = "add9";}
+                        Row1Display->text = row1text;
+                    }
 
-                if (Row2Display) {        
-                    //{"A" ,"A-Bar" ,"Amaj7" ,"Aaug"}
-                    auto row2text = "Row2";
-                    if (fingeringVersion == 0){row2text = "Maj";}
-                    else if (fingeringVersion == 1){row2text = "M Bar";}
-                    else if (fingeringVersion == 2){row2text = "Maj7";}
-                    else if (fingeringVersion == 3){row2text = "aug";}
-                    Row2Display->text = row2text;
-                }
+                    if (Row2Display) {        
+                        //{"A" ,"A-Bar" ,"Amaj7" ,"Aaug"}
+                        auto row2text = "Row2";
+                        if (fingeringVersion == 0){row2text = "Maj";}
+                        else if (fingeringVersion == 1){row2text = "M Bar";}
+                        else if (fingeringVersion == 2){row2text = "Maj7";}
+                        else if (fingeringVersion == 3){row2text = "aug";}
+                        Row2Display->text = row2text;
+                    }
 
-                if (Row3Display) {        
-                    //{"Em" ,"Em-Bar" ,"Em7","Em6  "},
-                    auto row3text = "Row3";
-                    if (fingeringVersion == 0){row3text = "min";}
-                    else if (fingeringVersion == 1){row3text = "m Bar";}
-                    else if (fingeringVersion == 2){row3text = "m7";}
-                    else if (fingeringVersion == 3){row3text = "m6";}
-                    Row3Display->text = row3text;
-                }
+                    if (Row3Display) {        
+                        //{"Em" ,"Em-Bar" ,"Em7","Em6  "},
+                        auto row3text = "Row3";
+                        if (fingeringVersion == 0){row3text = "min";}
+                        else if (fingeringVersion == 1){row3text = "m Bar";}
+                        else if (fingeringVersion == 2){row3text = "m7";}
+                        else if (fingeringVersion == 3){row3text = "m6";}
+                        Row3Display->text = row3text;
+                    }
 
-                if (Row4Display) {        
-                    //{"Asus2" ,"A6" ,"A7sus4" ,"Am9"},
-                    auto row4text = "Row4";
-                    if (fingeringVersion == 0){row4text = "sus2";}
-                    else if (fingeringVersion == 1){row4text = "6";}
-                    else if (fingeringVersion == 2){row4text = "7sus4";}
-                    else if (fingeringVersion == 3){row4text = "m9";}
-                    Row4Display->text = row4text;
-                } 
-                
+                    if (Row4Display) {        
+                        //{"Asus2" ,"A6" ,"A7sus4" ,"Am9"},
+                        auto row4text = "Row4";
+                        if (fingeringVersion == 0){row4text = "sus2";}
+                        else if (fingeringVersion == 1){row4text = "6";}
+                        else if (fingeringVersion == 2){row4text = "7sus4";}
+                        else if (fingeringVersion == 3){row4text = "m9";}
+                        Row4Display->text = row4text;
+                    } 
+                } else {
+
+                    if (Row1Display) {        
+                        //{"B7", "B"     , "B2", "B6"},
+                        auto row1text = "Row1";
+                        if (fingeringVersion == 0){row1text = "7";}
+                        else if (fingeringVersion == 1){row1text = "7 Bar";}
+                        else if (fingeringVersion == 2){row1text = "2";}
+                        else if (fingeringVersion == 3){row1text = "6";}
+                        Row1Display->text = row1text;
+                    }
+
+                    if (Row2Display) {        
+                        //    {"A" ,"A-Bar" ,"Amaj7" ,"A7+5"}, 
+                        auto row2text = "Row2";
+                        if (fingeringVersion == 0){row2text = "Maj";}
+                        else if (fingeringVersion == 1){row2text = "M Bar";}
+                        else if (fingeringVersion == 2){row2text = "Maj7";}
+                        else if (fingeringVersion == 3){row2text = "7+5";}
+                        Row2Display->text = row2text;
+                    }
+
+                    if (Row3Display) {        
+                        //{{"Em" ,"Em-Bar" ,"Em7"    ,"Em6"},
+                        auto row3text = "Row3";
+                        if (fingeringVersion == 0){row3text = "min";}
+                        else if (fingeringVersion == 1){row3text = "m Bar";}
+                        else if (fingeringVersion == 2){row3text = "m7";}
+                        else if (fingeringVersion == 3){row3text = "m6";}
+                        Row3Display->text = row3text;
+                    }
+
+                    if (Row4Display) {        
+                        //"Adim" ,"Adim7" ,"A9" ,"Aaug"}, 
+                        auto row4text = "Row4";
+                        if (fingeringVersion == 0){row4text = "dim";}
+                        else if (fingeringVersion == 1){row4text = "dim7";}
+                        else if (fingeringVersion == 2){row4text = "9";}
+                        else if (fingeringVersion == 3){row4text = "aug";}
+                        Row4Display->text = row4text;
+                    } 
+                }
+                 
                 triggerPulse.trigger(0.001f); // 1ms pulse
             }
         }
@@ -655,7 +870,11 @@ struct StringsWidget : ModuleWidget {
         Row1Display->box.size = Vec(50, 18); // Size of the display
         Row1Display->text = "Row1"; // Initial text or placeholder
         Row1Display->setTextAlign(NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
-        Row1Display->fgColor = nvgRGB(120, 120, 120); // White color text
+        if (settings::preferDarkPanels){
+            Row1Display->fgColor = nvgRGB(250, 250, 250); // White color text
+        } else {
+            Row1Display->fgColor = nvgRGB(10, 10, 10); // Dark color text
+        }
         Row1Display->textPos = Vec(disp_x, disp_y); // Text position
         Row1Display->setFontSize(10.0f); // Set the font size as desired
 
@@ -671,7 +890,11 @@ struct StringsWidget : ModuleWidget {
         Row2Display->box.size = Vec(50, 18); // Size of the display
         Row2Display->text = "Row2"; // Initial text or placeholder
         Row2Display->setTextAlign(NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
-        Row2Display->fgColor = nvgRGB(120, 120, 120); // White color text
+        if (settings::preferDarkPanels){
+            Row2Display->fgColor = nvgRGB(250, 250, 250); // White color text
+        } else {
+            Row2Display->fgColor = nvgRGB(10, 10, 10); // Dark color text
+        }
         Row2Display->textPos = Vec(disp_x+xShift, disp_y+ySpacing); // Text position
         Row2Display->setFontSize(10.0f); // Set the font size as desired
 
@@ -687,7 +910,11 @@ struct StringsWidget : ModuleWidget {
         Row3Display->box.size = Vec(50, 18); // Size of the display
         Row3Display->text = "Row3"; // Initial text or placeholder
         Row3Display->setTextAlign(NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
-        Row3Display->fgColor = nvgRGB(120, 120, 120); // White color text
+        if (settings::preferDarkPanels){
+            Row3Display->fgColor = nvgRGB(250, 250, 250); // White color text
+        } else {
+            Row3Display->fgColor = nvgRGB(10, 10, 10); // Dark color text
+        }
         Row3Display->textPos = Vec(disp_x+2*xShift, disp_y+2*ySpacing); // Text position
         Row3Display->setFontSize(10.0f); // Set the font size as desired
 
@@ -703,7 +930,11 @@ struct StringsWidget : ModuleWidget {
         Row4Display->box.size = Vec(50, 18); // Size of the display
         Row4Display->text = "Row4"; // Initial text or placeholder
         Row4Display->setTextAlign(NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
-        Row4Display->fgColor = nvgRGB(120, 120, 120); // White color text
+        if (settings::preferDarkPanels){
+            Row4Display->fgColor = nvgRGB(250, 250, 250); // White color text
+        } else {
+            Row4Display->fgColor = nvgRGB(10, 10, 10); // Dark color text
+        }
         Row4Display->textPos = Vec(disp_x+3*xShift, disp_y+3*ySpacing); // Text position
         Row4Display->setFontSize(10.0f); // Set the font size as desired
 
@@ -723,6 +954,53 @@ struct StringsWidget : ModuleWidget {
             module->chordDiagram = chordDiagram;
         }                          
     }
+    
+    void appendContextMenu(Menu* menu) override {
+        ModuleWidget::appendContextMenu(menu);
+
+        Strings* StringsModule = dynamic_cast<Strings*>(module);
+        assert(StringsModule); // Ensure the cast succeeds
+
+        // Separator for visual grouping in the context menu
+        menu->addChild(new MenuSeparator());
+
+        // ChordBank menu item
+        struct ChordBankMenuItem : MenuItem {
+            Strings* StringsModule;
+            void onAction(const event::Action& e) override {
+                StringsModule->ChordBank = !StringsModule->ChordBank;
+            }
+            void step() override {
+                rightText = StringsModule->ChordBank ? "✔" : "";
+                MenuItem::step();
+            }
+        };
+
+        ChordBankMenuItem* chordBankItem = new ChordBankMenuItem();
+        chordBankItem->text = "Classical Chord Set";
+        chordBankItem->StringsModule = StringsModule;
+        menu->addChild(chordBankItem);
+
+        // VOctCV menu item
+        struct VOctCVMenuItem : MenuItem {
+            Strings* StringsModule;
+            void onAction(const event::Action& e) override {
+                // Toggle the "CHORD reads V/oct" mode
+                StringsModule->VOctCV = !StringsModule->VOctCV;
+            }
+            void step() override {
+                // Update the display to show a checkmark when the mode is active
+                rightText = StringsModule->VOctCV ? "✔" : "";
+                MenuItem::step();
+            }
+        };
+
+        VOctCVMenuItem* vOctCVItem = new VOctCVMenuItem();
+        vOctCVItem->text = "CHORD input in V/oct";
+        vOctCVItem->StringsModule = StringsModule; // Ensure we're setting the module
+        menu->addChild(vOctCVItem);
+    }
+    
 };
 
 Model* modelStrings = createModel<Strings, StringsWidget>("Strings");
