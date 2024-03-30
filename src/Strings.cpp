@@ -274,6 +274,8 @@ struct Strings : Module {
     DigitalDisplay* Row3Display = nullptr;
     DigitalDisplay* Row4Display = nullptr;
 
+    DigitalDisplay* CVModeDisplay = nullptr;
+
     //Chord Diagram Display
     ChordDiagram* chordDiagram = nullptr;
 
@@ -408,64 +410,7 @@ struct Strings : Module {
         float PitchBend[6] = {0.0f};
 
         // Determine the current chord and row selections
-  
-
-			int knobChordPosition = static_cast<int>(
-				floor(
-					clamp(
-						params[CHORD_SELECTOR_PARAM].getValue() + 
-						(inputs[CHORD_SELECTOR_CV].isConnected() ? inputs[CHORD_SELECTOR_CV].getVoltage() : 0) - 1,
-						0.0,6.0
-					)
-				)
-			);    
-
-        int semitoneDifference = 0;
-		float octavesDifference = 0.0f;
-
-		if(VOctCV){
-			// Using base notes of B, E, A, D, G, C, F in terms of semitones from C
-			// B=11, E=4, A=9, D=2, G=7, C=0, F=5
-			static const std::array<int, 7> baseNotes = {{11, 4, 9, 2, 7, 0, 5}};
-
-			float chordInputVal = params[CHORD_SELECTOR_PARAM].getValue() + 
-								  (inputs[CHORD_SELECTOR_CV].isConnected() ? inputs[CHORD_SELECTOR_CV].getVoltage() : 0);
-
-			if (chordInputVal>=1){octavesDifference=1.0f;}
-			if (chordInputVal<0){octavesDifference=-1.0f;}
-
-			int noteIndex = static_cast<int>(round(chordInputVal * 12)); // Total semitones from C
-			int noteRelativeToC = (noteIndex % 12 + 12) % 12; // Ensuring a positive result
-
-			// Directly mapping the semitone indices to your specified chord positions
-			//                                                       C      D      E  F     G      A      B
-			static const std::array<int, 12> noteToChordPosition = {{5, -1, 3, -1, 1, 6, -1,4, -1, 2, -1, 0}};
-			int computedChordPosition = noteToChordPosition[noteRelativeToC];
-
-			if (computedChordPosition == -1) {
-				semitoneDifference = 1;
-				// Search for the next lower note that maps to a chord
-				for (int i = noteRelativeToC - 1; i >= 0; --i) {
-					if (noteToChordPosition[i] != -1) {
-						computedChordPosition = noteToChordPosition[i];
-						break;
-					}
-				}
-				// If no lower note is found in the octave, wrap around and look from the top
-				if (computedChordPosition == -1) {
-					for (int i = 11; i > noteRelativeToC; --i) {
-						if (noteToChordPosition[i] != -1) {
-							computedChordPosition = noteToChordPosition[i];
-							break;
-						}
-					}
-				}
-			}
-		
-
-			knobChordPosition = computedChordPosition;
-        }
-        
+          
         int knobRowPosition = static_cast<int>(
             floor(
                 clamp(
@@ -476,8 +421,77 @@ struct Strings : Module {
             )
         );
 
-		semitoneDifference = clamp(semitoneDifference,0,10);
-		CapoAmount += semitoneDifference/12.f + octavesDifference;
+        int knobChordPosition = static_cast<int>(
+            floor(
+                clamp(
+                    params[CHORD_SELECTOR_PARAM].getValue() + 
+                    (inputs[CHORD_SELECTOR_CV].isConnected() ? inputs[CHORD_SELECTOR_CV].getVoltage() : 0) - 1,
+                    0.0,6.0
+                )
+            )
+        );    
+
+        int semitoneDifference = 0;
+        float octavesDifference = 0.0f;
+
+
+        // Define the noteToChordPosition arrays here if they are only used in this method
+        static const std::array<int, 12> noteToChordPositionRow1 = {{5, -1, 3, -1, 1, 6, -1, 4, -1, 2, -1, 0}};
+        static const std::array<int, 12> noteToChordPositionRow2 = {{3, -1, 1, 6, -1, -1, -1, 2, -1, 0, 5, -1}};
+        static const std::array<int, 12> noteToChordPositionRow3 = {{4, -1, 2, -1, 0, -1, -1, 3, 6, 1, 5, -1}};
+        static const std::array<int, 12> noteToChordPositionRow4 = {{3, -1, 1, 6, -1, -1, -1, 2, -1, 0, 5, -1}};
+
+        // V/Oct CV processing
+        if(VOctCV) {
+            float chordInputVal = params[CHORD_SELECTOR_PARAM].getValue() + 
+                                  (inputs[CHORD_SELECTOR_CV].isConnected() ? inputs[CHORD_SELECTOR_CV].getVoltage() : 0);
+
+            if (chordInputVal >= 1) { octavesDifference = 1.0f; }
+            else if (chordInputVal < 0) { octavesDifference = -1.0f; }
+
+            int noteIndex = static_cast<int>(round(chordInputVal * 12)); // Total semitones from C
+            int noteRelativeToC = (noteIndex % 12 + 12) % 12; // Ensuring a positive result
+
+            // Dynamically select the appropriate noteToChordPosition array based on knobRowPosition
+            const std::array<int, 12>* noteToChordPosition;
+            switch (knobRowPosition) {
+                case 0: noteToChordPosition = &noteToChordPositionRow1; break;
+                case 1: noteToChordPosition = &noteToChordPositionRow2; break;
+                case 2: noteToChordPosition = &noteToChordPositionRow3; break;
+                case 3: noteToChordPosition = &noteToChordPositionRow4; break;
+                default: noteToChordPosition = &noteToChordPositionRow1; break; // Default case to avoid uninitialized usage
+            }
+
+            // Compute the chord position based on the selected noteToChordPosition array
+            int computedChordPosition = (*noteToChordPosition)[noteRelativeToC];
+            if (computedChordPosition == -1) {
+                // Search for the next lower note that maps to a chord
+                for (int i = noteRelativeToC - 1; i >= 0; --i) {
+                    if ((*noteToChordPosition)[i] != -1) {
+                        computedChordPosition = (*noteToChordPosition)[i];
+                        semitoneDifference = noteRelativeToC - i;
+                        break;
+                    }
+                }
+                // If no lower note is found in the octave, wrap around and look from the top
+                if (computedChordPosition == -1) {
+                    for (int i = 11; i > noteRelativeToC; --i) {
+                        if ((*noteToChordPosition)[i] != -1) {
+                            computedChordPosition = (*noteToChordPosition)[i];
+                            semitoneDifference = noteRelativeToC + (12 - i); // Adjusting for wrap-around
+                            break;
+                        }
+                    }
+                }
+            } else {
+                semitoneDifference = 0; // No difference if the note directly maps to a chord position
+            }
+            knobChordPosition = computedChordPosition;
+        }
+
+        // Clamp and adjust CapoAmount based on semitoneDifference and octavesDifference
+        semitoneDifference = clamp(semitoneDifference, 0, 10);
+        CapoAmount += semitoneDifference / 12.f + octavesDifference;
 
         static int latchedChordIndex = -1; // Initialize to invalid index to ensure first update
         static int latchedRowIndex = -1; // Initialize to invalid index to ensure first update
@@ -593,11 +607,6 @@ struct Strings : Module {
 
             // Keep track of the last CapoAmount for comparison
             static float lastCapoAmount = -1.0f; // Initialize with an unlikely value
-
-        //    // Calculate CapoAmount considering both CV input and knob position
-        //    float CapoAmount = inputs[CAPO_CV].isConnected() ? 
-        //        (floor(inputs[CAPO_CV].getVoltage() + params[CAPO_PARAM].getValue()) * (1.f/12.f)) : 
-        //        (floor(params[CAPO_PARAM].getValue()) * (1.f/12.f));
 
             // Determine if CapoAmount has "effectively" changed using the tolerance
             bool capoAmountChanged = std::abs(CapoAmount - lastCapoAmount) > capoTolerance;
@@ -723,6 +732,14 @@ struct Strings : Module {
                         else if (fingeringVersion == 3){row4text = "aug";}
                         Row4Display->text = row4text;
                     } 
+                    
+                    if (CVModeDisplay) {        
+                        //Mark the knob with the mode setting, 
+                        auto CVdisplaytext = "V/oct";
+                        if (VOctCV){CVdisplaytext = "(V/Oct)";}
+                        else {CVdisplaytext = "        ";}
+                        CVModeDisplay->text = CVdisplaytext;
+                    } 
                 }
                  
                 triggerPulse.trigger(0.001f); // 1ms pulse
@@ -776,6 +793,27 @@ struct StringsWidget : ModuleWidget {
         addParam(createParamCentered<RoundBlackKnob>(Vec(270, 30), module, Strings::CAPO_PARAM));
         addInput(createInputCentered<PJ301MPort>(Vec(270,  65), module, Strings::CAPO_CV));
 
+        // CV Mode Indicator
+        DigitalDisplay* CVModeDisplay = new DigitalDisplay();
+        CVModeDisplay->fontPath = asset::plugin(pluginInstance, "res/fonts/DejaVuSansMono.ttf");
+        CVModeDisplay->box.pos = Vec(45,   75); // Position below the first display
+        CVModeDisplay->box.size = Vec(30, 18); // Size of the display
+        CVModeDisplay->text = " "; // Initial text or placeholder
+        CVModeDisplay->setTextAlign(NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
+        if (settings::preferDarkPanels){
+            CVModeDisplay->fgColor = nvgRGB(250, 250, 250); // White color text
+        } else {
+            CVModeDisplay->fgColor = nvgRGB(10, 10, 10); // Dark color text
+        }
+        CVModeDisplay->textPos = Vec(47,   78); // Text position
+        CVModeDisplay->setFontSize(10.0f); // Set the font size as desired
+
+        addChild(CVModeDisplay);
+
+        if (module) {
+            module->CVModeDisplay = CVModeDisplay;
+        }
+
         // Gate Inputs
 
         addInput(createInputCentered<PJ301MPort>(Vec(30, 220), module, Strings::BARRE_CHORD_GATE));
@@ -806,7 +844,6 @@ struct StringsWidget : ModuleWidget {
         addOutput(createOutputCentered<PJ301MPort>(Vec(4*jack+left, 310), module, Strings::MUTE_OUT_5));
         addOutput(createOutputCentered<PJ301MPort>(Vec(5*jack+left, 310), module, Strings::MUTE_OUT_6));
         addOutput(createOutputCentered<PJ301MPort>(Vec(6.5*jack+left, 310), module, Strings::TRIGGER_OUT));
-
 
         addOutput(createOutputCentered<PJ301MPort>(Vec(left,        340), module, Strings::STRING_CV_OUT_1));
         addOutput(createOutputCentered<PJ301MPort>(Vec(1*jack+left, 340), module, Strings::STRING_CV_OUT_2));
