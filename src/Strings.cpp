@@ -351,8 +351,8 @@ struct Strings : Module {
         }
 
         //Initialize Knobs
-        configParam(CHORD_SELECTOR_PARAM, 1.f, 7.f, 1.f, "Chord Selection");
-        configParam(ROW_SELECTOR_PARAM, 1.f, 4.f, 1.f, "Chord Bank");
+        configParam(CHORD_SELECTOR_PARAM, 1.f, 7.5f, 1.f, "Chord Selection");
+        configParam(ROW_SELECTOR_PARAM, 1.f, 4.5f, 1.f, "Chord Bank");
         configParam(CAPO_PARAM, -12.f, 12.f, 0.f, "Capo Position");
 
         // Initialize inputs
@@ -436,10 +436,11 @@ struct Strings : Module {
 
 
         // Define the noteToChordPosition arrays here if they are only used in this method
-        static const std::array<int, 12> noteToChordPositionRow1 = {{5, -1, 3, -1, 1, 6, -1, 4, -1, 2, -1, 0}};
-        static const std::array<int, 12> noteToChordPositionRow2 = {{3, -1, 1, 6, -1, -1, -1, 2, -1, 0, 5, -1}};
-        static const std::array<int, 12> noteToChordPositionRow3 = {{4, -1, 2, -1, 0, -1, -1, 3, 6, 1, 5, -1}};
-        static const std::array<int, 12> noteToChordPositionRow4 = {{3, -1, 1, 6, -1, -1, -1, 2, -1, 0, 5, -1}};
+        //            //                                             C      D       E   F      G      A       B
+        static const std::array<int, 12> noteToChordPositionRow1 = {{5, -1, 3, -1,  1,  6, -1, 4, -1, 2, -1,  0}};
+        static const std::array<int, 12> noteToChordPositionRow2 = {{3, -1, 1,  6, -1,  4, -1, 2, -1, 0,  5, -1}};
+        static const std::array<int, 12> noteToChordPositionRow3 = {{4, -1, 2, -1,  0, -1, -1, 3,  6, 1,  5, -1}};
+        static const std::array<int, 12> noteToChordPositionRow4 = {{3, -1, 1,  6, -1,  4, -1, 2, -1, 0,  5, -1}};
 
         // V/Oct CV processing
         if(VOctCV) {
@@ -492,7 +493,7 @@ struct Strings : Module {
         // Clamp and adjust CapoAmount based on semitoneDifference and octavesDifference
         semitoneDifference = clamp(semitoneDifference, 0, 10);
         CapoAmount += semitoneDifference / 12.f + octavesDifference;
-
+		if (VOctCV){CapoAmount -= 1;}
         static int latchedChordIndex = -1; // Initialize to invalid index to ensure first update
         static int latchedRowIndex = -1; // Initialize to invalid index to ensure first update
 
