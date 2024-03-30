@@ -264,7 +264,6 @@ struct Strings : Module {
         }};
         const std::array<float, 7> Row4_RootsB = {0.75f, 0.1667f, 0.583f, 1.0f, 0.417f, 0.833f, 0.25f};
 
-
     //Load Digital Display
     DigitalDisplay* digitalDisplay = nullptr;
     DigitalDisplay* fingeringDisplay = nullptr;
@@ -434,7 +433,6 @@ struct Strings : Module {
         int semitoneDifference = 0;
         float octavesDifference = 0.0f;
 
-
         // Define the noteToChordPosition arrays here if they are only used in this method
         //            //                                             C      D       E   F      G      A       B
         static const std::array<int, 12> noteToChordPositionRow1 = {{5, -1, 3, -1,  1,  6, -1, 4, -1, 2, -1,  0}};
@@ -448,8 +446,9 @@ struct Strings : Module {
                                   (inputs[CHORD_SELECTOR_CV].isConnected() ? inputs[CHORD_SELECTOR_CV].getVoltage() : 0);
 
             if (chordInputVal >= 1) { octavesDifference = 1.0f; }
-            else if (chordInputVal < 0) { octavesDifference = -1.0f; }
-
+            else if (chordInputVal < 0) { octavesDifference = 0.0f; }
+            if (chordInputVal >= 2) { octavesDifference = 2.0f; }
+           
             int noteIndex = static_cast<int>(round(chordInputVal * 12)); // Total semitones from C
             int noteRelativeToC = (noteIndex % 12 + 12) % 12; // Ensuring a positive result
 
@@ -692,6 +691,14 @@ struct Strings : Module {
                         else if (fingeringVersion == 3){row4text = "m9";}
                         Row4Display->text = row4text;
                     } 
+                    if (CVModeDisplay) {        
+                        //Mark the knob with the mode setting, 
+                        auto CVdisplaytext = "V/oct";
+                        if (VOctCV){CVdisplaytext = "(V/Oct)";}
+                        else {CVdisplaytext = "        ";}
+                        CVModeDisplay->text = CVdisplaytext;
+                    } 
+ 
                 } else {
 
                     if (Row1Display) {        
