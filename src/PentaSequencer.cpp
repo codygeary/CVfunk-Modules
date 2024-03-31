@@ -35,6 +35,7 @@ struct PentaSequencer : Module {
         SLEW_PARAM,
         KNOB1_PARAM, KNOB2_PARAM, KNOB3_PARAM, KNOB4_PARAM, KNOB5_PARAM,
         MANUAL_TRIGGER_PARAM,    
+        MANUAL_RESET_PARAM,    
         PARAMS_LEN
     };
     enum InputId {
@@ -92,7 +93,6 @@ struct PentaSequencer : Module {
         configOutput(C_OUTPUT, "C");
         configOutput(D_OUTPUT, "D");
         configOutput(E_OUTPUT, "E");
-
     }
 
     void process(const ProcessArgs& args) override {
@@ -109,18 +109,19 @@ struct PentaSequencer : Module {
             params[KNOB5_PARAM].getValue()
         };
 
+        bool manualResetPressed = params[MANUAL_RESET_PARAM].getValue() > 0.0f;
 
         // Process reset input
-        if (resetTrigger.process(inputs[RESET_INPUT].getVoltage())) {
-            step = 0;  // Reset to the first step
-            
-            // Measure the trigger interval here
-            triggerInterval = triggerIntervalTimer.time;  // Get the accumulated time since the last reset
-            triggerIntervalTimer.reset();  // Reset the timer for the next trigger interval measurement
-
+        if (inputs[RESET_INPUT].isConnected() || manualResetPressed){
+		    if( resetTrigger.process( inputs[RESET_INPUT].getVoltage() ) || manualResetPressed ) {
+				step = 0;  // Reset to the first step
+			
+				// Measure the trigger interval here
+				triggerInterval = triggerIntervalTimer.time;  // Get the accumulated time since the last reset
+				triggerIntervalTimer.reset();  // Reset the timer for the next trigger interval measurement
+			}
         }
-
-    
+  
         // Handle CIRC and STAR modes based on SHAPE_INPUT voltage
         if (inputs[SHAPE_INPUT].getVoltage() > 1.0f) {
             // Voltage > 1.0f indicates STAR mode
@@ -143,14 +144,12 @@ struct PentaSequencer : Module {
             ccwMode = false;
         }
 
-
         // Define Knob to Output maps
         //                      A  B  C  D  E
         int CIRC_CW_map[5]  =  {0, 1, 2, 3, 4};
         int STAR_CW_map[5]  =  {0, 3, 1, 4, 2}; 
         int CIRC_CCW_map[5] =  {0, 4, 3, 2, 1};
         int STAR_CCW_map[5] =  {0, 2, 4, 1, 3}; 
-
 
         int* currentMapping;
         int* newMapping = nullptr;  // Pointer to hold the new mapping based on the current mode
@@ -186,12 +185,10 @@ struct PentaSequencer : Module {
             triggerInterval = triggerIntervalTimer.time;  // Get the accumulated time since the last reset
             triggerIntervalTimer.reset();  // Reset the timer for the next trigger interval measurement
         }
-    
-        
+         
         // Detect a rising signal on TRIG_INPUT or manual trigger button press
         bool manualTriggerPressed = params[MANUAL_TRIGGER_PARAM].getValue() > 0.0f;
         bool currentTriggerState = (inputs[TRIG_INPUT].isConnected() && inputs[TRIG_INPUT].getVoltage() > 1.0f) || manualTriggerPressed;  // Include manual trigger
-
 
         if (currentTriggerState && !previousTriggerState) {
                for (int i = 0; i < 5; ++i) {
@@ -208,7 +205,6 @@ struct PentaSequencer : Module {
 
         // Update previousTriggerState at the end of the process cycle
         previousTriggerState = currentTriggerState;
-
 
         // Map the knobs and set output voltages with dynamic slew limiting based on trigger interval
         int knobMapping[5];
@@ -229,10 +225,8 @@ struct PentaSequencer : Module {
             targetVoltage = knobValues[knobIndex];
             float slewRate = params[SLEW_PARAM].getValue(); // This gives a value between 0 and 1
 
-
             // Calculate the absolute voltage difference from the last target
             float voltageDifference = fabs(targetVoltage - lastTargetVoltages[i]);
-
 
             // Adjust slewSpeed based on the voltage difference and trigger interval
             // Ensure triggerInterval is non-zero to avoid division by zero
@@ -258,8 +252,7 @@ struct PentaSequencer : Module {
             // Set the output voltage to the slewed voltage
             outputs[A_OUTPUT + i].setVoltage(outputVoltage);
         }
-
-        
+ 
         // Increment dimming counter and check if it's time to dim the lights
         if (++dimmingCounter >= dimmingRate) {
             for (int i = 0; i < LIGHTS_LEN; ++i) {
@@ -275,7 +268,6 @@ struct PentaSequencer : Module {
             }
             dimmingCounter = 0; // Reset counter after dimming
         }
-
 
         // Update output group lights logic and step lights...
         for (int output = 0; output < 5; ++output) {
@@ -302,7 +294,6 @@ struct PentaSequencer : Module {
                 }
             }
         }
-
 
         // Inner Lights for STAR Track Movements
         if (starMode) {
@@ -354,12 +345,9 @@ struct PentaSequencer : Module {
                     lights[OUTERA_LIGHT].setBrightness(1.0f);
                     break;
             }
-        }        
-        
-            
+        }
     }//void
 };//module
-
 
 struct PentaSequencerWidget : ModuleWidget {
     PentaSequencerWidget(PentaSequencer* module) {
@@ -388,6 +376,7 @@ struct PentaSequencerWidget : ModuleWidget {
         addInput(createInputCentered<PJ301MPort>(mm2px(Vec(38.105, 112.373)), module, PentaSequencer::SHIFT_INPUT));
         addInput(createInputCentered<PJ301MPort>(mm2px(Vec(53.54, 112.373)), module, PentaSequencer::DIR_INPUT));
         addInput(createInputCentered<PJ301MPort>(mm2px(Vec(68.975, 112.373)), module, PentaSequencer::RESET_INPUT));
+        addParam(createParamCentered<TL1105>(mm2px(Vec(68.975, 105)), module, PentaSequencer::MANUAL_RESET_PARAM));
 
         addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(38.287, 70.309)), module, PentaSequencer::A_OUTPUT));
         addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(13.478, 52.214)), module, PentaSequencer::B_OUTPUT));
