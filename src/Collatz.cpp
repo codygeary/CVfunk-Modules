@@ -136,8 +136,8 @@ void Collatz::process(const ProcessArgs& args) {
             else { accents = floor((currentNumber/modNumber) % beatMod);}
 
             if (modNumberDisplay) {
-                std::string displayText = std::to_string(steps) + " – " + std::to_string(accents);
-                modNumberDisplay->text = displayText; // "steps – accents"
+                std::string displayText = std::to_string(steps) + " : " + std::to_string(accents);
+                modNumberDisplay->text = displayText; 
             }
             outputs[COMPLETION_OUTPUT].setVoltage(0.0f);
             lights[COMPLETION_LIGHT].setBrightness(0);
@@ -145,12 +145,15 @@ void Collatz::process(const ProcessArgs& args) {
             digitalDisplay->text = std::to_string(startingNumber) + " mod " + std::to_string(beatMod);
             modNumber = startingNumber % beatMod;
             steps = modNumber;
-            if (modNumber<1) {accents = 0;} //avoid divide by zero 
-            else { accents = floor((currentNumber/modNumber) % beatMod);}
-            
+             if (modNumber<1) {//avoid divide by zero 
+				accents = 0;
+            } else {
+				accents = floor((startingNumber/modNumber) % beatMod);
+			}
+                     
             if (modNumberDisplay) {
-                std::string displayText = std::to_string(steps) + " – " + std::to_string(accents);
-                modNumberDisplay->text = displayText; // "steps – accents"
+                std::string displayText = std::to_string(steps) + " : " + std::to_string(accents) ;
+                modNumberDisplay->text = displayText; 
             }
             
             outputs[COMPLETION_OUTPUT].setVoltage(5.0f);
@@ -194,7 +197,6 @@ void Collatz::process(const ProcessArgs& args) {
         if (firstPulseReceived) {clockRate = 1.0f / lastClockTime;}
         lastClockTime = 0.0f;
         firstPulseReceived = true;
-
     } 
 
     // Accumulate time since the last clock pulse for rate calculation
@@ -210,64 +212,62 @@ void Collatz::process(const ProcessArgs& args) {
 
         accumulatedTime += args.sampleTime;
         accumulatedTimeB += args.sampleTime;
-if (steps>=1){
-        float stepDuration = 1.0f / clockRate / steps; 
-        if (accumulatedTime < stepDuration/2) {
-            gatePulse=5;
-        } else {gatePulse=0;}
-        if (accumulatedTime >= stepDuration) {
-            accumulatedTime -= stepDuration;
-        }
-} else {
-        float stepDuration = 1.0f / clockRate / 1.0f; //avoid div by zero 
-        if (accumulatedTime < stepDuration/2) {
-            gatePulse=5;
-        } else {gatePulse=0;}
-        if (accumulatedTime >= stepDuration) {
-            accumulatedTime -= stepDuration;
-        }
-}
+		if (steps>=1){ //avoid divide by zero 
+				float stepDuration = 1.0f / clockRate / steps; 
+				if (accumulatedTime < stepDuration/2) {
+					gatePulse=5;
+				} else {gatePulse=0;}
+				if (accumulatedTime >= stepDuration) {
+					accumulatedTime -= stepDuration;
+				}
+		} else {
+				float stepDuration = 1.0f / clockRate / 1.0f; //avoid div by zero 
+				if (accumulatedTime < stepDuration/2) {
+					gatePulse=5;
+				} else {gatePulse=0;}
+				if (accumulatedTime >= stepDuration) {
+					accumulatedTime -= stepDuration;
+				}
+		}
 
+		if (accents>=1){ //avoid divide by zero 
+				float accentDuration = 1.0f / clockRate / accents;
+				if (accumulatedTimeB < accentDuration/2) {
+					accentPulse=5;
+				} else {accentPulse=0;}
+				if (accumulatedTimeB >= accentDuration) {
+					accumulatedTimeB -= accentDuration;
+				} 
+		} else {
+				float accentDuration = 1.0f / clockRate / 1.0f;
+				if (accumulatedTimeB < accentDuration/2) {
+					accentPulse=5;
+				} else {accentPulse=0;}
+				if (accumulatedTimeB >= accentDuration) {
+					accumulatedTimeB -= accentDuration;
+				} 
+		}
 
-
-if (accents>=1){
-        float accentDuration = 1.0f / clockRate / accents;
-        if (accumulatedTimeB < accentDuration/2) {
-            accentPulse=5;
-        } else {accentPulse=0;}
-        if (accumulatedTimeB >= accentDuration) {
-            accumulatedTimeB -= accentDuration;
-        } 
-} else {
-        float accentDuration = 1.0f / clockRate / 1.0f;
-        if (accumulatedTimeB < accentDuration/2) {
-            accentPulse=5;
-        } else {accentPulse=0;}
-        if (accumulatedTimeB >= accentDuration) {
-            accumulatedTimeB -= accentDuration;
-        } 
-}
-
-        if (externalClockConnected){
-        // Set gate and accent outputs
-            //for step or accents =0 suppress outputs
-            if (steps>=1){outputs[GATE_OUTPUT].setVoltage(gatePulse);
-            }else {outputs[GATE_OUTPUT].setVoltage(0.0f);}
-            if (accents>=1){outputs[ACCENT_OUTPUT].setVoltage(accentPulse);
-            }else {outputs[ACCENT_OUTPUT].setVoltage(0.0f);}
-            if (steps>=1){lights[GATE_LIGHT].setBrightness(gatePulse/5);
-            }else {lights[GATE_LIGHT].setBrightness(0);}
-            if (accents>=1){lights[ACCENT_LIGHT].setBrightness(accentPulse/5);
-            }else {lights[ACCENT_LIGHT].setBrightness(0);}
-        } else {
-            outputs[GATE_OUTPUT].setVoltage(0.0f);
-            outputs[ACCENT_OUTPUT].setVoltage(0.0f);
-            lights[GATE_LIGHT].setBrightness(0);
-            lights[ACCENT_LIGHT].setBrightness(0);
-            firstPulseReceived = false;
-        }
-    }
- }
+		if (externalClockConnected){
+		// Set gate and accent outputs
+			//for step or accents =0 suppress outputs
+			if (steps>=1){outputs[GATE_OUTPUT].setVoltage(gatePulse);
+			}else {outputs[GATE_OUTPUT].setVoltage(0.0f);}
+			if (accents>=1){outputs[ACCENT_OUTPUT].setVoltage(accentPulse);
+			}else {outputs[ACCENT_OUTPUT].setVoltage(0.0f);}
+			if (steps>=1){lights[GATE_LIGHT].setBrightness(gatePulse/5);
+			}else {lights[GATE_LIGHT].setBrightness(0);}
+			if (accents>=1){lights[ACCENT_LIGHT].setBrightness(accentPulse/5);
+			}else {lights[ACCENT_LIGHT].setBrightness(0);}
+		} else {
+			outputs[GATE_OUTPUT].setVoltage(0.0f);
+			outputs[ACCENT_OUTPUT].setVoltage(0.0f);
+			lights[GATE_LIGHT].setBrightness(0);
+			lights[ACCENT_LIGHT].setBrightness(0);
+			firstPulseReceived = false;
+		}   
+    }// if (sequenceRunning)
+}//void Collatz::process
 
 void Collatz::advanceSequence() {
     if (currentNumber <= 0) {
@@ -359,7 +359,7 @@ struct CollatzWidget : ModuleWidget {
         digitalDisplay->fontPath = asset::plugin(pluginInstance, "res/fonts/DejaVuSansMono.ttf");
         digitalDisplay->box.pos = Vec(10, 34); // Position on the module
         digitalDisplay->box.size = Vec(100, 18); // Size of the display
-        digitalDisplay->text = "Collatz"; // Initial text
+        digitalDisplay->text = "Collatz #"; // Initial text
         digitalDisplay->fgColor = nvgRGB(208, 140, 89); // White color text
         digitalDisplay->textPos = Vec(0, 15); // Text position
         digitalDisplay->setFontSize(16.0f); // Set the font size as desired
@@ -374,7 +374,7 @@ struct CollatzWidget : ModuleWidget {
         modNumberDisplay->fontPath = asset::plugin(pluginInstance, "res/fonts/DejaVuSansMono.ttf");
         modNumberDisplay->box.pos = Vec(10, 50); // Position below the first display
         modNumberDisplay->box.size = Vec(100, 18); // Size of the display
-        modNumberDisplay->text = "Mod Divisor"; // Initial text or placeholder
+        modNumberDisplay->text = "Steps x Accents"; // Initial text or placeholder
         modNumberDisplay->fgColor = nvgRGB(208, 140, 89); // White color text
         modNumberDisplay->textPos = Vec(0, 15); // Text position
         modNumberDisplay->setFontSize(12.0f); // Set the font size as desired
