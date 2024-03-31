@@ -120,7 +120,7 @@ jobs:
       - name: Check if plugin version matches tag
         run: |
           pluginversion=`jq -r '.version' plugin.json`
-          if [ "v$pluginversion" != "${{ env.CI_REF_NAME }}" ]; then
+          if [ "$pluginversion" != "${{ env.CI_REF_NAME }}" ]; then
             echo "Plugin version from plugin.json 'v$pluginversion' doesn't match with tag version '${{ env.CI_REF_NAME }}'"
             exit 1
           fi
