@@ -9,7 +9,6 @@
 //
 ////////////////////////////////////////////////////////////
 
-
 #include "rack.hpp"
 #include "plugin.hpp"
 #include <string>
@@ -29,8 +28,6 @@ const float baseFrequencies[6] =  { -1.666f, // E2
                                     -0.417f,  // G3
                                     -0.084f, // B3
                                      0.3333f};// E4
-
-
 
 // Helper function to convert a fingering (e.g., "X21202") to semitone shifts
 std::array<int, 6> fingeringToSemitoneShifts(const std::string& fingering) {
@@ -118,7 +115,7 @@ struct Strings : Module {
              {"101211", "131211", "113311", "103013"}
         }};
         // Define root notes for row 1
-        const std::array<float, 7> Row1_Roots = {0.917f, 0.3333f, 0.75f, 0.1667f, 0.5833f, 1.0f, 0.4167f};
+        const std::array<float, 7> Row1_Roots = {0.917f, 0.3333f, 0.75f, 0.1667f, 0.5833f, 0.0f, 0.4167f};
 
         const std::array<std::array<std::string, 4>, 7> Row2_Names = {{
             {"A" ,"A-Bar" ,"Amaj7" ,"Aaug"}, 
@@ -138,7 +135,7 @@ struct Strings : Module {
             {"X10331", "X13331", "X10231", "X12320"}, 
             {"XX1343", "X68886", "XX1333", "XX1242"} 
         }};
-        const std::array<float, 7> Row2_Roots = { 0.75f, 0.167f, 0.583f, 1.0f, 0.417f, 0.833f ,0.25f };
+        const std::array<float, 7> Row2_Roots = { 0.75f, 0.167f, 0.583f, 0.0f, 0.417f, 0.833f ,0.25f };
 
         const std::array<std::array<std::string, 4>, 7> Row3_Names = {{
             {"Em" ,"Em-Bar" ,"Em7"    ,"Em6"},    
@@ -158,7 +155,7 @@ struct Strings : Module {
             {"X10131", "X13134", "X13124", "X13314"},
             {"431114", "466544", "431112", "411142"}
         }};
-        const std::array<float, 7> Row3_Roots = {0.333f, 0.75f, 0.1667f, 0.583f, 1.0f, 0.833f, 0.667f };
+        const std::array<float, 7> Row3_Roots = {0.333f, 0.75f, 0.1667f, 0.583f, 0.0f, 0.833f, 0.667f };
 
         const std::array<std::array<std::string, 4>, 7> Row4_Names = {{
             {"Asus2" ,"A6" ,"A7sus4" ,"Am9"}, 
@@ -178,7 +175,7 @@ struct Strings : Module {
             {"X13311", "X13031", "X13141", "XX8698"},
             {"XX1341", "X65586", "XX1324", "X64666"}
         }};
-        const std::array<float, 7> Row4_Roots = {0.75f, 0.1667f, 0.583f, 1.0f, 0.417f, 0.833f, 0.25f};
+        const std::array<float, 7> Row4_Roots = {0.75f, 0.1667f, 0.583f, 0.0f, 0.417f, 0.833f, 0.25f};
 
         // Direct initialization of Chords Arrays
         // Define chord names for row 1
@@ -202,7 +199,7 @@ struct Strings : Module {
              {"101211", "131211", "103013", "100211"}
         }};
         // Define root notes for row 1
-        const std::array<float, 7> Row1_RootsB = {0.917f, 0.3333f, 0.75f, 0.1667f, 0.5833f, 1.0f, 0.4167f};
+        const std::array<float, 7> Row1_RootsB = {0.917f, 0.3333f, 0.75f, 0.1667f, 0.5833f, 0.0f, 0.4167f};
 
         const std::array<std::array<std::string, 4>, 7> Row2_NamesB = {{
             {"A" ,"A-Bar" ,"Amaj7" ,"A7+5"}, 
@@ -222,7 +219,7 @@ struct Strings : Module {
             {"X10331", "X13331", "X10231", "X10132"}, 
             {"XX1343", "X68886", "XX1333", "XX1423"} 
         }};
-        const std::array<float, 7> Row2_RootsB = { 0.75f, 0.167f, 0.583f, 1.0f, 0.417f, 0.833f ,0.25f };
+        const std::array<float, 7> Row2_RootsB = { 0.75f, 0.167f, 0.583f, 0.0f, 0.417f, 0.833f ,0.25f };
 
         const std::array<std::array<std::string, 4>, 7> Row3_NamesB = {{
             {"Em" ,"Em-Bar" ,"Em7"    ,"Em6"},    
@@ -242,7 +239,7 @@ struct Strings : Module {
             {"X10131", "X13134", "X13124", "X13314"},
             {"431114", "466544", "431112", "421141"}
         }};
-        const std::array<float, 7> Row3_RootsB = {0.333f, 0.75f, 0.1667f, 0.583f, 1.0f, 0.833f, 0.667f };
+        const std::array<float, 7> Row3_RootsB = {0.333f, 0.75f, 0.1667f, 0.583f, 0.0f, 0.833f, 0.667f };
 
         const std::array<std::array<std::string, 4>, 7> Row4_NamesB = {{
             {"Adim" ,"Adim7" ,"A9" ,"Aaug"}, 
@@ -262,46 +259,43 @@ struct Strings : Module {
             {"X12320", "X1202X", "X10314", "X10332"},
             {"XX1242", "XX1212", "X63643", "XX1403"}
         }};
-        const std::array<float, 7> Row4_RootsB = {0.75f, 0.1667f, 0.583f, 1.0f, 0.417f, 0.833f, 0.25f};
+        const std::array<float, 7> Row4_RootsB = {0.75f, 0.1667f, 0.583f, 0.0f, 0.417f, 0.833f, 0.25f};
 
-    //Load Digital Display
+    //Load Digital Displays
     DigitalDisplay* digitalDisplay = nullptr;
     DigitalDisplay* fingeringDisplay = nullptr;
-
     DigitalDisplay* Row1Display = nullptr;
     DigitalDisplay* Row2Display = nullptr;
     DigitalDisplay* Row3Display = nullptr;
     DigitalDisplay* Row4Display = nullptr;
-
     DigitalDisplay* CVModeDisplay = nullptr;
-
-    //Chord Diagram Display
     ChordDiagram* chordDiagram = nullptr;
 
     dsp::PulseGenerator triggerPulse;
 
     int chordIndex = 0;
     int rowIndex = 0;
-
     int lastChordIndex = 0;
     int lastRowIndex = 0;
-    bool lastInputWasButton = false;
-
-    float lastKnobChordPosition = 0.0;
-    float lastKnobRowPosition = 0.0;
-
     int currentChordIndex = 0;
     int currentRowIndex = 0;
+    int capo_offset = 0;
+    float lastKnobChordPosition = 0.0;
+    float lastKnobRowPosition = 0.0;
 
     bool barreButtonPressed = false;
     bool altButtonPressed = false;
     bool barreLatched = false;
     bool altLatched = false;
-    int capo_offset = 0;
     bool barreGateActive = false;
     bool altGateActive = false;
     bool ChordBank = false;
     bool VOctCV = false;
+
+    int process_count = 0;
+    int display_count = 0;
+    int process_skip = 10;
+    int display_skip = 1000;
 
     // Serialization method to save module state
     json_t* dataToJson() override {
@@ -402,364 +396,385 @@ struct Strings : Module {
                 }
             }
         };
+        process_count++;
+        display_count++;
+        if (process_count>process_skip){
+            process_count=0;
 
-        // Calculate the whammy bar effect if connected
-        float whammyBarEffect = inputs[WHAMMY_BAR_CV].isConnected() ? std::abs(inputs[WHAMMY_BAR_CV].getVoltage() * (0.2f / 12.0f)) : 0.f;
-        float CapoAmount = inputs[CAPO_CV].isConnected() ? (floor(inputs[CAPO_CV].getVoltage() + params[CAPO_PARAM].getValue()) * (2.f/12.f)) : floor(params[CAPO_PARAM].getValue()) * (2.f/12.f); 
-        float PitchBend[6] = {0.0f};
+            // Calculate the whammy bar effect if connected
+            float whammyBarEffect = inputs[WHAMMY_BAR_CV].isConnected() ? std::abs(inputs[WHAMMY_BAR_CV].getVoltage() * (0.2f / 12.0f)) : 0.f;
+            float CapoAmount = inputs[CAPO_CV].isConnected() ? (floor(inputs[CAPO_CV].getVoltage() + params[CAPO_PARAM].getValue()) * (2.f/12.f)) : floor(params[CAPO_PARAM].getValue()) * (2.f/12.f); 
+            float PitchBend[6] = {0.0f};
 
-        // Determine the current chord and row selections
+            // Determine the current chord and row selections
           
-        int knobRowPosition = static_cast<int>(
-            floor(
-                clamp(
-                    params[ROW_SELECTOR_PARAM].getValue() + 
-                    (inputs[ROW_SELECTOR_CV].isConnected() ? inputs[ROW_SELECTOR_CV].getVoltage() : 0) - 1,
-                    0.0,3.0
+            int knobRowPosition = static_cast<int>(
+                floor(
+                    clamp(
+                        params[ROW_SELECTOR_PARAM].getValue() + 
+                        (inputs[ROW_SELECTOR_CV].isConnected() ? inputs[ROW_SELECTOR_CV].getVoltage() : 0) - 1,
+                        0.0,3.0
+                    )
                 )
-            )
-        );
+            );
 
-        int knobChordPosition = static_cast<int>(
-            floor(
-                clamp(
-                    params[CHORD_SELECTOR_PARAM].getValue() + 
-                    (inputs[CHORD_SELECTOR_CV].isConnected() ? inputs[CHORD_SELECTOR_CV].getVoltage() : 0) - 1,
-                    0.0,6.0
+            int knobChordPosition = static_cast<int>(
+                floor(
+                    clamp(
+                        params[CHORD_SELECTOR_PARAM].getValue() + 
+                        (inputs[CHORD_SELECTOR_CV].isConnected() ? inputs[CHORD_SELECTOR_CV].getVoltage() : 0) - 1,
+                        0.0,6.0
+                    )
                 )
-            )
-        );    
+            );    
 
-        int semitoneDifference = 0;
-        float octavesDifference = 0.0f;
+            int semitoneDifference = 0;
+            float octavesDifference = 0.0f;
 
-        // Define the noteToChordPosition arrays here if they are only used in this method
-        //            //                                             C      D       E   F      G      A       B
-        static const std::array<int, 12> noteToChordPositionRow1 = {{5, -1, 3, -1,  1,  6, -1, 4, -1, 2, -1,  0}};
-        static const std::array<int, 12> noteToChordPositionRow2 = {{3, -1, 1,  6, -1,  4, -1, 2, -1, 0,  5, -1}};
-        static const std::array<int, 12> noteToChordPositionRow3 = {{4, -1, 2, -1,  0, -1, -1, 3,  6, 1,  5, -1}};
-        static const std::array<int, 12> noteToChordPositionRow4 = {{3, -1, 1,  6, -1,  4, -1, 2, -1, 0,  5, -1}};
+            // Define the noteToChordPosition arrays 
+            //            //                                             C      D       E   F      G      A       B
+            static const std::array<int, 12> noteToChordPositionRow1 = {{5, -1, 3, -1,  1,  6, -1, 4, -1, 2, -1,  0}};
+            static const std::array<int, 12> noteToChordPositionRow2 = {{3, -1, 1,  6, -1,  4, -1, 2, -1, 0,  5, -1}};
+            static const std::array<int, 12> noteToChordPositionRow3 = {{4, -1, 2, -1,  0, -1, -1, 3,  6, 1,  5, -1}};
+            static const std::array<int, 12> noteToChordPositionRow4 = {{3, -1, 1,  6, -1,  4, -1, 2, -1, 0,  5, -1}};
 
-        // V/Oct CV processing
-        if(VOctCV) {
-            float chordInputVal = params[CHORD_SELECTOR_PARAM].getValue() + 
-                                  (inputs[CHORD_SELECTOR_CV].isConnected() ? inputs[CHORD_SELECTOR_CV].getVoltage() : 0);
+            // V/Oct CV processing
+            if(VOctCV) {
+                float chordInputVal = params[CHORD_SELECTOR_PARAM].getValue() + 
+                                      (inputs[CHORD_SELECTOR_CV].isConnected() ? inputs[CHORD_SELECTOR_CV].getVoltage() : 0);
 
-            if (chordInputVal >= 1) { octavesDifference = 1.0f; }
-            else if (chordInputVal < 0) { octavesDifference = 0.0f; }
-            if (chordInputVal >= 2) { octavesDifference = 2.0f; }
+                if (chordInputVal >= 1) { octavesDifference = 1.0f; }
+                else if (chordInputVal < 0) { octavesDifference = 0.0f; }
+                if (chordInputVal >= 2) { octavesDifference = 2.0f; }
            
-            int noteIndex = static_cast<int>(round(chordInputVal * 12)); // Total semitones from C
-            int noteRelativeToC = (noteIndex % 12 + 12) % 12; // Ensuring a positive result
+                int noteIndex = static_cast<int>(round(chordInputVal * 12)); // Total semitones from C
+                int noteRelativeToC = (noteIndex % 12 + 12) % 12; // Ensuring a positive result
 
-            // Dynamically select the appropriate noteToChordPosition array based on knobRowPosition
-            const std::array<int, 12>* noteToChordPosition;
-            switch (knobRowPosition) {
-                case 0: noteToChordPosition = &noteToChordPositionRow1; break;
-                case 1: noteToChordPosition = &noteToChordPositionRow2; break;
-                case 2: noteToChordPosition = &noteToChordPositionRow3; break;
-                case 3: noteToChordPosition = &noteToChordPositionRow4; break;
-                default: noteToChordPosition = &noteToChordPositionRow1; break; // Default case to avoid uninitialized usage
-            }
-
-            // Compute the chord position based on the selected noteToChordPosition array
-            int computedChordPosition = (*noteToChordPosition)[noteRelativeToC];
-            if (computedChordPosition == -1) {
-                // Search for the next lower note that maps to a chord
-                for (int i = noteRelativeToC - 1; i >= 0; --i) {
-                    if ((*noteToChordPosition)[i] != -1) {
-                        computedChordPosition = (*noteToChordPosition)[i];
-                        semitoneDifference = noteRelativeToC - i;
-                        break;
-                    }
+                // Dynamically select the appropriate noteToChordPosition array based on knobRowPosition
+                const std::array<int, 12>* noteToChordPosition;
+                switch (knobRowPosition) {
+                    case 0: noteToChordPosition = &noteToChordPositionRow1; break;
+                    case 1: noteToChordPosition = &noteToChordPositionRow2; break;
+                    case 2: noteToChordPosition = &noteToChordPositionRow3; break;
+                    case 3: noteToChordPosition = &noteToChordPositionRow4; break;
+                    default: noteToChordPosition = &noteToChordPositionRow1; break; // Default case to avoid uninitialized usage
                 }
-                // If no lower note is found in the octave, wrap around and look from the top
+
+                // Compute the chord position based on the selected noteToChordPosition array
+                int computedChordPosition = (*noteToChordPosition)[noteRelativeToC];
                 if (computedChordPosition == -1) {
-                    for (int i = 11; i > noteRelativeToC; --i) {
+                    // Search for the next lower note that maps to a chord
+                    for (int i = noteRelativeToC - 1; i >= 0; --i) {
                         if ((*noteToChordPosition)[i] != -1) {
                             computedChordPosition = (*noteToChordPosition)[i];
-                            semitoneDifference = noteRelativeToC + (12 - i); // Adjusting for wrap-around
+                            semitoneDifference = noteRelativeToC - i;
                             break;
                         }
                     }
-                }
-            } else {
-                semitoneDifference = 0; // No difference if the note directly maps to a chord position
-            }
-            knobChordPosition = computedChordPosition;
-        }
-
-        // Clamp and adjust CapoAmount based on semitoneDifference and octavesDifference
-        semitoneDifference = clamp(semitoneDifference, 0, 10);
-        CapoAmount += semitoneDifference / 12.f + octavesDifference;
-		if (VOctCV){CapoAmount -= 1;}
-        static int latchedChordIndex = -1; // Initialize to invalid index to ensure first update
-        static int latchedRowIndex = -1; // Initialize to invalid index to ensure first update
-
-        // Check for button presses
-        bool buttonPressed = false;
-        for (int i = 0; i < NUM_PARAMS - CHORD_BUTTON_1; i++) {
-            if (params[CHORD_BUTTON_1 + i].getValue() > 0) {
-                latchedRowIndex = i / MAX_CHORDS_PER_ROW;
-                latchedChordIndex = i % MAX_CHORDS_PER_ROW;
-                buttonPressed = true;
-                lastInputWasButton = true;
-                break; // Exit the loop after handling the first pressed button
-            }
-        }
-
-        // Latch button-pressed indices if a button was just pressed
-        if (buttonPressed) {
-            currentChordIndex = latchedChordIndex;
-            currentRowIndex = latchedRowIndex;
-            triggerPulse.trigger(0.001f); // 1ms pulse
-        } else {
-            // Update based on knobs if no button is currently latched
-            if (knobChordPosition != lastKnobChordPosition || knobRowPosition != lastKnobRowPosition) {
-                currentChordIndex = static_cast<int>(floor(clamp(knobChordPosition, 0, 6)));
-                currentRowIndex = static_cast<int>(floor(clamp(knobRowPosition, 0, 3)));
-                lastKnobChordPosition = knobChordPosition;
-                lastKnobRowPosition = knobRowPosition;
-            }
-        }
-
-        // Reset all chord selection lights
-        for (int k = 0; k < NUM_PARAMS - CHORD_BUTTON_1; k++) {
-            lights[CHORD_SELECTION_LIGHT_1 + k].setBrightness(0.0);
-        }
-
-        // Activate the light for the current chord selection
-        // Calculate the index for the light corresponding to the current selection
-        int currentSelectionIndex = currentRowIndex * MAX_CHORDS_PER_ROW + currentChordIndex;
-        lights[CHORD_SELECTION_LIGHT_1 + currentSelectionIndex].setBrightness(1.0);
-
-        //        // Selecting the arrays based on currentRowIndex
-        const auto& currentNames = selectChordBankStrings(ChordBank, Row1_Names, Row2_Names, Row3_Names, Row4_Names, Row1_NamesB, Row2_NamesB, Row3_NamesB, Row4_NamesB);
-        const auto& currentChords = selectChordBankStrings(ChordBank, Row1_Chords, Row2_Chords, Row3_Chords, Row4_Chords, Row1_ChordsB, Row2_ChordsB, Row3_ChordsB, Row4_ChordsB);
-        const auto& currentRoots = ChordBank ? 
-        (currentRowIndex == 0) ? Row1_RootsB : (currentRowIndex == 1) ? Row2_RootsB : (currentRowIndex == 2) ? Row3_RootsB : Row4_RootsB :
-        (currentRowIndex == 0) ? Row1_Roots : (currentRowIndex == 1) ? Row2_Roots : (currentRowIndex == 2) ? Row3_Roots : Row4_Roots;
-
-        // Set the root note voltage
-        outputs[ROOT_NOTE_CV_OUT].setVoltage(currentRoots[currentChordIndex] + CapoAmount - 1.0f);
-
-        // Handle BARRE_CHORD_BUTTON latching independently
-        if (params[BARRE_CHORD_BUTTON].getValue() > 0) {
-            if (!barreButtonPressed) {
-                barreLatched = !barreLatched;
-                barreButtonPressed = true;
-            }
-        } else {
-            barreButtonPressed = false;
-        }
-
-        // Handle ALT_CHORD_BUTTON latching independently
-        if (params[ALT_CHORD_BUTTON].getValue() > 0) {
-            if (!altButtonPressed) {
-                altLatched = !altLatched;
-                altButtonPressed = true;
-            }
-        } else {
-            altButtonPressed = false;
-        }
-
-        // Determine gate states based on latched states and external gate presence
-        barreGateActive = inputs[BARRE_CHORD_GATE].isConnected() ? !barreLatched ^ (inputs[BARRE_CHORD_GATE].getVoltage() > 0.05f) : barreLatched;
-        altGateActive = inputs[ALT_CHORD_GATE].isConnected() ? !altLatched ^ (inputs[ALT_CHORD_GATE].getVoltage() > 0.05f) : altLatched;
-
-        // Update lights based on latched state or external gate activity
-        lights[BARRE_CHORD_LIGHT].setBrightness(barreGateActive ? 1.0 : 0.0);
-        lights[ALT_CHORD_LIGHT].setBrightness(altGateActive ? 1.0 : 0.0);
-
-        // Use the modified gate states to choose the fingering version
-        int fingeringVersion = getFingeringVersion(barreGateActive, altGateActive);
-
-        // Iterate over strings to set voltages
-        for (int stringIdx = 0; stringIdx < 6; ++stringIdx) {
-            // Convert fingering string to semitone shifts
-            auto semitoneShifts = fingeringToSemitoneShifts(currentChords[currentChordIndex][fingeringVersion]);
-
-            PitchBend[stringIdx]=(0.1f/12.f) * (inputs[ENVELOPE_IN_1 + stringIdx].isConnected() ? inputs[ENVELOPE_IN_1 + stringIdx].getVoltage() : 0);
-            PitchBend[stringIdx]= abs(PitchBend[stringIdx]);
-
-            // Process each string
-            if (semitoneShifts[stringIdx] >= 0) {
-                // Calculate pitch voltage
-                float pitchVoltage = baseFrequencies[stringIdx] + (semitoneShifts[stringIdx] * (1.0f / 12.0f)) + whammyBarEffect + CapoAmount + PitchBend[stringIdx];
-                outputs[STRING_CV_OUT_1 + stringIdx].setVoltage(pitchVoltage);
-                outputs[MUTE_OUT_1 + stringIdx].setVoltage(0.0);
-            } else {
-                // Mute this string             
-                outputs[STRING_CV_OUT_1 + stringIdx].setVoltage(currentRoots[currentChordIndex] + CapoAmount - 1.0f);  //set muted string to the root note, just incase you don't mute it
-                outputs[MUTE_OUT_1 + stringIdx].setVoltage(5.0);
-            }
-        }
-        
-        // Update display logic
-        if (digitalDisplay && fingeringDisplay) {
-            // Static variables to remember the last displayed chord, row indices, and fingering
-            static int lastDisplayedChordIndex = -1;
-            static int lastDisplayedRowIndex = -1;
-            static int lastFingering = -1;
-
-            // Define a small tolerance value for comparison
-            const float capoTolerance = 0.01f; // Adjust tolerance as needed
-
-            // Keep track of the last CapoAmount for comparison
-            static float lastCapoAmount = -1.0f; // Initialize with an unlikely value
-
-            // Determine if CapoAmount has "effectively" changed using the tolerance
-            bool capoAmountChanged = std::abs(CapoAmount - lastCapoAmount) > capoTolerance;
-
-            // Proceed with checking if an update is needed
-            if (currentChordIndex != lastDisplayedChordIndex || currentRowIndex != lastDisplayedRowIndex || 
-                fingeringVersion != lastFingering || capoAmountChanged) {
-                // Update the last displayed indices to the current selection
-                lastDisplayedChordIndex = currentChordIndex;
-                lastDisplayedRowIndex = currentRowIndex;
-                lastFingering = fingeringVersion;
-    
-                // Only update lastCapoAmount if it has effectively changed
-                if (capoAmountChanged) {
-                    lastCapoAmount = CapoAmount;
-                }
-                // Retrieve the current chord name based on the selection for the digital display
-                std::string currentChordName = currentNames[currentChordIndex][fingeringVersion];
-                // Update the digital display text with the current chord name
-                digitalDisplay->text = currentChordName;
-
-                // Retrieve the current fingering pattern for the fingering display
-                std::string currentFingeringPattern = currentChords[currentChordIndex][fingeringVersion];
-                // Update the fingering display text with the current fingering pattern
-
-                int capoAmountInt = static_cast<int>(floor(CapoAmount*12)); // Round to the nearest whole number if necessary
-                std::string capoAmountStr = std::to_string(capoAmountInt); // Convert the integer to a string
-                
-                if (CapoAmount ==0){
-                    fingeringDisplay->text = currentFingeringPattern;
+                    // If no lower note is found in the octave, wrap around and look from the top
+                    if (computedChordPosition == -1) {
+                        for (int i = 11; i > noteRelativeToC; --i) {
+                            if ((*noteToChordPosition)[i] != -1) {
+                                computedChordPosition = (*noteToChordPosition)[i];
+                                semitoneDifference = noteRelativeToC + (12 - i); // Adjusting for wrap-around
+                                break;
+                            }
+                        }
+                    }
                 } else {
-                    // Update the fingering display text with the current fingering pattern and capo setting
-                    if (CapoAmount>-0.01){
-                        fingeringDisplay->text = currentFingeringPattern + " +" + capoAmountStr;    
-                    } else {
-                        fingeringDisplay->text = currentFingeringPattern + "  " + capoAmountStr;    
-                    }
+                    semitoneDifference = 0; // No difference if the note directly maps to a chord position
                 }
-                
-                if (chordDiagram) {
-                    auto semitoneShifts = fingeringToSemitoneShifts(currentChords[currentChordIndex][fingeringVersion]);
-                    chordDiagram->setFingering(semitoneShifts);
-                }  
- 
-                if (!ChordBank){   
-                    if (Row1Display) {        
-                        //{"B7", "B"     , "Bsus4", "Badd9"},
-                        auto row1text = "Row1";
-                        if (fingeringVersion == 0){row1text = "7";}
-                        else if (fingeringVersion == 1){row1text = "7 Bar";}
-                        else if (fingeringVersion == 2){row1text = "sus4";}
-                        else if (fingeringVersion == 3){row1text = "add9";}
-                        Row1Display->text = row1text;
-                    }
+                knobChordPosition = computedChordPosition;
+            }
 
-                    if (Row2Display) {        
-                        //{"A" ,"A-Bar" ,"Amaj7" ,"Aaug"}
-                        auto row2text = "Row2";
-                        if (fingeringVersion == 0){row2text = "Maj";}
-                        else if (fingeringVersion == 1){row2text = "M Bar";}
-                        else if (fingeringVersion == 2){row2text = "Maj7";}
-                        else if (fingeringVersion == 3){row2text = "aug";}
-                        Row2Display->text = row2text;
-                    }
+            // Clamp and adjust CapoAmount based on semitoneDifference and octavesDifference
+            semitoneDifference = clamp(semitoneDifference, 0, 10);
+            CapoAmount += semitoneDifference / 12.f + octavesDifference;
+            if (VOctCV){CapoAmount -= 1;}
+            static int latchedChordIndex = -1; // Initialize to invalid index to ensure first update
+            static int latchedRowIndex = -1; // Initialize to invalid index to ensure first update
 
-                    if (Row3Display) {        
-                        //{"Em" ,"Em-Bar" ,"Em7","Em6  "},
-                        auto row3text = "Row3";
-                        if (fingeringVersion == 0){row3text = "min";}
-                        else if (fingeringVersion == 1){row3text = "m Bar";}
-                        else if (fingeringVersion == 2){row3text = "m7";}
-                        else if (fingeringVersion == 3){row3text = "m6";}
-                        Row3Display->text = row3text;
-                    }
-
-                    if (Row4Display) {        
-                        //{"Asus2" ,"A6" ,"A7sus4" ,"Am9"},
-                        auto row4text = "Row4";
-                        if (fingeringVersion == 0){row4text = "sus2";}
-                        else if (fingeringVersion == 1){row4text = "6";}
-                        else if (fingeringVersion == 2){row4text = "7sus4";}
-                        else if (fingeringVersion == 3){row4text = "m9";}
-                        Row4Display->text = row4text;
-                    } 
-                    if (CVModeDisplay) {        
-                        //Mark the knob with the mode setting, 
-                        auto CVdisplaytext = "V/oct";
-                        if (VOctCV){CVdisplaytext = "(V/Oct)";}
-                        else {CVdisplaytext = "        ";}
-                        CVModeDisplay->text = CVdisplaytext;
-                    } 
- 
-                } else {
-
-                    if (Row1Display) {        
-                        //{"B7", "B"     , "B2", "B6"},
-                        auto row1text = "Row1";
-                        if (fingeringVersion == 0){row1text = "7";}
-                        else if (fingeringVersion == 1){row1text = "7 Bar";}
-                        else if (fingeringVersion == 2){row1text = "2";}
-                        else if (fingeringVersion == 3){row1text = "6";}
-                        Row1Display->text = row1text;
-                    }
-
-                    if (Row2Display) {        
-                        //    {"A" ,"A-Bar" ,"Amaj7" ,"A7+5"}, 
-                        auto row2text = "Row2";
-                        if (fingeringVersion == 0){row2text = "Maj";}
-                        else if (fingeringVersion == 1){row2text = "M Bar";}
-                        else if (fingeringVersion == 2){row2text = "Maj7";}
-                        else if (fingeringVersion == 3){row2text = "7+5";}
-                        Row2Display->text = row2text;
-                    }
-
-                    if (Row3Display) {        
-                        //{{"Em" ,"Em-Bar" ,"Em7"    ,"Em6"},
-                        auto row3text = "Row3";
-                        if (fingeringVersion == 0){row3text = "min";}
-                        else if (fingeringVersion == 1){row3text = "m Bar";}
-                        else if (fingeringVersion == 2){row3text = "m7";}
-                        else if (fingeringVersion == 3){row3text = "m6";}
-                        Row3Display->text = row3text;
-                    }
-
-                    if (Row4Display) {        
-                        //"Adim" ,"Adim7" ,"A9" ,"Aaug"}, 
-                        auto row4text = "Row4";
-                        if (fingeringVersion == 0){row4text = "dim";}
-                        else if (fingeringVersion == 1){row4text = "dim7";}
-                        else if (fingeringVersion == 2){row4text = "9";}
-                        else if (fingeringVersion == 3){row4text = "aug";}
-                        Row4Display->text = row4text;
-                    } 
-                    
-                    if (CVModeDisplay) {        
-                        //Mark the knob with the mode setting, 
-                        auto CVdisplaytext = "V/oct";
-                        if (VOctCV){CVdisplaytext = "(V/Oct)";}
-                        else {CVdisplaytext = "        ";}
-                        CVModeDisplay->text = CVdisplaytext;
-                    } 
+            // Check for button presses
+            bool buttonPressed = false;
+            for (int i = 0; i < NUM_PARAMS - CHORD_BUTTON_1; i++) {
+                if (params[CHORD_BUTTON_1 + i].getValue() > 0) {
+                    latchedRowIndex = i / MAX_CHORDS_PER_ROW;
+                    latchedChordIndex = i % MAX_CHORDS_PER_ROW;
+                    buttonPressed = true;
+                    break; // Exit the loop after handling the first pressed button
                 }
-                 
+            }
+
+            // Latch button-pressed indices if a button was just pressed
+            if (buttonPressed) {
+                currentChordIndex = latchedChordIndex;
+                currentRowIndex = latchedRowIndex;
                 triggerPulse.trigger(0.001f); // 1ms pulse
+            } else {
+                // Update based on knobs if no button is currently latched
+                if (knobChordPosition != lastKnobChordPosition || knobRowPosition != lastKnobRowPosition) {
+                    currentChordIndex = static_cast<int>(floor(clamp(knobChordPosition, 0, 6)));
+                    currentRowIndex = static_cast<int>(floor(clamp(knobRowPosition, 0, 3)));
+                    lastKnobChordPosition = knobChordPosition;
+                    lastKnobRowPosition = knobRowPosition;
+                }
+            }
+
+            // Reset all chord selection lights
+            for (int k = 0; k < NUM_PARAMS - CHORD_BUTTON_1; k++) {
+                lights[CHORD_SELECTION_LIGHT_1 + k].setBrightness(0.0);
+            }
+
+            // Activate the light for the current chord selection
+            // Calculate the index for the light corresponding to the current selection
+            int currentSelectionIndex = currentRowIndex * MAX_CHORDS_PER_ROW + currentChordIndex;
+            lights[CHORD_SELECTION_LIGHT_1 + currentSelectionIndex].setBrightness(1.0);
+
+            // Select the arrays based on currentRowIndex
+            const auto& currentNames = selectChordBankStrings(ChordBank, Row1_Names, Row2_Names, Row3_Names, Row4_Names, Row1_NamesB, Row2_NamesB, Row3_NamesB, Row4_NamesB);
+            const auto& currentChords = selectChordBankStrings(ChordBank, Row1_Chords, Row2_Chords, Row3_Chords, Row4_Chords, Row1_ChordsB, Row2_ChordsB, Row3_ChordsB, Row4_ChordsB);
+            const auto& currentRoots = ChordBank ? 
+            (currentRowIndex == 0) ? Row1_RootsB : (currentRowIndex == 1) ? Row2_RootsB : (currentRowIndex == 2) ? Row3_RootsB : Row4_RootsB :
+            (currentRowIndex == 0) ? Row1_Roots : (currentRowIndex == 1) ? Row2_Roots : (currentRowIndex == 2) ? Row3_Roots : Row4_Roots;
+
+            // Set the root note voltage
+            outputs[ROOT_NOTE_CV_OUT].setVoltage(currentRoots[currentChordIndex] + CapoAmount);
+
+            // Handle BARRE_CHORD_BUTTON latching independently
+            if (params[BARRE_CHORD_BUTTON].getValue() > 0) {
+                if (!barreButtonPressed) {
+                    barreLatched = !barreLatched;
+                    barreButtonPressed = true;
+                }
+            } else {
+                barreButtonPressed = false;
+            }
+
+            // Handle ALT_CHORD_BUTTON latching independently
+            if (params[ALT_CHORD_BUTTON].getValue() > 0) {
+                if (!altButtonPressed) {
+                    altLatched = !altLatched;
+                    altButtonPressed = true;
+                }
+            } else {
+                altButtonPressed = false;
+            }
+
+            // Determine gate states based on latched states and external gate presence
+            barreGateActive = inputs[BARRE_CHORD_GATE].isConnected() ? barreLatched ^ (inputs[BARRE_CHORD_GATE].getVoltage() > 0.05f) : barreLatched;
+            altGateActive = inputs[ALT_CHORD_GATE].isConnected() ? altLatched ^ (inputs[ALT_CHORD_GATE].getVoltage() > 0.05f) : altLatched;
+
+            // Update lights based on latched state or external gate activity
+            lights[BARRE_CHORD_LIGHT].setBrightness(barreGateActive ? 1.0 : 0.0);
+            lights[ALT_CHORD_LIGHT].setBrightness(altGateActive ? 1.0 : 0.0);
+
+            // Use the modified gate states to choose the fingering version
+            int fingeringVersion = getFingeringVersion(barreGateActive, altGateActive);
+
+            // Iterate over strings to set voltages
+            for (int stringIdx = 0; stringIdx < 6; ++stringIdx) {
+                // Convert fingering string to semitone shifts
+                auto semitoneShifts = fingeringToSemitoneShifts(currentChords[currentChordIndex][fingeringVersion]);
+
+                PitchBend[stringIdx]=(0.1f/12.f) * (inputs[ENVELOPE_IN_1 + stringIdx].isConnected() ? inputs[ENVELOPE_IN_1 + stringIdx].getVoltage() : 0);
+                PitchBend[stringIdx]= abs(PitchBend[stringIdx]);
+
+                // Process each string
+                if (semitoneShifts[stringIdx] >= 0) {
+                    // Calculate pitch voltage
+                    float pitchVoltage = baseFrequencies[stringIdx] + (semitoneShifts[stringIdx] * (1.0f / 12.0f)) + whammyBarEffect + CapoAmount + PitchBend[stringIdx];
+                    outputs[STRING_CV_OUT_1 + stringIdx].setVoltage(pitchVoltage);
+                    outputs[MUTE_OUT_1 + stringIdx].setVoltage(0.0);
+                } else {
+                    // Mute this string             
+                    outputs[STRING_CV_OUT_1 + stringIdx].setVoltage(currentRoots[currentChordIndex] + CapoAmount - 1.0f);  //set muted string to the root note, just incase you don't mute it
+                    outputs[MUTE_OUT_1 + stringIdx].setVoltage(5.0);
+                }
+            }
+            if(display_count>display_skip){
+                display_count=0;        
+
+                if (Row1Display && Row2Display && Row3Display && Row4Display) { 
+                    if (settings::preferDarkPanels){
+                        Row1Display->fgColor = nvgRGB(250, 250, 250); // White color text
+                        Row2Display->fgColor = nvgRGB(250, 250, 250); // White color text
+                        Row3Display->fgColor = nvgRGB(250, 250, 250); // White color text
+                        Row4Display->fgColor = nvgRGB(250, 250, 250); // White color text
+                        CVModeDisplay->fgColor = nvgRGB(250, 250, 250); // White color text
+                    } else {
+                        Row1Display->fgColor = nvgRGB(10, 10, 10); // Dark color text
+                        Row2Display->fgColor = nvgRGB(10, 10, 10); // Dark color text
+                        Row3Display->fgColor = nvgRGB(10, 10, 10); // Dark color text
+                        Row4Display->fgColor = nvgRGB(10, 10, 10); // Dark color text
+                        CVModeDisplay->fgColor = nvgRGB(10, 10, 10); // Dark color text
+                    }
+                }
+                // Update display logic
+                if (digitalDisplay && fingeringDisplay) {
+                    // Static variables to remember the last displayed chord, row indices, and fingering
+                    static int lastDisplayedChordIndex = -1;
+                    static int lastDisplayedRowIndex = -1;
+                    static int lastFingering = -1;
+
+                    // Define a small tolerance value for comparison
+                    const float capoTolerance = 0.01f; // Adjust tolerance as needed
+
+                    // Keep track of the last CapoAmount for comparison
+                    static float lastCapoAmount = -1.0f; // Initialize with an unlikely value
+
+                    // Determine if CapoAmount has "effectively" changed using the tolerance
+                    bool capoAmountChanged = std::abs(CapoAmount - lastCapoAmount) > capoTolerance;
+
+                    // Proceed with checking if an update is needed
+                    if (currentChordIndex != lastDisplayedChordIndex || currentRowIndex != lastDisplayedRowIndex || 
+                        fingeringVersion != lastFingering || capoAmountChanged) {
+                        // Update the last displayed indices to the current selection
+                        lastDisplayedChordIndex = currentChordIndex;
+                        lastDisplayedRowIndex = currentRowIndex;
+                        lastFingering = fingeringVersion;
+    
+                        // Only update lastCapoAmount if it has effectively changed
+                        if (capoAmountChanged) {
+                            lastCapoAmount = CapoAmount;
+                        }
+                        // Retrieve the current chord name based on the selection for the digital display
+                        std::string currentChordName = currentNames[currentChordIndex][fingeringVersion];
+                        // Update the digital display text with the current chord name
+                        digitalDisplay->text = currentChordName;
+
+                        // Retrieve the current fingering pattern for the fingering display
+                        std::string currentFingeringPattern = currentChords[currentChordIndex][fingeringVersion];
+                        // Update the fingering display text with the current fingering pattern
+
+                        int capoAmountInt = static_cast<int>(floor(CapoAmount*12)); // Round to the nearest whole number if necessary
+                        std::string capoAmountStr = std::to_string(capoAmountInt); // Convert the integer to a string
+                
+                        if (CapoAmount ==0){
+                            fingeringDisplay->text = currentFingeringPattern;
+                        } else {
+                            // Update the fingering display text with the current fingering pattern and capo setting
+                            if (CapoAmount>-0.01){
+                                fingeringDisplay->text = currentFingeringPattern + " +" + capoAmountStr;    
+                            } else {
+                                fingeringDisplay->text = currentFingeringPattern + "  " + capoAmountStr;    
+                            }
+                        }
+                
+                        if (chordDiagram) {
+                            auto semitoneShifts = fingeringToSemitoneShifts(currentChords[currentChordIndex][fingeringVersion]);
+                            chordDiagram->setFingering(semitoneShifts);
+                        }  
+ 
+                        if (!ChordBank){   
+                            if (Row1Display) {        
+                                //{"B7", "B"     , "Bsus4", "Badd9"},
+                                auto row1text = "Row1";
+                                if (fingeringVersion == 0){row1text = "7";}
+                                else if (fingeringVersion == 1){row1text = "7 Bar";}
+                                else if (fingeringVersion == 2){row1text = "sus4";}
+                                else if (fingeringVersion == 3){row1text = "add9";}
+                                Row1Display->text = row1text;
+                            }
+
+                            if (Row2Display) {        
+                                //{"A" ,"A-Bar" ,"Amaj7" ,"Aaug"}
+                                auto row2text = "Row2";
+                                if (fingeringVersion == 0){row2text = "Maj";}
+                                else if (fingeringVersion == 1){row2text = "M Bar";}
+                                else if (fingeringVersion == 2){row2text = "Maj7";}
+                                else if (fingeringVersion == 3){row2text = "aug";}
+                                Row2Display->text = row2text;
+                            }
+
+                            if (Row3Display) {        
+                                //{"Em" ,"Em-Bar" ,"Em7","Em6  "},
+                                auto row3text = "Row3";
+                                if (fingeringVersion == 0){row3text = "min";}
+                                else if (fingeringVersion == 1){row3text = "m Bar";}
+                                else if (fingeringVersion == 2){row3text = "m7";}
+                                else if (fingeringVersion == 3){row3text = "m6";}
+                                Row3Display->text = row3text;
+                            }
+
+                            if (Row4Display) {        
+                                //{"Asus2" ,"A6" ,"A7sus4" ,"Am9"},
+                                auto row4text = "Row4";
+                                if (fingeringVersion == 0){row4text = "sus2";}
+                                else if (fingeringVersion == 1){row4text = "6";}
+                                else if (fingeringVersion == 2){row4text = "7sus4";}
+                                else if (fingeringVersion == 3){row4text = "m9";}
+                                Row4Display->text = row4text;
+                            } 
+                            if (CVModeDisplay) {        
+                                //Mark the knob with the mode setting, 
+                                auto CVdisplaytext = "V/oct";
+                                if (VOctCV){CVdisplaytext = "(V/Oct)";}
+                                else {CVdisplaytext = "        ";}
+                                CVModeDisplay->text = CVdisplaytext;
+                            } 
+ 
+                        } else {
+
+                            if (Row1Display) {        
+                                //{"B7", "B"     , "B2", "B6"},
+                                auto row1text = "Row1";
+                                if (fingeringVersion == 0){row1text = "7";}
+                                else if (fingeringVersion == 1){row1text = "7 Bar";}
+                                else if (fingeringVersion == 2){row1text = "2";}
+                                else if (fingeringVersion == 3){row1text = "6";}
+                                Row1Display->text = row1text;
+                            }
+
+                            if (Row2Display) {        
+                                //    {"A" ,"A-Bar" ,"Amaj7" ,"A7+5"}, 
+                                auto row2text = "Row2";
+                                if (fingeringVersion == 0){row2text = "Maj";}
+                                else if (fingeringVersion == 1){row2text = "M Bar";}
+                                else if (fingeringVersion == 2){row2text = "Maj7";}
+                                else if (fingeringVersion == 3){row2text = "7+5";}
+                                Row2Display->text = row2text;
+                            }
+
+                            if (Row3Display) {        
+                                //{{"Em" ,"Em-Bar" ,"Em7"    ,"Em6"},
+                                auto row3text = "Row3";
+                                if (fingeringVersion == 0){row3text = "min";}
+                                else if (fingeringVersion == 1){row3text = "m Bar";}
+                                else if (fingeringVersion == 2){row3text = "m7";}
+                                else if (fingeringVersion == 3){row3text = "m6";}
+                                Row3Display->text = row3text;
+                            }
+
+                            if (Row4Display) {        
+                                //"Adim" ,"Adim7" ,"A9" ,"Aaug"}, 
+                                auto row4text = "Row4";
+                                if (fingeringVersion == 0){row4text = "dim";}
+                                else if (fingeringVersion == 1){row4text = "dim7";}
+                                else if (fingeringVersion == 2){row4text = "9";}
+                                else if (fingeringVersion == 3){row4text = "aug";}
+                                Row4Display->text = row4text;
+                            } 
+                    
+                            if (CVModeDisplay) {        
+                                //Mark the knob with the mode setting, 
+                                auto CVdisplaytext = "V/oct";
+                                if (VOctCV){CVdisplaytext = "(V/Oct)";}
+                                else {CVdisplaytext = "        ";}
+                                CVModeDisplay->text = CVdisplaytext;
+                            } 
+                        }
+                 
+                        triggerPulse.trigger(0.001f); // 1ms pulse
+                    }
+                }
+            }
+            
+            if (triggerPulse.process(args.sampleTime)) {
+                outputs[TRIGGER_OUT].setVoltage(10.f); // High voltage of the pulse
+            } else {
+                outputs[TRIGGER_OUT].setVoltage(0.f); // Low voltage, pulse off
             }
         }
-        
-        if (triggerPulse.process(args.sampleTime)) {
-            outputs[TRIGGER_OUT].setVoltage(10.f); // High voltage of the pulse
-        } else {
-            outputs[TRIGGER_OUT].setVoltage(0.f); // Low voltage, pulse off
-        }
-        
     }
     
     int getFingeringVersion(float barreVoltage, float altVoltage) {

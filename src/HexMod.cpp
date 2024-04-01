@@ -18,7 +18,6 @@ float linearInterpolate(float a, float b, float fraction) {
     return a + fraction * (b - a);
 }
 
-
 struct HexMod : Module {
     enum ParamIds {
         RATE_KNOB,
@@ -83,9 +82,10 @@ struct HexMod : Module {
 
     bool lightsEnabled = true;
     bool syncEnabled = false;
+    bool synclinkEnabled = true;
 
-    float lfoPhase[6] = {}; // Current LFO phase for each channel
-    float prevEnvInput[6] = {}; // Previous envelope input, for peak detection
+    float lfoPhase[6] = {0.0f}; // Current LFO phase for each channel
+    float prevPhaseResetInput[6] = {}; // Previous envelope input, for peak detection
 
     // Function declarations
     void process(const ProcessArgs& args) override;
@@ -98,6 +98,8 @@ struct HexMod : Module {
     float place[6] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
     float happy_place[6] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
 
+	bool firstClockPulse = true;
+    bool clockSyncPulse = false;
     bool risingState[6] = {}; // Initialize all channels as falling initially
     bool latch[6] = {}; // Initialize all latches
 
@@ -106,7 +108,7 @@ struct HexMod : Module {
     
     int LEDprocessCounter = 0; // Counter to track process cycles
     int SINprocessCounter = 0; // Counter to track process cycles
-    int SkipProcesses = 20; //Number of process cycles to skip for the big calculation
+    int SkipProcesses = 4; //Number of process cycles to skip for the big calculation
 
     float lastConnectedInputVoltage = 0.0f;
     float SyncInterval = 2; //default to 2hz
@@ -115,14 +117,25 @@ struct HexMod : Module {
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
 
-        // Save the state of lightsEnabled as a boolean
         json_object_set_new(rootJ, "lightsEnabled", json_boolean(lightsEnabled));
-
-        // Save the state of syncEnabled as a boolean
         json_object_set_new(rootJ, "syncEnabled", json_boolean(syncEnabled));
-
-        // Save the state of SyncInterval as a float
+        json_object_set_new(rootJ, "synclinkEnabled", json_boolean(synclinkEnabled));
         json_object_set_new(rootJ, "SyncInterval", json_real(SyncInterval));
+
+        // Serialize lfoOutput array
+        json_t* lfoOutputJ = json_array();
+        for (int i = 0; i < 6; i++) {
+            json_array_append_new(lfoOutputJ, json_real(lfoOutput[i]));
+        }
+        json_object_set_new(rootJ, "lfoOutput", lfoOutputJ);
+
+        // Serialize place array
+        json_t* placeJ = json_array();
+        for (int i = 0; i < 6; i++) {
+            json_array_append_new(placeJ, json_real(place[i]));
+        }
+        json_object_set_new(rootJ, "place", placeJ);
+
 
         return rootJ;
     }
@@ -140,14 +153,39 @@ struct HexMod : Module {
         if (syncEnabledJ) {
             syncEnabled = json_is_true(syncEnabledJ);
         }
+
+        // Load the state of syncEnabled
+        json_t* synclinkEnabledJ = json_object_get(rootJ, "synclinkEnabled");
+        if (synclinkEnabledJ) {
+            synclinkEnabled = json_is_true(synclinkEnabledJ);
+        }
         
         // Load the state of SyncInterval
         json_t* SyncIntervalJ = json_object_get(rootJ, "SyncInterval");
         if (SyncIntervalJ) {
             SyncInterval = json_number_value(SyncIntervalJ);
-        }        
+        }   
         
-        
+        // Deserialize lfoOutput array
+        json_t* lfoOutputJ = json_object_get(rootJ, "lfoOutput");
+        if (lfoOutputJ) {
+            for (int i = 0; i < 6; i++) {
+                json_t* valueJ = json_array_get(lfoOutputJ, i);
+                if (valueJ) {
+                    lfoOutput[i] = json_number_value(valueJ);
+                }
+            }
+        }                        
+        // Deserialize place array
+        json_t* placeJ = json_object_get(rootJ, "place");
+        if (placeJ) {
+            for (int i = 0; i < 6; i++) {
+                json_t* valueJ = json_array_get(placeJ, i);
+                if (valueJ) {
+                    place[i] = json_number_value(valueJ);
+                }
+            }
+        }                        
     }
 
      HexMod() {
@@ -168,12 +206,12 @@ struct HexMod : Module {
         configInput(SYNC_INPUT, "Sync");
         
         lightsEnabled = true; // Default to true
+        synclinkEnabled = true;
 
         for (int i = 0; i < 6; i++) {
             configOutput(LFO_OUTPUT_1 + i, "LFO " + std::to_string(i + 1));
         }
     }
-
 };
 
 void HexMod::process(const ProcessArgs& args) {
@@ -198,48 +236,67 @@ void HexMod::process(const ProcessArgs& args) {
     }
     NodePosition = clamp(NodePosition, 0.0f, 3.0f); 
 
+    // Process clock sync input
+    float SyncInputVoltage;
+    bool SyncTriggered = false;
+
     if (inputs[SYNC_INPUT].isConnected()) {
+        // Get the voltage from the SYNC input
+        SyncInputVoltage = inputs[SYNC_INPUT].getVoltage();
+
         // Accumulate time in the timer
         SyncTimer.process(args.sampleTime);
 
-        // Process reset input
-        if (SyncTrigger.process(inputs[SYNC_INPUT].getVoltage())) {
-            SyncInterval = SyncTimer.time;  // Get the accumulated time since the last reset
-            SyncTimer.reset();  // Reset the timer for the next trigger interval measurement
+        // Check if the Sync Trigger condition is met
+        if (SyncTrigger.process(SyncInputVoltage)) {
+			if (!firstClockPulse){
+				SyncInterval = SyncTimer.time; // Get the accumulated time since the last reset
+				SyncTimer.reset(); // Reset the timer for the next trigger interval measurement
+				SyncTriggered = true;
+		
+				if (synclinkEnabled) {
+					clockSyncPulse = true;
+				}
+			} else {
+				SyncTimer.reset(); // Reset the timer for the next trigger interval measurement
+				firstClockPulse = false;
+			}
+			
         }
 
         if (syncEnabled) {
-            rate *= 1/SyncInterval;        //Rate knob becomes a multiplier when Sync is patched
+            rate *= 1 / SyncInterval; // Rate knob becomes a multiplier when Sync is patched
         } else {
-            rate = 1/SyncInterval;      //Rate knob is deactivated when Sync is patched
+            rate = 1 / SyncInterval; // Rate knob is deactivated when Sync is patched
         }
     }
+
     
     for (int i = 0; i < 6; i++) {
-        // Envelope input and influence calculation
-        float envInput;
+        // Gate/trigger to Phase Reset input
+        float PhaseResetInput;
         
         // If the current input is connected, use it and update lastConnectedInputVoltage
         if (inputs[ENV_INPUT_1 + i].isConnected()) {
-            envInput = inputs[ENV_INPUT_1 + i].getVoltage();
-            lastConnectedInputVoltage = envInput;
+            PhaseResetInput = inputs[ENV_INPUT_1 + i].getVoltage();
+            lastConnectedInputVoltage = PhaseResetInput;
         } else {
             // If not connected, use the last connected input's voltage
-            envInput = lastConnectedInputVoltage;
+            PhaseResetInput = lastConnectedInputVoltage;
         }
         
-        if (envInput < 0.0001f){latch[i]= true; }
-        envInput = clamp(envInput, 0.0f, 10.0f);
+        if (PhaseResetInput < 0.0001f){latch[i]= true; }
+        PhaseResetInput = clamp(PhaseResetInput, 0.0f, 10.0f);
  
        // Check if the envelope is rising or falling with hysteresis
         if (risingState[i]) {
             // If it was rising, look for a significant drop before considering it falling
-            if (envInput < prevEnvInput[i]) {
+            if (PhaseResetInput < prevPhaseResetInput[i]) {
                 risingState[i] = false; // Now it's falling
             }
         } else {
             // If it was falling, look for a significant rise before considering it rising
-            if (envInput > prevEnvInput[i]) {
+            if (PhaseResetInput > prevPhaseResetInput[i]) {
                 risingState[i] = true; // Now it's rising
                 lights[IN_LED_1+i].setBrightness(1.0f);        
                 lights[OUT_LED_1a+i].setBrightness(1.0f);        
@@ -249,22 +306,25 @@ void HexMod::process(const ProcessArgs& args) {
             }
         }
 
-        float basePhase = i / 6.0f; // Starting with hexagonal distribution    
+        float basePhase = i / -6.0f; // Starting with hexagonal distribution    
         float targetPhase = basePhase; // Default to base phase
 
         if (NodePosition < 1.0f) {
             // Unison
             targetPhase = linearInterpolate(basePhase, 0.5f, NodePosition);
         } else if (NodePosition < 2.0f) {
-            // Bimodal distribution 
+            // Bimodal distribution
             float bimodalPhase = (i % 2) / 2.0f;
-            targetPhase = linearInterpolate(0.5f, bimodalPhase, NodePosition - 1.0f);
+            float dynamicFactor = -1.0f*(NodePosition - 1.0f)*((i+1.0f)/2.0f);
+            targetPhase = linearInterpolate(0.5f, bimodalPhase*dynamicFactor, NodePosition - 1.0f);
         } else {
-            // Trimodal distribution 
+            float bimodalPhase = (i % 2) / 2.0f;
             float trimodalPhase = (i % 3) / 3.0f;
-            targetPhase = linearInterpolate((i % 2) / 2.0f + 0.25f, trimodalPhase, NodePosition - 2.0f);
-        }
-    
+            float blendFactor = NodePosition - 2.0f; // Gradually changes from 0 to 1 as NodePosition goes from 2.0 to 3.0
+            float adjustedTrimodalPhase = trimodalPhase;
+            adjustedTrimodalPhase = linearInterpolate(bimodalPhase, trimodalPhase, blendFactor*1.0f );         
+            targetPhase = adjustedTrimodalPhase;
+        }    
         targetPhase += place[i];
         
         while (targetPhase >= 1.0f) targetPhase -= 1.0f;
@@ -275,7 +335,17 @@ void HexMod::process(const ProcessArgs& args) {
         if (phaseDiff > 0.5f) phaseDiff -= 1.0f;
         if (phaseDiff < -0.5f) phaseDiff += 1.0f;
 
-        lfoPhase[i] += phaseDiff*0.00002f; //Very slowly relax back to the correct phase
+        if (synclinkEnabled){
+			if (clockSyncPulse){        
+				lfoPhase[i] += phaseDiff;
+			} else {
+				lfoPhase[i] += phaseDiff*(0.02f - 0.019*pow((PhaseResetInput/10.0f),0.01f));
+			}			
+        }else{
+            //Phase returns to the correct spot, rate determined by PhaseGate
+            lfoPhase[i] += phaseDiff*(0.02f - 0.019*pow((PhaseResetInput/10.0f),0.01f));
+        }
+
         // Ensure phase is within [0, 1)
         while (lfoPhase[i] >= 1.0f) lfoPhase[i] -= 1.0f;
         while (lfoPhase[i] < 0.0f) lfoPhase[i] += 1.0f;
@@ -289,9 +359,8 @@ void HexMod::process(const ProcessArgs& args) {
         if (place[i] >= 1.0f) place[i] -= 1.0f; // Wrap 
 
         // Reset LFO phase to 0 at the peak of the envelope
-        if (risingState[i] && latch[i]) {
+        if ((risingState[i] && latch[i]) || (clockSyncPulse)) {
             lfoPhase[i] = 0.0f;
-            lfoOutput[i] = 0.0f;
             place[i] = 0.0f;
             latch[i]= false;
         } 
@@ -324,14 +393,13 @@ void HexMod::process(const ProcessArgs& args) {
         } else {
             for (int i = 0; i < NUM_LIGHTS; i++) {lights[i].setBrightness(0);}
         }
-        
-        
-        prevEnvInput[i] = envInput;
+              
+        prevPhaseResetInput[i] = PhaseResetInput;
     }
    
-        if (LEDprocessCounter > 1500) {LEDprocessCounter=0;    }
-        if (SINprocessCounter > SkipProcesses) {SINprocessCounter=0;    }
-     
+    if (LEDprocessCounter > 1500) {LEDprocessCounter=0;    }
+    if (SINprocessCounter > SkipProcesses) {SINprocessCounter=0;    }
+    clockSyncPulse=false;
 }
 
 void HexMod::updateLEDs(int channel, float voltage) {
@@ -500,6 +568,24 @@ struct HexModWidget : ModuleWidget {
         syncItem->text = "Rate multiplies the Sync Input"; 
         syncItem->hexMod = hexMod;
         menu->addChild(syncItem);
+
+        // Sync and Phase not linked
+        struct SyncLinkEnabledItem : MenuItem {
+            HexMod* hexMod;
+            void onAction(const event::Action& e) override {
+                hexMod->synclinkEnabled = !hexMod->synclinkEnabled;
+            }
+            void step() override {
+                rightText = hexMod->synclinkEnabled ? "✔" : "";
+                MenuItem::step();
+            }
+        };
+
+        SyncLinkEnabledItem* synclinkItem = new SyncLinkEnabledItem;
+        synclinkItem->text = "Sync locks both Clock and Phase"; 
+        synclinkItem->hexMod = hexMod;
+        menu->addChild(synclinkItem);
+
     }
     
 };

@@ -345,7 +345,7 @@ struct EnvelopeArray : Module {
 
                 // Directly use the input trigger voltage if connected
                 if (inputs[_1_INPUT + part].isConnected()) {
-                    in_trig[part] = inputs[_1_INPUT + part].getVoltage()-0.001f; //add a small offset so envelopes can trigger it.
+                    in_trig[part] = inputs[_1_INPUT + part].getVoltage()-0.1f; //add a small offset so envelopes can trigger it.
                 }
                 // Normalize trigger from the left (previous part) if not connected
                 else if (part > 0 && trig[part - 1]) {

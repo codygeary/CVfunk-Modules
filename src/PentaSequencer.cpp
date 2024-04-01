@@ -73,6 +73,9 @@ struct PentaSequencer : Module {
 
     bool onTarget = true;
 
+	int defaultMapping[5] = {0, 1, 2, 3, 4};
+	int* currentMapping = defaultMapping;
+
     dsp::SlewLimiter slewLimiters[5]; // One per output (A-E)
 
     PentaSequencer() {
@@ -151,7 +154,6 @@ struct PentaSequencer : Module {
         int CIRC_CCW_map[5] =  {0, 4, 3, 2, 1};
         int STAR_CCW_map[5] =  {0, 2, 4, 1, 3}; 
 
-        int* currentMapping;
         int* newMapping = nullptr;  // Pointer to hold the new mapping based on the current mode
 
         // Determine the new mapping based on the mode
