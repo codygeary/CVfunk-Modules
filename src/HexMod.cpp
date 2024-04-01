@@ -260,8 +260,7 @@ void HexMod::process(const ProcessArgs& args) {
             } else {
                 SyncTimer.reset(); // Reset the timer for the next trigger interval measurement
                 firstClockPulse = false;
-            }
-            
+            }           
         }
 
         if (syncEnabled) {
@@ -309,6 +308,9 @@ void HexMod::process(const ProcessArgs& args) {
         float basePhase = i / -6.0f; // Starting with hexagonal distribution    
         float targetPhase = basePhase; // Default to base phase
 
+        /////////////////////
+        // NODE positioning logic
+        //
         if (NodePosition < 1.0f) {
             // Unison
             targetPhase = linearInterpolate(basePhase, 0.5f, NodePosition);
@@ -339,11 +341,11 @@ void HexMod::process(const ProcessArgs& args) {
             if (clockSyncPulse){        
                 lfoPhase[i] += phaseDiff;
             } else {
-                lfoPhase[i] += phaseDiff*(0.02f - 0.019*pow((PhaseResetInput/10.0f),0.01f));
+                lfoPhase[i] += phaseDiff*(0.2f*(rate/1000.f)    ) - 0.199*pow((PhaseResetInput/10.0f),0.01f)*(rate/1000.f)   ;
             }            
         }else{
             //Phase returns to the correct spot, rate determined by PhaseGate
-            lfoPhase[i] += phaseDiff*(0.02f - 0.019*pow((PhaseResetInput/10.0f),0.01f));
+            lfoPhase[i] += phaseDiff*(0.2f*(rate/1000.f)   ) - 0.199*pow((PhaseResetInput/10.0f),0.01f)*(rate/1000.f)    ;
         }
 
         // Ensure phase is within [0, 1)
@@ -360,7 +362,9 @@ void HexMod::process(const ProcessArgs& args) {
 
         // Reset LFO phase to 0 at the peak of the envelope
         if ((risingState[i] && latch[i]) || (clockSyncPulse)) {
-            lfoPhase[i] = 0.0f;
+            if(!clockSyncPulse){
+                lfoPhase[i] = 0.0f;
+            }
             place[i] = 0.0f;
             latch[i]= false;
         } 
@@ -377,7 +381,6 @@ void HexMod::process(const ProcessArgs& args) {
 
         //Output Voltage
         outputs[LFO_OUTPUT_1 + i].setVoltage(currentOutput);
-
         if (lightsEnabled) {
             if (LEDprocessCounter > 1500) {
                 // Update LEDs based on LFO output
