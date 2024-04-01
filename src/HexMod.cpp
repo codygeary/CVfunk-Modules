@@ -98,7 +98,7 @@ struct HexMod : Module {
     float place[6] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
     float happy_place[6] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
 
-	bool firstClockPulse = true;
+    bool firstClockPulse = true;
     bool clockSyncPulse = false;
     bool risingState[6] = {}; // Initialize all channels as falling initially
     bool latch[6] = {}; // Initialize all latches
@@ -249,19 +249,19 @@ void HexMod::process(const ProcessArgs& args) {
 
         // Check if the Sync Trigger condition is met
         if (SyncTrigger.process(SyncInputVoltage)) {
-			if (!firstClockPulse){
-				SyncInterval = SyncTimer.time; // Get the accumulated time since the last reset
-				SyncTimer.reset(); // Reset the timer for the next trigger interval measurement
-				SyncTriggered = true;
-		
-				if (synclinkEnabled) {
-					clockSyncPulse = true;
-				}
-			} else {
-				SyncTimer.reset(); // Reset the timer for the next trigger interval measurement
-				firstClockPulse = false;
-			}
-			
+            if (!firstClockPulse){
+                SyncInterval = SyncTimer.time; // Get the accumulated time since the last reset
+                SyncTimer.reset(); // Reset the timer for the next trigger interval measurement
+                SyncTriggered = true;
+        
+                if (synclinkEnabled) {
+                    clockSyncPulse = true;
+                }
+            } else {
+                SyncTimer.reset(); // Reset the timer for the next trigger interval measurement
+                firstClockPulse = false;
+            }
+            
         }
 
         if (syncEnabled) {
@@ -336,11 +336,11 @@ void HexMod::process(const ProcessArgs& args) {
         if (phaseDiff < -0.5f) phaseDiff += 1.0f;
 
         if (synclinkEnabled){
-			if (clockSyncPulse){        
-				lfoPhase[i] += phaseDiff;
-			} else {
-				lfoPhase[i] += phaseDiff*(0.02f - 0.019*pow((PhaseResetInput/10.0f),0.01f));
-			}			
+            if (clockSyncPulse){        
+                lfoPhase[i] += phaseDiff;
+            } else {
+                lfoPhase[i] += phaseDiff*(0.02f - 0.019*pow((PhaseResetInput/10.0f),0.01f));
+            }            
         }else{
             //Phase returns to the correct spot, rate determined by PhaseGate
             lfoPhase[i] += phaseDiff*(0.02f - 0.019*pow((PhaseResetInput/10.0f),0.01f));
