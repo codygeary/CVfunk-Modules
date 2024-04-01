@@ -83,6 +83,7 @@ struct HexMod : Module {
     bool lightsEnabled = true;
     bool syncEnabled = false;
     bool synclinkEnabled = true;
+    bool voctEnabled = false;
 
     float lfoPhase[6] = {0.0f}; // Current LFO phase for each channel
     float prevPhaseResetInput[6] = {}; // Previous envelope input, for peak detection
@@ -121,6 +122,7 @@ struct HexMod : Module {
         json_object_set_new(rootJ, "syncEnabled", json_boolean(syncEnabled));
         json_object_set_new(rootJ, "synclinkEnabled", json_boolean(synclinkEnabled));
         json_object_set_new(rootJ, "SyncInterval", json_real(SyncInterval));
+        json_object_set_new(rootJ, "voctEnabled", json_boolean(voctEnabled));
 
         // Serialize lfoOutput array
         json_t* lfoOutputJ = json_array();
@@ -152,6 +154,12 @@ struct HexMod : Module {
         json_t* syncEnabledJ = json_object_get(rootJ, "syncEnabled");
         if (syncEnabledJ) {
             syncEnabled = json_is_true(syncEnabledJ);
+        }
+ 
+        // Load the state of voctEnabled
+        json_t* voctEnabledJ = json_object_get(rootJ, "voctEnabled");
+        if (voctEnabledJ) {
+            voctEnabled = json_is_true(voctEnabledJ);
         }
 
         // Load the state of syncEnabled
@@ -192,7 +200,7 @@ struct HexMod : Module {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
 
         // Initialize knob parameters with a reasonable range and default values
-        configParam(RATE_KNOB, 0.02f, 10.0f, 2.0f, "Rate, Hz"); // 
+        configParam(RATE_KNOB, 0.0f, 10.0f, 2.0f, "Rate, Hz"); // 
         configParam(NODE_KNOB, 0.0f, 3.0f, 0.0f, "Node Distribution"); // 0: Hexagonal, 1: Unison, 2: Bimodal, 3: Trimodal
 
         configParam(RATE_ATT_KNOB, -1.0f, 1.0f, 0.1f, "Rate Attenuation"); // 
@@ -227,7 +235,13 @@ void HexMod::process(const ProcessArgs& args) {
     if (inputs[RATE_INPUT].isConnected()) {
         rate += inputs[RATE_INPUT].getVoltage()*params[RATE_ATT_KNOB].getValue(); // CV adds to the rate
     }    
-    rate = clamp(rate, 0.02f, 10.0f); 
+ 
+	if (voctEnabled){
+	    rate = clamp(rate, -10.f, 10.0f); 
+	    rate = 261.625565 * pow(2.0, rate);
+	} else {
+	   rate = clamp(rate, 0.01f, 10.0f); 
+	}
 
     // Calculate target phase based on Node knob
     float NodePosition = params[NODE_KNOB].getValue();
@@ -238,7 +252,6 @@ void HexMod::process(const ProcessArgs& args) {
 
     // Process clock sync input
     float SyncInputVoltage;
-    bool SyncTriggered = false;
 
     if (inputs[SYNC_INPUT].isConnected()) {
         // Get the voltage from the SYNC input
@@ -252,7 +265,6 @@ void HexMod::process(const ProcessArgs& args) {
             if (!firstClockPulse){
                 SyncInterval = SyncTimer.time; // Get the accumulated time since the last reset
                 SyncTimer.reset(); // Reset the timer for the next trigger interval measurement
-                SyncTriggered = true;
         
                 if (synclinkEnabled) {
                     clockSyncPulse = true;
@@ -588,6 +600,23 @@ struct HexModWidget : ModuleWidget {
         synclinkItem->text = "Sync locks both Clock and Phase"; 
         synclinkItem->hexMod = hexMod;
         menu->addChild(synclinkItem);
+
+        // Sync and Phase not linked
+        struct VOctEnabledItem : MenuItem {
+            HexMod* hexMod;
+            void onAction(const event::Action& e) override {
+                hexMod->voctEnabled = !hexMod->voctEnabled;
+            }
+            void step() override {
+                rightText = hexMod->voctEnabled ? "✔" : "";
+                MenuItem::step();
+            }
+        };
+
+        VOctEnabledItem* voctItem = new VOctEnabledItem;
+        voctItem->text = "Rate input take v/oct (for audio rate)"; 
+        voctItem->hexMod = hexMod;
+        menu->addChild(voctItem);
 
     }
     
