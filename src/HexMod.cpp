@@ -237,6 +237,7 @@ void HexMod::process(const ProcessArgs& args) {
     }    
  
 	if (voctEnabled){
+        rate = inputs[RATE_INPUT].getVoltage();
 	    rate = clamp(rate, -10.f, 10.0f); 
 	    rate = 261.625565 * pow(2.0, rate);
 	} else {
