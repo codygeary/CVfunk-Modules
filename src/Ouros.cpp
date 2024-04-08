@@ -11,9 +11,38 @@
 
 #include "rack.hpp"
 #include "plugin.hpp"
-#include "CircularBuffer.hpp"
 
 using namespace rack;
+
+template<typename T, size_t Size>
+class CircularBuffer {
+private:
+    T buffer[Size];
+    size_t index = 0;
+
+public:
+    CircularBuffer() {
+        // Initialize buffer to zero
+        std::fill(std::begin(buffer), std::end(buffer), T{});
+    }
+
+    void push(T value) {
+        buffer[index] = value;
+        index = (index + 1) % Size;
+    }
+
+    T& operator[](size_t i) {
+        return buffer[(index + i) % Size];
+    }
+
+    const T& operator[](size_t i) const {
+        return buffer[(index + i) % Size];
+    }
+
+    static constexpr size_t size() {
+        return Size;
+    }
+};
 
 struct Ouros : Module {
 
