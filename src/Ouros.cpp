@@ -94,7 +94,7 @@ struct Ouros : Module {
     // Initialize global variables
 
     dsp::SchmittTrigger SyncTrigger;
-    std::array<CircularBuffer<float, 1024>, 4> waveBuffers;
+	CircularBuffer<float, 1024> waveBuffers[4];
 
     float oscPhase[4] = {0.0f}; // Current oscillator phase for each channel
     float prevPhaseResetInput = 0.0f; // Previous envelope input, for peak detection
