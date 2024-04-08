@@ -140,9 +140,9 @@ struct ImpulseController : Module {
         configParam(SPREAD_PARAM, -1.0f, 1.f, 0.5f, "Spread");
         configParam(DECAY_PARAM, 0.0f, 1.0f, 0.8f, "Decay");
         
-        configParam(LAG_ATT_PARAM, -1.0f, 1.0f, 0.5f, "Lag Attenuverter");
-        configParam(SPREAD_ATT_PARAM, -1.0f, 1.0f, 0.5f, "Spread Attenuverter");
-        configParam(DECAY_ATT_PARAM, -1.0f, 1.0f, 0.5f, "Decay Attenuverter");
+        configParam(LAG_ATT_PARAM, -1.0f, 1.0f, 0.0f, "Lag Attenuverter");
+        configParam(SPREAD_ATT_PARAM, -1.0f, 1.0f, 0.0f, "Spread Attenuverter");
+        configParam(DECAY_ATT_PARAM, -1.0f, 1.0f, 0.0f, "Decay Attenuverter");
 
         configInput(_00_INPUT, "IN");
         configInput(LAG_INPUT, "Lag");
@@ -163,7 +163,7 @@ struct ImpulseController : Module {
     }
 
     void process(const ProcessArgs& args) override {
-        const float baseSampleTime = 2.0f / 44100.0f; // Base sample time for 44.1 kHz 
+        const float baseSampleTime = 2.0f / 44100.0f; // Base sample time to set chunk lengths
         const float ChunkLength = baseSampleTime/args.sampleTime;
 
         // Accumulate elapsed time

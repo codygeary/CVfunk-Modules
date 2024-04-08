@@ -111,7 +111,6 @@ struct HexMod : Module {
     int SINprocessCounter = 0; // Counter to track process cycles
     int SkipProcesses = 4; //Number of process cycles to skip for the big calculation
 
-    float lastConnectedInputVoltage = 0.0f;
     float SyncInterval = 2; //default to 2hz
 
     // Serialization method to save module state
@@ -288,21 +287,15 @@ void HexMod::process(const ProcessArgs& args) {
         // Gate/trigger to Phase Reset input
         float PhaseResetInput;
         
-        // If the current input is connected, use it and update lastConnectedInputVoltage
         if (inputs[ENV_INPUT_1 + i].isConnected()) {
             PhaseResetInput = inputs[ENV_INPUT_1 + i].getVoltage();
-            lastConnectedInputVoltage = PhaseResetInput;
-        } else {
-            // If not connected, use the last connected input's voltage
-            PhaseResetInput = lastConnectedInputVoltage;
         }
         
-        if (PhaseResetInput < 0.0001f){latch[i]= true; }
+        if (PhaseResetInput < 0.01f){latch[i]= true; }
         PhaseResetInput = clamp(PhaseResetInput, 0.0f, 10.0f);
  
        // Check if the envelope is rising or falling with hysteresis
         if (risingState[i]) {
-            // If it was rising, look for a significant drop before considering it falling
             if (PhaseResetInput < prevPhaseResetInput[i]) {
                 risingState[i] = false; // Now it's falling
             }
@@ -354,11 +347,11 @@ void HexMod::process(const ProcessArgs& args) {
             if (clockSyncPulse){        
                 lfoPhase[i] += phaseDiff;
             } else {
-                lfoPhase[i] += phaseDiff*(0.2f*(rate/1000.f)    ) - 0.199*pow((PhaseResetInput/10.0f),0.01f)*(rate/1000.f)   ;
+				lfoPhase[i] += phaseDiff*( ( 0.2f - 0.1999*(PhaseResetInput/10.0f) ) * (rate/1000.f)  )  ;
             }            
         }else{
             //Phase returns to the correct spot, rate determined by PhaseGate
-            lfoPhase[i] += phaseDiff*(0.2f*(rate/1000.f)   ) - 0.199*pow((PhaseResetInput/10.0f),0.01f)*(rate/1000.f)    ;
+			lfoPhase[i] += phaseDiff*( ( 0.2f - 0.1999*(PhaseResetInput/10.0f) ) * (rate/1000.f)  )  ;
         }
 
         // Ensure phase is within [0, 1)
