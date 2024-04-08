@@ -285,7 +285,7 @@ void HexMod::process(const ProcessArgs& args) {
     
     for (int i = 0; i < 6; i++) {
         // Gate/trigger to Phase Reset input
-        float PhaseResetInput;
+        float PhaseResetInput = 0.0f;
         
         if (inputs[ENV_INPUT_1 + i].isConnected()) {
             PhaseResetInput = inputs[ENV_INPUT_1 + i].getVoltage();
