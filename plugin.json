@@ -93,6 +93,14 @@
         "Quantizer"
       ]
     },
+  {
+      "slug": "Ouros",
+      "name": "Ouros",
+      "description": "A experimental phased-feedback stereo oscillator, with display.",
+      "tags": [
+        "Oscillator"
+      ]
+    },
 	{
       "slug": "Magnets",
       "name": "Magnets",
