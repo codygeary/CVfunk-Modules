@@ -14,11 +14,11 @@
 
 using namespace rack;
 
-float linearInterpolate(float a, float b, float fraction) {
-    return a + fraction * (b - a);
-}
-
 struct HexMod : Module {
+	float linearInterpolate(float a, float b, float fraction) {
+		return a + fraction * (b - a);
+	}
+
     enum ParamIds {
         RATE_KNOB,
         NODE_KNOB,
@@ -88,8 +88,6 @@ struct HexMod : Module {
     float lfoPhase[6] = {0.0f}; // Current LFO phase for each channel
     float prevPhaseResetInput[6] = {}; // Previous envelope input, for peak detection
 
-    // Function declarations
-    void process(const ProcessArgs& args) override;
     float calculateTargetPhase(int channel, float NodePosition, float deltaTime, float place);
     void adjustLFOPhase(int channel, float targetPhase, float envInfluence, float deltaTime);
     void updateLEDs(int channel, float voltage);
@@ -195,7 +193,7 @@ struct HexMod : Module {
         }                        
     }
 
-     HexMod() {
+    HexMod() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
 
         // Initialize knob parameters with a reasonable range and default values
@@ -219,197 +217,197 @@ struct HexMod : Module {
             configOutput(LFO_OUTPUT_1 + i, "LFO " + std::to_string(i + 1));
         }
     }
-};
 
-void HexMod::process(const ProcessArgs& args) {
+    void process(const ProcessArgs &args) override {    
 
-    float deltaTime = args.sampleTime; 
-    LEDprocessCounter++;  
-    SINprocessCounter++;  
+		float deltaTime = args.sampleTime; 
+		LEDprocessCounter++;  
+		SINprocessCounter++;  
 
-    //PROCESS INPUTS
+		//PROCESS INPUTS
 
-    // Calculate the rate from the RATE_KNOB and any RATE_INPUT CV
-    float rate = params[RATE_KNOB].getValue();
-    if (inputs[RATE_INPUT].isConnected()) {
-        rate += inputs[RATE_INPUT].getVoltage()*params[RATE_ATT_KNOB].getValue(); // CV adds to the rate
-    }    
+		// Calculate the rate from the RATE_KNOB and any RATE_INPUT CV
+		float rate = params[RATE_KNOB].getValue();
+		if (inputs[RATE_INPUT].isConnected()) {
+			rate += inputs[RATE_INPUT].getVoltage()*params[RATE_ATT_KNOB].getValue(); // CV adds to the rate
+		}    
  
-	if (voctEnabled){
-        rate = inputs[RATE_INPUT].getVoltage();
-	    rate = clamp(rate, -10.f, 10.0f); 
-	    rate = 261.625565 * pow(2.0, rate);
-	} else {
-	   rate = clamp(rate, 0.01f, 10.0f); 
-	}
+		if (voctEnabled){
+			rate = inputs[RATE_INPUT].getVoltage();
+			rate = clamp(rate, -10.f, 10.0f); 
+			rate = 261.625565 * pow(2.0, rate);
+		} else {
+		   rate = clamp(rate, 0.01f, 10.0f); 
+		}
 
-    // Calculate target phase based on Node knob
-    float NodePosition = params[NODE_KNOB].getValue();
-    if (inputs[NODE_INPUT].isConnected()) {
-        NodePosition += inputs[NODE_INPUT].getVoltage()*params[NODE_ATT_KNOB].getValue(); // CV adds to the position
-    }
-    NodePosition = clamp(NodePosition, 0.0f, 3.0f); 
+		// Calculate target phase based on Node knob
+		float NodePosition = params[NODE_KNOB].getValue();
+		if (inputs[NODE_INPUT].isConnected()) {
+			NodePosition += inputs[NODE_INPUT].getVoltage()*params[NODE_ATT_KNOB].getValue(); // CV adds to the position
+		}
+		NodePosition = clamp(NodePosition, 0.0f, 3.0f); 
 
-    // Process clock sync input
-    float SyncInputVoltage;
+		// Process clock sync input
+		float SyncInputVoltage;
 
-    if (inputs[SYNC_INPUT].isConnected()) {
-        // Get the voltage from the SYNC input
-        SyncInputVoltage = inputs[SYNC_INPUT].getVoltage();
+		if (inputs[SYNC_INPUT].isConnected()) {
+			// Get the voltage from the SYNC input
+			SyncInputVoltage = inputs[SYNC_INPUT].getVoltage();
 
-        // Accumulate time in the timer
-        SyncTimer.process(args.sampleTime);
+			// Accumulate time in the timer
+			SyncTimer.process(args.sampleTime);
 
-        // Check if the Sync Trigger condition is met
-        if (SyncTrigger.process(SyncInputVoltage)) {
-            if (!firstClockPulse){
-                SyncInterval = SyncTimer.time; // Get the accumulated time since the last reset
-                SyncTimer.reset(); // Reset the timer for the next trigger interval measurement
-        
-                if (synclinkEnabled) {
-                    clockSyncPulse = true;
-                }
-            } else {
-                SyncTimer.reset(); // Reset the timer for the next trigger interval measurement
-                firstClockPulse = false;
-            }           
-        }
+			// Check if the Sync Trigger condition is met
+			if (SyncTrigger.process(SyncInputVoltage)) {
+				if (!firstClockPulse){
+					SyncInterval = SyncTimer.time; // Get the accumulated time since the last reset
+					SyncTimer.reset(); // Reset the timer for the next trigger interval measurement
+		
+					if (synclinkEnabled) {
+						clockSyncPulse = true;
+					}
+				} else {
+					SyncTimer.reset(); // Reset the timer for the next trigger interval measurement
+					firstClockPulse = false;
+				}           
+			}
 
-        if (syncEnabled) {
-            rate *= 1 / SyncInterval; // Rate knob becomes a multiplier when Sync is patched
-        } else {
-            rate = 1 / SyncInterval; // Rate knob is deactivated when Sync is patched
-        }
-    }
+			if (syncEnabled) {
+				rate *= 1 / SyncInterval; // Rate knob becomes a multiplier when Sync is patched
+			} else {
+				rate = 1 / SyncInterval; // Rate knob is deactivated when Sync is patched
+			}
+		}
 
-    
-    for (int i = 0; i < 6; i++) {
-        // Gate/trigger to Phase Reset input
-        float PhaseResetInput = 0.0f;
-        
-        if (inputs[ENV_INPUT_1 + i].isConnected()) {
-            PhaseResetInput = inputs[ENV_INPUT_1 + i].getVoltage();
-        }
-        
-        if (PhaseResetInput < 0.01f){latch[i]= true; }
-        PhaseResetInput = clamp(PhaseResetInput, 0.0f, 10.0f);
+	
+		for (int i = 0; i < 6; i++) {
+			// Gate/trigger to Phase Reset input
+			float PhaseResetInput = 0.0f;
+		
+			if (inputs[ENV_INPUT_1 + i].isConnected()) {
+				PhaseResetInput = inputs[ENV_INPUT_1 + i].getVoltage();
+			}
+		
+			if (PhaseResetInput < 0.01f){latch[i]= true; }
+			PhaseResetInput = clamp(PhaseResetInput, 0.0f, 10.0f);
  
-       // Check if the envelope is rising or falling with hysteresis
-        if (risingState[i]) {
-            if (PhaseResetInput < prevPhaseResetInput[i]) {
-                risingState[i] = false; // Now it's falling
-            }
-        } else {
-            // If it was falling, look for a significant rise before considering it rising
-            if (PhaseResetInput > prevPhaseResetInput[i]) {
-                risingState[i] = true; // Now it's rising
-                lights[IN_LED_1+i].setBrightness(1.0f);        
-                lights[OUT_LED_1a+i].setBrightness(1.0f);        
-                lights[OUT_LED_1b+i].setBrightness(1.0f);        
-                lights[OUT_LED_1c+i].setBrightness(1.0f);        
-                lights[OUT_LED_1d+i].setBrightness(1.0f);        
-            }
-        }
+		   // Check if the envelope is rising or falling with hysteresis
+			if (risingState[i]) {
+				if (PhaseResetInput < prevPhaseResetInput[i]) {
+					risingState[i] = false; // Now it's falling
+				}
+			} else {
+				// If it was falling, look for a significant rise before considering it rising
+				if (PhaseResetInput > prevPhaseResetInput[i]) {
+					risingState[i] = true; // Now it's rising
+					lights[IN_LED_1+i].setBrightness(1.0f);        
+					lights[OUT_LED_1a+i].setBrightness(1.0f);        
+					lights[OUT_LED_1b+i].setBrightness(1.0f);        
+					lights[OUT_LED_1c+i].setBrightness(1.0f);        
+					lights[OUT_LED_1d+i].setBrightness(1.0f);        
+				}
+			}
 
-        float basePhase = i / -6.0f; // Starting with hexagonal distribution    
-        float targetPhase = basePhase; // Default to base phase
+			float basePhase = i / -6.0f; // Starting with hexagonal distribution    
+			float targetPhase = basePhase; // Default to base phase
 
-        /////////////////////
-        // NODE positioning logic
-        //
-        if (NodePosition < 1.0f) {
-            // Unison
-            targetPhase = linearInterpolate(basePhase, 0.5f, NodePosition);
-        } else if (NodePosition < 2.0f) {
-            // Bimodal distribution
-            float bimodalPhase = (i % 2) / 2.0f;
-            float dynamicFactor = -1.0f*(NodePosition - 1.0f)*((i+1.0f)/2.0f);
-            targetPhase = linearInterpolate(0.5f, bimodalPhase*dynamicFactor, NodePosition - 1.0f);
-        } else {
-            float bimodalPhase = (i % 2) / 2.0f;
-            float trimodalPhase = (i % 3) / 3.0f;
-            float blendFactor = NodePosition - 2.0f; // Gradually changes from 0 to 1 as NodePosition goes from 2.0 to 3.0
-            float adjustedTrimodalPhase = trimodalPhase;
-            adjustedTrimodalPhase = linearInterpolate(bimodalPhase, trimodalPhase, blendFactor*1.0f );         
-            targetPhase = adjustedTrimodalPhase;
-        }    
-        targetPhase += place[i];
-        
-        while (targetPhase >= 1.0f) targetPhase -= 1.0f;
-        while (targetPhase < 0.0f) targetPhase += 1.0f;
+			/////////////////////
+			// NODE positioning logic
+			//
+			if (NodePosition < 1.0f) {
+				// Unison
+				targetPhase = linearInterpolate(basePhase, 0.5f, NodePosition);
+			} else if (NodePosition < 2.0f) {
+				// Bimodal distribution
+				float bimodalPhase = (i % 2) / 2.0f;
+				float dynamicFactor = -1.0f*(NodePosition - 1.0f)*((i+1.0f)/2.0f);
+				targetPhase = linearInterpolate(0.5f, bimodalPhase*dynamicFactor, NodePosition - 1.0f);
+			} else {
+				float bimodalPhase = (i % 2) / 2.0f;
+				float trimodalPhase = (i % 3) / 3.0f;
+				float blendFactor = NodePosition - 2.0f; // Gradually changes from 0 to 1 as NodePosition goes from 2.0 to 3.0
+				float adjustedTrimodalPhase = trimodalPhase;
+				adjustedTrimodalPhase = linearInterpolate(bimodalPhase, trimodalPhase, blendFactor*1.0f );         
+				targetPhase = adjustedTrimodalPhase;
+			}    
+			targetPhase += place[i];
+		
+			while (targetPhase >= 1.0f) targetPhase -= 1.0f;
+			while (targetPhase < 0.0f) targetPhase += 1.0f;
 
-        float phaseDiff = targetPhase - lfoPhase[i];
-        // Ensure phaseDiff is within the -0.5 to 0.5 range to find the shortest path
-        if (phaseDiff > 0.5f) phaseDiff -= 1.0f;
-        if (phaseDiff < -0.5f) phaseDiff += 1.0f;
+			float phaseDiff = targetPhase - lfoPhase[i];
+			// Ensure phaseDiff is within the -0.5 to 0.5 range to find the shortest path
+			if (phaseDiff > 0.5f) phaseDiff -= 1.0f;
+			if (phaseDiff < -0.5f) phaseDiff += 1.0f;
 
-        if (synclinkEnabled){
-            if (clockSyncPulse){        
-                lfoPhase[i] += phaseDiff;
-            } else {
+			if (synclinkEnabled){
+				if (clockSyncPulse){        
+					lfoPhase[i] += phaseDiff;
+				} else {
+					lfoPhase[i] += phaseDiff*( ( 0.2f - 0.1999*(PhaseResetInput/10.0f) ) * (rate/1000.f)  )  ;
+				}            
+			}else{
+				//Phase returns to the correct spot, rate determined by PhaseGate
 				lfoPhase[i] += phaseDiff*( ( 0.2f - 0.1999*(PhaseResetInput/10.0f) ) * (rate/1000.f)  )  ;
-            }            
-        }else{
-            //Phase returns to the correct spot, rate determined by PhaseGate
-			lfoPhase[i] += phaseDiff*( ( 0.2f - 0.1999*(PhaseResetInput/10.0f) ) * (rate/1000.f)  )  ;
-        }
+			}
 
-        // Ensure phase is within [0, 1)
-        while (lfoPhase[i] >= 1.0f) lfoPhase[i] -= 1.0f;
-        while (lfoPhase[i] < 0.0f) lfoPhase[i] += 1.0f;
+			// Ensure phase is within [0, 1)
+			while (lfoPhase[i] >= 1.0f) lfoPhase[i] -= 1.0f;
+			while (lfoPhase[i] < 0.0f) lfoPhase[i] += 1.0f;
 
-        // Update the LFO phase based on the rate
-        lfoPhase[i] += rate * deltaTime ;        
-        if (lfoPhase[i] >= 1.0f) lfoPhase[i] -= 1.0f; // Wrap the phase
+			// Update the LFO phase based on the rate
+			lfoPhase[i] += rate * deltaTime ;        
+			if (lfoPhase[i] >= 1.0f) lfoPhase[i] -= 1.0f; // Wrap the phase
 
-        place[i] += rate * deltaTime;
+			place[i] += rate * deltaTime;
  
-        if (place[i] >= 1.0f) place[i] -= 1.0f; // Wrap 
+			if (place[i] >= 1.0f) place[i] -= 1.0f; // Wrap 
 
-        // Reset LFO phase to 0 at the peak of the envelope
-        if ((risingState[i] && latch[i]) || (clockSyncPulse)) {
-            if(!clockSyncPulse){
-                lfoPhase[i] = 0.0f;
-            }
-            place[i] = 0.0f;
-            latch[i]= false;
-        } 
+			// Reset LFO phase to 0 at the peak of the envelope
+			if ((risingState[i] && latch[i]) || (clockSyncPulse)) {
+				if(!clockSyncPulse){
+					lfoPhase[i] = 0.0f;
+				}
+				place[i] = 0.0f;
+				latch[i]= false;
+			} 
 
-        float currentOutput = outputs[LFO_OUTPUT_1 + i].getVoltage();
-        if (SINprocessCounter > SkipProcesses) {
-            // Generate LFO output using the sine function and the adjusted phase
-            lfoOutput[i] = 5.0f * sinf(2.0f * M_PI * lfoPhase[i]);
-            nextChunk[i] = lfoOutput[i]-currentOutput;
-        }
-    
-        // Since we process 1/N samples, linearly interpolate the rest
-        currentOutput += nextChunk[i] * 1/SkipProcesses;
+			float currentOutput = outputs[LFO_OUTPUT_1 + i].getVoltage();
+			if (SINprocessCounter > SkipProcesses) {
+				// Generate LFO output using the sine function and the adjusted phase
+				lfoOutput[i] = 5.0f * sinf(2.0f * M_PI * lfoPhase[i]);
+				nextChunk[i] = lfoOutput[i]-currentOutput;
+			}
+	
+			// Since we process 1/N samples, linearly interpolate the rest
+			currentOutput += nextChunk[i] * 1/SkipProcesses;
 
-        //Output Voltage
-        outputs[LFO_OUTPUT_1 + i].setVoltage(currentOutput);
-        if (lightsEnabled) {
-            if (LEDprocessCounter > 1500) {
-                // Update LEDs based on LFO output
-                updateLEDs(i, lfoOutput[i]);
+			//Output Voltage
+			outputs[LFO_OUTPUT_1 + i].setVoltage(currentOutput);
+			if (lightsEnabled) {
+				if (LEDprocessCounter > 1500) {
+					// Update LEDs based on LFO output
+					updateLEDs(i, lfoOutput[i]);
 
-                float brightness = lights[IN_LED_1+i].getBrightness(); 
-                lights[IN_LED_1+i].setBrightness(brightness*0.9f);        
-                lights[OUT_LED_1a+i].setBrightness(brightness*0.9f);        
-                lights[OUT_LED_1b+i].setBrightness(brightness*0.9f);        
-                lights[OUT_LED_1c+i].setBrightness(brightness*0.9f);        
-                lights[OUT_LED_1d+i].setBrightness(brightness*0.9f);        
-            }
-        } else {
-            for (int i = 0; i < NUM_LIGHTS; i++) {lights[i].setBrightness(0);}
-        }
-              
-        prevPhaseResetInput[i] = PhaseResetInput;
-    }
+					float brightness = lights[IN_LED_1+i].getBrightness(); 
+					lights[IN_LED_1+i].setBrightness(brightness*0.9f);        
+					lights[OUT_LED_1a+i].setBrightness(brightness*0.9f);        
+					lights[OUT_LED_1b+i].setBrightness(brightness*0.9f);        
+					lights[OUT_LED_1c+i].setBrightness(brightness*0.9f);        
+					lights[OUT_LED_1d+i].setBrightness(brightness*0.9f);        
+				}
+			} else {
+				for (int i = 0; i < NUM_LIGHTS; i++) {lights[i].setBrightness(0);}
+			}
+			  
+			prevPhaseResetInput[i] = PhaseResetInput;
+		}
    
-    if (LEDprocessCounter > 1500) {LEDprocessCounter=0;    }
-    if (SINprocessCounter > SkipProcesses) {SINprocessCounter=0;    }
-    clockSyncPulse=false;
-}
+		if (LEDprocessCounter > 1500) {LEDprocessCounter=0;    }
+		if (SINprocessCounter > SkipProcesses) {SINprocessCounter=0;    }
+		clockSyncPulse=false;
+	}
+};
 
 void HexMod::updateLEDs(int channel, float voltage) {
     // Ensure we do not exceed the array bounds
