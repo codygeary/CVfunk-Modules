@@ -532,8 +532,8 @@ struct HexModWidget : ModuleWidget {
         addInput(createInput<PJ301MPort>(knobStartPos.plus(Vec(0.5*knobSpacing+2, 40)), module, HexMod::SYNC_INPUT));
 
     }
-    
-    void appendContextMenu(Menu* menu) {
+
+    void appendContextMenu(Menu* menu) override {
         ModuleWidget::appendContextMenu(menu);
 
         HexMod* hexMod = dynamic_cast<HexMod*>(module);

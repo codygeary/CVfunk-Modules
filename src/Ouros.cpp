@@ -119,7 +119,7 @@ struct Ouros : Module {
 
      }
 
-    void process(const ProcessArgs& args) {
+    void process(const ProcessArgs &args) override {    
 
         float deltaTime = args.sampleTime; 
 
