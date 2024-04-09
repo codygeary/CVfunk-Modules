@@ -18,6 +18,7 @@ void init(Plugin* p) {
 	p->addModel(modelCollatz);
 	p->addModel(modelStrings);
 	p->addModel(modelMagnets);
+	p->addModel(modelOuros);
 
 
 	// Any other plugin initialization may go here.

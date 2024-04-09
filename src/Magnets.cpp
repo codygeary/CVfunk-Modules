@@ -128,7 +128,7 @@ struct Magnets : Module {
         }     
     }//Magnets()
 
-    void process(const ProcessArgs& args) {
+    void process(const ProcessArgs &args) override {    
         // Read parameters and apply attenuations from CV inputs
         float temperature = params[TEMP_PARAM].getValue();
         float polarization = params[POLARIZATION_PARAM].getValue();

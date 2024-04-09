@@ -98,176 +98,174 @@ struct Collatz : Module {
         configLight(COMPLETION_LIGHT, "Completion Indicator");
     }
 
-    // Additional method signatures
-    void process(const ProcessArgs& args) override;
     void advanceSequence();
-};
 
-void Collatz::process(const ProcessArgs& args) {
+    void process(const ProcessArgs &args) override {    
 
-    // Calculate the potential starting number every cycle
-    float knobValue = params[START_NUMBER].getValue();
-    float cvValue = inputs[START_NUMBER_CV].isConnected() ?
-                    inputs[START_NUMBER_CV].getVoltage() : 0.0f;
-    cvValue *= params[START_NUMBER_ATT].getValue();
-    int startingNumber = std::abs(static_cast<int>((knobValue + 100*cvValue)));
+		// Calculate the potential starting number every cycle
+		float knobValue = params[START_NUMBER].getValue();
+		float cvValue = inputs[START_NUMBER_CV].isConnected() ?
+						inputs[START_NUMBER_CV].getVoltage() : 0.0f;
+		cvValue *= params[START_NUMBER_ATT].getValue();
+		int startingNumber = std::abs(static_cast<int>((knobValue + 100*cvValue)));
 
-    // Calculate the potential starting number every cycle
-    float beatModIN = params[BEAT_MODULUS].getValue();
-    float beatModAtt = params[BEAT_MODULUS_ATT].getValue();
-    float beatModCV = inputs[BEAT_MODULUS_CV].isConnected() ?
-                    inputs[BEAT_MODULUS_CV].getVoltage() : 0.0f;
-    beatMod = std::abs(static_cast<int>(beatModIN+beatModAtt*10*beatModCV));
+		// Calculate the potential starting number every cycle
+		float beatModIN = params[BEAT_MODULUS].getValue();
+		float beatModAtt = params[BEAT_MODULUS_ATT].getValue();
+		float beatModCV = inputs[BEAT_MODULUS_CV].isConnected() ?
+						inputs[BEAT_MODULUS_CV].getVoltage() : 0.0f;
+		beatMod = std::abs(static_cast<int>(beatModIN+beatModAtt*10*beatModCV));
    
-    if (currentNumber == 0){
-        modNumber = startingNumber % beatMod;
-        steps = modNumber;
-        if (modNumber<1) {accents = 0;} //avoid divide by zero 
-        else { accents = floor((currentNumber/modNumber) % beatMod);}
-    }
+		if (currentNumber == 0){
+			modNumber = startingNumber % beatMod;
+			steps = modNumber;
+			if (modNumber<1) {accents = 0;} //avoid divide by zero 
+			else { accents = floor((currentNumber/modNumber) % beatMod);}
+		}
 
-    // Display update logic
-    if (digitalDisplay) {
-        if (sequenceRunning) {
-            digitalDisplay->text = std::to_string(currentNumber) + " mod " + std::to_string(beatMod);
-            modNumber = currentNumber % beatMod;
-            steps = modNumber ;
-            if (modNumber<1) {accents = 0;} //avoid divide by zero 
-            else { accents = floor((currentNumber/modNumber) % beatMod);}
+		// Display update logic
+		if (digitalDisplay) {
+			if (sequenceRunning) {
+				digitalDisplay->text = std::to_string(currentNumber) + " mod " + std::to_string(beatMod);
+				modNumber = currentNumber % beatMod;
+				steps = modNumber ;
+				if (modNumber<1) {accents = 0;} //avoid divide by zero 
+				else { accents = floor((currentNumber/modNumber) % beatMod);}
 
-            if (modNumberDisplay) {
-                std::string displayText = std::to_string(steps) + " : " + std::to_string(accents);
-                modNumberDisplay->text = displayText; 
-            }
-            outputs[COMPLETION_OUTPUT].setVoltage(0.0f);
-            lights[COMPLETION_LIGHT].setBrightness(0);
-        } else {
-            digitalDisplay->text = std::to_string(startingNumber) + " mod " + std::to_string(beatMod);
-            modNumber = startingNumber % beatMod;
-            steps = modNumber;
-             if (modNumber<1) {//avoid divide by zero 
-                accents = 0;
-            } else {
-                accents = floor((startingNumber/modNumber) % beatMod);
-            }
-                     
-            if (modNumberDisplay) {
-                std::string displayText = std::to_string(steps) + " : " + std::to_string(accents) ;
-                modNumberDisplay->text = displayText; 
-            }
-            
-            outputs[COMPLETION_OUTPUT].setVoltage(5.0f);
-            lights[COMPLETION_LIGHT].setBrightness(1);
-        }
-    } 
+				if (modNumberDisplay) {
+					std::string displayText = std::to_string(steps) + " : " + std::to_string(accents);
+					modNumberDisplay->text = displayText; 
+				}
+				outputs[COMPLETION_OUTPUT].setVoltage(0.0f);
+				lights[COMPLETION_LIGHT].setBrightness(0);
+			} else {
+				digitalDisplay->text = std::to_string(startingNumber) + " mod " + std::to_string(beatMod);
+				modNumber = startingNumber % beatMod;
+				steps = modNumber;
+				 if (modNumber<1) {//avoid divide by zero 
+					accents = 0;
+				} else {
+					accents = floor((startingNumber/modNumber) % beatMod);
+				}
+					 
+				if (modNumberDisplay) {
+					std::string displayText = std::to_string(steps) + " : " + std::to_string(accents) ;
+					modNumberDisplay->text = displayText; 
+				}
+			
+				outputs[COMPLETION_OUTPUT].setVoltage(5.0f);
+				lights[COMPLETION_LIGHT].setBrightness(1);
+			}
+		} 
 
-    // Handle reset logic
-    if (resetTrigger.process(params[RESET_BUTTON_PARAM].getValue()) || 
-        resetTrigger.process(inputs[RESET_INPUT].getVoltage()-0.01f)) {
-        sequenceRunning = false;
-        rhythmStepIndex = 0;
-        currentNumber = 0;
-        lights[RUN_LIGHT].setBrightness(0);      
-        outputs[GATE_OUTPUT].setVoltage(0.0f);
-        outputs[ACCENT_OUTPUT].setVoltage(0.0f);
-        lights[GATE_LIGHT].setBrightness(0);
-        lights[ACCENT_LIGHT].setBrightness(0);
-    }
+		// Handle reset logic
+		if (resetTrigger.process(params[RESET_BUTTON_PARAM].getValue()) || 
+			resetTrigger.process(inputs[RESET_INPUT].getVoltage()-0.01f)) {
+			sequenceRunning = false;
+			rhythmStepIndex = 0;
+			currentNumber = 0;
+			lights[RUN_LIGHT].setBrightness(0);      
+			outputs[GATE_OUTPUT].setVoltage(0.0f);
+			outputs[ACCENT_OUTPUT].setVoltage(0.0f);
+			lights[GATE_LIGHT].setBrightness(0);
+			lights[ACCENT_LIGHT].setBrightness(0);
+		}
 
-    // Handle trigger logic
-    if ( (sampleTrigger.process(inputs[START_INPUT].getVoltage()) || params[START_BUTTON_PARAM].getValue() > 0) && !sequenceRunning && !sequenceTriggered) {
-        sequenceTriggered = true;  // Mark that a sequence start is pending
-         lights[RUN_LIGHT].setBrightness(1);      
-    }
-        
-    // Clock handling logic
-    bool externalClockConnected = inputs[CLOCK_INPUT].isConnected();
-    if (externalClockConnected && clockTrigger.process(inputs[CLOCK_INPUT].getVoltage()-0.01f)) {
-        if (sequenceTriggered) {
-            // Reset necessary variables for starting the sequence
-            currentNumber = startingNumber;
-            sequenceRunning = true;
-            sequenceTriggered = false; // Reset trigger flag after starting the sequence
-            rhythmStepIndex = 0; // Reset rhythm index if needed
-        } else if (sequenceRunning ) {
-            advanceSequence();
-        }
+		// Handle trigger logic
+		if ( (sampleTrigger.process(inputs[START_INPUT].getVoltage()) || params[START_BUTTON_PARAM].getValue() > 0) && !sequenceRunning && !sequenceTriggered) {
+			sequenceTriggered = true;  // Mark that a sequence start is pending
+			 lights[RUN_LIGHT].setBrightness(1);      
+		}
+		
+		// Clock handling logic
+		bool externalClockConnected = inputs[CLOCK_INPUT].isConnected();
+		if (externalClockConnected && clockTrigger.process(inputs[CLOCK_INPUT].getVoltage()-0.01f)) {
+			if (sequenceTriggered) {
+				// Reset necessary variables for starting the sequence
+				currentNumber = startingNumber;
+				sequenceRunning = true;
+				sequenceTriggered = false; // Reset trigger flag after starting the sequence
+				rhythmStepIndex = 0; // Reset rhythm index if needed
+			} else if (sequenceRunning ) {
+				advanceSequence();
+			}
 
-        // Update lastClockTime for rate calculation
-        if (firstPulseReceived) {clockRate = 1.0f / lastClockTime;}
-        lastClockTime = 0.0f;
-        firstPulseReceived = true;
-    } 
+			// Update lastClockTime for rate calculation
+			if (firstPulseReceived) {clockRate = 1.0f / lastClockTime;}
+			lastClockTime = 0.0f;
+			firstPulseReceived = true;
+		} 
 
-    // Accumulate time since the last clock pulse for rate calculation
-    if (firstPulseReceived && externalClockConnected) {
-        lastClockTime += args.sampleTime;
-    } 
-     
-    // rhythm and output logic
-    if (sequenceRunning) {
-        steps = modNumber ;
-        if (modNumber<1) {accents = 0;} //avoid divide by zero 
-        else { accents = floor((currentNumber/modNumber) % beatMod);}
+		// Accumulate time since the last clock pulse for rate calculation
+		if (firstPulseReceived && externalClockConnected) {
+			lastClockTime += args.sampleTime;
+		} 
+	 
+		// rhythm and output logic
+		if (sequenceRunning) {
+			steps = modNumber ;
+			if (modNumber<1) {accents = 0;} //avoid divide by zero 
+			else { accents = floor((currentNumber/modNumber) % beatMod);}
 
-        accumulatedTime += args.sampleTime;
-        accumulatedTimeB += args.sampleTime;
-        if (steps>=1){ //avoid divide by zero 
-                float stepDuration = 1.0f / clockRate / steps; 
-                if (accumulatedTime < stepDuration/2) {
-                    gatePulse=5;
-                } else {gatePulse=0;}
-                if (accumulatedTime >= stepDuration) {
-                    accumulatedTime -= stepDuration;
-                }
-        } else {
-                float stepDuration = 1.0f / clockRate / 1.0f; //avoid div by zero 
-                if (accumulatedTime < stepDuration/2) {
-                    gatePulse=5;
-                } else {gatePulse=0;}
-                if (accumulatedTime >= stepDuration) {
-                    accumulatedTime -= stepDuration;
-                }
-        }
+			accumulatedTime += args.sampleTime;
+			accumulatedTimeB += args.sampleTime;
+			if (steps>=1){ //avoid divide by zero 
+					float stepDuration = 1.0f / clockRate / steps; 
+					if (accumulatedTime < stepDuration/2) {
+						gatePulse=5;
+					} else {gatePulse=0;}
+					if (accumulatedTime >= stepDuration) {
+						accumulatedTime -= stepDuration;
+					}
+			} else {
+					float stepDuration = 1.0f / clockRate / 1.0f; //avoid div by zero 
+					if (accumulatedTime < stepDuration/2) {
+						gatePulse=5;
+					} else {gatePulse=0;}
+					if (accumulatedTime >= stepDuration) {
+						accumulatedTime -= stepDuration;
+					}
+			}
 
-        if (accents>=1){ //avoid divide by zero 
-                float accentDuration = 1.0f / clockRate / accents;
-                if (accumulatedTimeB < accentDuration/2) {
-                    accentPulse=5;
-                } else {accentPulse=0;}
-                if (accumulatedTimeB >= accentDuration) {
-                    accumulatedTimeB -= accentDuration;
-                } 
-        } else {
-                float accentDuration = 1.0f / clockRate / 1.0f;
-                if (accumulatedTimeB < accentDuration/2) {
-                    accentPulse=5;
-                } else {accentPulse=0;}
-                if (accumulatedTimeB >= accentDuration) {
-                    accumulatedTimeB -= accentDuration;
-                } 
-        }
+			if (accents>=1){ //avoid divide by zero 
+					float accentDuration = 1.0f / clockRate / accents;
+					if (accumulatedTimeB < accentDuration/2) {
+						accentPulse=5;
+					} else {accentPulse=0;}
+					if (accumulatedTimeB >= accentDuration) {
+						accumulatedTimeB -= accentDuration;
+					} 
+			} else {
+					float accentDuration = 1.0f / clockRate / 1.0f;
+					if (accumulatedTimeB < accentDuration/2) {
+						accentPulse=5;
+					} else {accentPulse=0;}
+					if (accumulatedTimeB >= accentDuration) {
+						accumulatedTimeB -= accentDuration;
+					} 
+			}
 
-        if (externalClockConnected){
-        // Set gate and accent outputs
-            //for step or accents =0 suppress outputs
-            if (steps>=1){outputs[GATE_OUTPUT].setVoltage(gatePulse);
-            }else {outputs[GATE_OUTPUT].setVoltage(0.0f);}
-            if (accents>=1){outputs[ACCENT_OUTPUT].setVoltage(accentPulse);
-            }else {outputs[ACCENT_OUTPUT].setVoltage(0.0f);}
-            if (steps>=1){lights[GATE_LIGHT].setBrightness(gatePulse/5);
-            }else {lights[GATE_LIGHT].setBrightness(0);}
-            if (accents>=1){lights[ACCENT_LIGHT].setBrightness(accentPulse/5);
-            }else {lights[ACCENT_LIGHT].setBrightness(0);}
-        } else {
-            outputs[GATE_OUTPUT].setVoltage(0.0f);
-            outputs[ACCENT_OUTPUT].setVoltage(0.0f);
-            lights[GATE_LIGHT].setBrightness(0);
-            lights[ACCENT_LIGHT].setBrightness(0);
-            firstPulseReceived = false;
-        }   
-    }// if (sequenceRunning)
-}//void Collatz::process
+			if (externalClockConnected){
+			// Set gate and accent outputs
+				//for step or accents =0 suppress outputs
+				if (steps>=1){outputs[GATE_OUTPUT].setVoltage(gatePulse);
+				}else {outputs[GATE_OUTPUT].setVoltage(0.0f);}
+				if (accents>=1){outputs[ACCENT_OUTPUT].setVoltage(accentPulse);
+				}else {outputs[ACCENT_OUTPUT].setVoltage(0.0f);}
+				if (steps>=1){lights[GATE_LIGHT].setBrightness(gatePulse/5);
+				}else {lights[GATE_LIGHT].setBrightness(0);}
+				if (accents>=1){lights[ACCENT_LIGHT].setBrightness(accentPulse/5);
+				}else {lights[ACCENT_LIGHT].setBrightness(0);}
+			} else {
+				outputs[GATE_OUTPUT].setVoltage(0.0f);
+				outputs[ACCENT_OUTPUT].setVoltage(0.0f);
+				lights[GATE_LIGHT].setBrightness(0);
+				lights[ACCENT_LIGHT].setBrightness(0);
+				firstPulseReceived = false;
+			}   
+		}// if (sequenceRunning)
+	}//void process
+};
 
 void Collatz::advanceSequence() {
     if (currentNumber <= 0) {
