@@ -72,7 +72,10 @@ struct Collatz : Module {
     
     float gatePulse=0.0f;
     float accentPulse=0.0f;
-
+ 
+    int processCount = 0;
+    int processSkip = 1000;
+    
     Collatz() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
 
@@ -123,41 +126,45 @@ struct Collatz : Module {
 			else { accents = floor((currentNumber/modNumber) % beatMod);}
 		}
 
-		// Display update logic
-		if (digitalDisplay) {
-			if (sequenceRunning) {
-				digitalDisplay->text = std::to_string(currentNumber) + " mod " + std::to_string(beatMod);
-				modNumber = currentNumber % beatMod;
-				steps = modNumber ;
-				if (modNumber<1) {accents = 0;} //avoid divide by zero 
-				else { accents = floor((currentNumber/modNumber) % beatMod);}
+        processCount++;
+        if (processCount>processSkip){
+            processCount = 0;
+			// Display update logic
+			if (digitalDisplay) {
+				if (sequenceRunning) {
+					digitalDisplay->text = std::to_string(currentNumber) + " mod " + std::to_string(beatMod);
+					modNumber = currentNumber % beatMod;
+					steps = modNumber ;
+					if (modNumber<1) {accents = 0;} //avoid divide by zero 
+					else { accents = floor((currentNumber/modNumber) % beatMod);}
 
-				if (modNumberDisplay) {
-					std::string displayText = std::to_string(steps) + " : " + std::to_string(accents);
-					modNumberDisplay->text = displayText; 
-				}
-				outputs[COMPLETION_OUTPUT].setVoltage(0.0f);
-				lights[COMPLETION_LIGHT].setBrightness(0);
-			} else {
-				digitalDisplay->text = std::to_string(startingNumber) + " mod " + std::to_string(beatMod);
-				modNumber = startingNumber % beatMod;
-				steps = modNumber;
-				 if (modNumber<1) {//avoid divide by zero 
-					accents = 0;
+					if (modNumberDisplay) {
+						std::string displayText = std::to_string(steps) + " : " + std::to_string(accents);
+						modNumberDisplay->text = displayText; 
+					}
+					outputs[COMPLETION_OUTPUT].setVoltage(0.0f);
+					lights[COMPLETION_LIGHT].setBrightness(0);
 				} else {
-					accents = floor((startingNumber/modNumber) % beatMod);
-				}
+					digitalDisplay->text = std::to_string(startingNumber) + " mod " + std::to_string(beatMod);
+					modNumber = startingNumber % beatMod;
+					steps = modNumber;
+					 if (modNumber<1) {//avoid divide by zero 
+						accents = 0;
+					} else {
+						accents = floor((startingNumber/modNumber) % beatMod);
+					}
 					 
-				if (modNumberDisplay) {
-					std::string displayText = std::to_string(steps) + " : " + std::to_string(accents) ;
-					modNumberDisplay->text = displayText; 
-				}
+					if (modNumberDisplay) {
+						std::string displayText = std::to_string(steps) + " : " + std::to_string(accents) ;
+						modNumberDisplay->text = displayText; 
+					}
 			
-				outputs[COMPLETION_OUTPUT].setVoltage(5.0f);
-				lights[COMPLETION_LIGHT].setBrightness(1);
-			}
-		} 
-
+					outputs[COMPLETION_OUTPUT].setVoltage(5.0f);
+					lights[COMPLETION_LIGHT].setBrightness(1);
+				}
+			} 
+        }
+        
 		// Handle reset logic
 		if (resetTrigger.process(params[RESET_BUTTON_PARAM].getValue()) || 
 			resetTrigger.process(inputs[RESET_INPUT].getVoltage()-0.01f)) {

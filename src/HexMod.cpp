@@ -281,13 +281,22 @@ struct HexMod : Module {
 
 	
 		for (int i = 0; i < 6; i++) {
-			// Gate/trigger to Phase Reset input
-			float PhaseResetInput = 0.0f;
-		
-			if (inputs[ENV_INPUT_1 + i].isConnected()) {
-				PhaseResetInput = inputs[ENV_INPUT_1 + i].getVoltage();
+			float currentInputVoltage = 0.0f;
+			bool foundConnected = false;
+
+			// Start searching from the current input and move backwards in the chain
+			for (int j = 0; j < 6; j++) {
+				int checkIndex = (i - j + 6) % 6; // This computes the correct index to check, wrapping around
+				if (inputs[ENV_INPUT_1 + checkIndex].isConnected()) {
+					currentInputVoltage = inputs[ENV_INPUT_1 + checkIndex].getVoltage();
+					foundConnected = true;
+					break; // Stop searching once a connected input is found
+				}
 			}
-		
+
+			// Use the value from the first previous connected input found, or 0.0f if none are connected
+			float PhaseResetInput = foundConnected ? currentInputVoltage : 0.0f;
+
 			if (PhaseResetInput < 0.01f){latch[i]= true; }
 			PhaseResetInput = clamp(PhaseResetInput, 0.0f, 10.0f);
  
