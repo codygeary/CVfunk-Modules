@@ -37,4 +37,7 @@ Generates chord voicings of a guitar. Intuitive button interface makes generatin
 ### Magnets
 Simulate magnetism using an Ising spin-lattice. Interact with the spin-lattice with CV inputs. Outputs 24 4-pole filtered LFO signals.
 
+### Ouros
+A stereo phase injection oscillator with a unique polar display. Generate unique timbres, animated waveforms, and stereo effects. Morph continuously in an enormous latent space of complex wave shapes.
+
 See the [User's Manual](/img/CV_funk_Manual.pdf) for more information.
