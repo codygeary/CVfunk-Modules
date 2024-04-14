@@ -63,10 +63,11 @@ struct Ouros : Module {
         SPREAD_ATT_KNOB,
         FEEDBACK_ATT_KNOB,
         FM_ATT_KNOB,
-        EAT_KNOB,
-        EAT_ATT_KNOB,        
+        POSITION_KNOB,
+        POSITION_ATT_KNOB,        
         MULTIPLY_ATT_KNOB,
         RESET_BUTTON,
+        PRESET,
         NUM_PARAMS
     };
     enum InputIds {
@@ -77,7 +78,7 @@ struct Ouros : Module {
         SPREAD_INPUT,
         FEEDBACK_INPUT,
         FM_INPUT,
-        EAT_INPUT,
+        POSITION_INPUT,
         MULTIPLY_INPUT,
         NUM_INPUTS
     };
@@ -92,9 +93,9 @@ struct Ouros : Module {
     };
 
     // Initialize global variables
-
+    dsp::PulseGenerator resetPulse;
     dsp::SchmittTrigger SyncTrigger;
-	CircularBuffer<float, 1024> waveBuffers[4];
+    CircularBuffer<float, 1024> waveBuffers[4];
 
     float oscPhase[4] = {0.0f}; // Current oscillator phase for each channel
     float prevPhaseResetInput = 0.0f; // Previous envelope input, for peak detection
@@ -112,14 +113,59 @@ struct Ouros : Module {
     float SyncInterval = 2; //default to 2hz
     float lastoscPhase[4] = {}; // Track the last phase for each LFO channel to detect wraps
     float eatValue = 0.0f;
-       
+
+    // Serialization method to save module state
+    json_t* dataToJson() override {
+        json_t* rootJ = json_object();
+
+        // Save the state of retriggerEnabled as a boolean
+        json_object_set_new(rootJ, "eatValue", json_boolean(eatValue));
+
+        return rootJ;
+    }
+
+    // Deserialization method to load module state
+    void dataFromJson(json_t* rootJ) override {
+        // Load the state of retriggerEnabled
+        json_t* eatValueJ = json_object_get(rootJ, "eatValue");
+        if (eatValueJ) {
+            // Use json_is_true() to check if the JSON value is true; otherwise, set to false
+            eatValue = json_is_true(eatValueJ);
+        }
+         // Trigger resets the phase 
+         resetPulse.trigger(1e-4); 
+              
+    }
+
+    void onReset(const ResetEvent& e) override {
+        // Reset all parameters
+        Module::onReset(e);
+  
+  		params[RATE_KNOB].setValue(0.0f);
+  		params[NODE_KNOB].setValue(0.0f);
+  		params[POSITION_KNOB].setValue(0.0f);
+  		params[ROTATE_KNOB].setValue(0.0f);
+  		params[SPREAD_KNOB].setValue(0.0f);
+  		params[FEEDBACK_KNOB].setValue(0.0f);
+  		params[MULTIPLY_KNOB].setValue(1.0f);
+  		params[NODE_ATT_KNOB].setValue(0.0f);
+  		params[ROTATE_ATT_KNOB].setValue(0.0f);
+  		params[SPREAD_ATT_KNOB].setValue(0.0f);
+  		params[FEEDBACK_ATT_KNOB].setValue(0.0f);
+  		params[POSITION_ATT_KNOB].setValue(0.0f);
+  		params[MULTIPLY_ATT_KNOB].setValue(0.0f);
+
+        // Trigger resets the phase 
+        resetPulse.trigger(1e-4);       
+    }
+
      Ouros() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
 
         // Initialize knob parameters with a reasonable range and default values
         configParam(RATE_KNOB, -3.0f, 3.0f, 0.0f, "V/Oct offset"); // 
         configParam(NODE_KNOB, 0.0f, 5.0f, 0.0f, "Node Distribution"); // 0: Hexagonal, 1: Unison, 2: Bimodal, 3: Trimodal, 4: Unison, 5:Hexagonal
-        configParam(EAT_KNOB, -360.0f, 360.0f, 0.0f, "Feedback Position"); // 
+        configParam(POSITION_KNOB, -360.0f, 360.0f, 0.0f, "Feedback Position"); // 
 
         configParam(ROTATE_KNOB, -360.0f, 360.0f, 0.0f, "Phase Rotation"); // 
         configParam(SPREAD_KNOB, -360.0f, 360.0f, 0.0f, "Stereo Phase Separation"); // 
@@ -130,7 +176,7 @@ struct Ouros : Module {
         configParam(ROTATE_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Rotate Attenuation"); // 
         configParam(SPREAD_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Spread Attenuation"); // 
         configParam(FEEDBACK_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Feedback Attenuation"); // 
-        configParam(EAT_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Feedback Position Attenuation"); // 
+        configParam(POSITION_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Feedback Position Attenuation"); // 
         configParam(MULTIPLY_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Multiply Attenuation"); // 
 
         configInput(ROTATE_INPUT, "Rotate");
@@ -140,7 +186,7 @@ struct Ouros : Module {
 
         configInput(RATE_INPUT, "V/Oct");
         configInput(NODE_INPUT, "Node Distribution");
-        configInput(EAT_INPUT, "Feedback Position");
+        configInput(POSITION_INPUT, "Feedback Position");
         configInput(MULTIPLY_INPUT, "Multiply");
 
         configOutput(L_OUTPUT, "Orange Oscillator (L)" );
@@ -210,9 +256,9 @@ struct Ouros : Module {
             spread += inputs[SPREAD_INPUT].getVoltage() * 36.0f * params[SPREAD_ATT_KNOB].getValue(); 
         }    
 
-        float eat = params[EAT_KNOB].getValue();
-        if (inputs[EAT_INPUT].isConnected()) {
-            eat += inputs[EAT_INPUT].getVoltage() * 36.0f * params[EAT_ATT_KNOB].getValue(); 
+        float eat = params[POSITION_KNOB].getValue();
+        if (inputs[POSITION_INPUT].isConnected()) {
+            eat += inputs[POSITION_INPUT].getVoltage() * 36.0f * params[POSITION_ATT_KNOB].getValue(); 
         }    
 
         float feedback = params[FEEDBACK_KNOB].getValue();
@@ -231,12 +277,11 @@ struct Ouros : Module {
         NodePosition = fmod(NodePosition, 5.0f);
         NodePosition = clamp(NodePosition, 0.0f, 5.0f); 
 
-
         // Gate/trigger to Phase Reset input
         float PhaseResetInput=0.0f;
  
         bool manualResetPressed = params[RESET_BUTTON].getValue() > 0.0f;
-    
+
         // If the current input is connected, use it and update lastConnectedInputVoltage
         if (inputs[HARD_SYNC_INPUT].isConnected() || manualResetPressed) {
             PhaseResetInput = inputs[HARD_SYNC_INPUT].getVoltage() + params[RESET_BUTTON].getValue(); 
@@ -248,7 +293,7 @@ struct Ouros : Module {
         if (PhaseResetInput < 0.0001f){latch= true; }
         PhaseResetInput = clamp(PhaseResetInput, 0.0f, 10.0f);
 
-       // Check if the envelope is rising or falling with hysteresis
+        // Check if the envelope is rising or falling with hysteresis
         if (risingState) {
             // If it was rising, look for a significant drop before considering it falling
             if (PhaseResetInput < prevPhaseResetInput) {
@@ -259,6 +304,12 @@ struct Ouros : Module {
             if (PhaseResetInput > prevPhaseResetInput) {
                 risingState = true; // Now it's rising
             }
+        }
+
+        //if we get a reset pulse then manually set latch and risingState
+        if (resetPulse.process(args.sampleTime)) {
+            latch = true;
+            risingState = true;
         }
 
         for (int i = 0; i < 4; i++) {
@@ -362,6 +413,7 @@ struct Ouros : Module {
                 oscPhase[2] = 0.0f;
                 place[2] = 0.0f;
                 latch= false;
+                risingState= false;
                 place[3] = 0.0f;
                 oscPhase[3] = 0.0f;
             } 
@@ -392,6 +444,7 @@ struct Ouros : Module {
         }
        
     }//void process
+     
 };
 
 struct PolarXYDisplay : TransparentWidget {
@@ -502,9 +555,9 @@ struct OurosWidget : ModuleWidget {
         addParam(createParamCentered<Trimpot>       (knobStartPos.plus(Vec( 1*knobSpacing, 140 )), module, Ouros::FEEDBACK_ATT_KNOB));
         addInput(createInputCentered<PJ301MPort>    (knobStartPos.plus(Vec( 1*knobSpacing, 165 )), module, Ouros::FEEDBACK_INPUT));
 
-        addParam(createParamCentered<RoundBlackKnob>(knobStartPos.plus(Vec( 2*knobSpacing, 110 )), module, Ouros::EAT_KNOB));
-        addParam(createParamCentered<Trimpot>       (knobStartPos.plus(Vec( 2*knobSpacing, 140 )), module, Ouros::EAT_ATT_KNOB));
-        addInput(createInputCentered<PJ301MPort>    (knobStartPos.plus(Vec( 2*knobSpacing, 165 )), module, Ouros::EAT_INPUT));
+        addParam(createParamCentered<RoundBlackKnob>(knobStartPos.plus(Vec( 2*knobSpacing, 110 )), module, Ouros::POSITION_KNOB));
+        addParam(createParamCentered<Trimpot>       (knobStartPos.plus(Vec( 2*knobSpacing, 140 )), module, Ouros::POSITION_ATT_KNOB));
+        addInput(createInputCentered<PJ301MPort>    (knobStartPos.plus(Vec( 2*knobSpacing, 165 )), module, Ouros::POSITION_INPUT));
 
         addParam(createParamCentered<RoundBlackKnob>(knobStartPos.plus(Vec( 3*knobSpacing, 110 )), module, Ouros::NODE_KNOB));
         addParam(createParamCentered<Trimpot>       (knobStartPos.plus(Vec( 3*knobSpacing, 140 )), module, Ouros::NODE_ATT_KNOB));
