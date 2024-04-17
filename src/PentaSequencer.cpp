@@ -60,6 +60,13 @@ struct PentaSequencer : Module {
         LIGHTS_LEN
     };
 
+	// Define Knob to Output maps
+	//                      A  B  C  D  E
+	int CIRC_CW_map[5]  =  {0, 1, 2, 3, 4};
+	int STAR_CW_map[5]  =  {0, 3, 1, 4, 2}; 
+	int CIRC_CCW_map[5] =  {0, 4, 3, 2, 1};
+	int STAR_CCW_map[5] =  {0, 2, 4, 1, 3}; 
+
     // Variables for internal logic
     int step = 0; // Current step in the sequence
     int mode = 0; // Operation mode: 0 = CW_CIRC, 1 = CCW_CIRC, 2 = CW_STAR, 3 = CCW_STAR
@@ -73,8 +80,8 @@ struct PentaSequencer : Module {
 
     bool onTarget = true;
 
-	int defaultMapping[5] = {0, 1, 2, 3, 4};
-	int* currentMapping = defaultMapping;
+    int defaultMapping[5] = {0, 1, 2, 3, 4};
+    int* currentMapping = defaultMapping;
 
     dsp::SlewLimiter slewLimiters[5]; // One per output (A-E)
 
@@ -116,13 +123,13 @@ struct PentaSequencer : Module {
 
         // Process reset input
         if (inputs[RESET_INPUT].isConnected() || manualResetPressed){
-		    if( resetTrigger.process( inputs[RESET_INPUT].getVoltage() ) || manualResetPressed ) {
-				step = 0;  // Reset to the first step
-			
-				// Measure the trigger interval here
-				triggerInterval = triggerIntervalTimer.time;  // Get the accumulated time since the last reset
-				triggerIntervalTimer.reset();  // Reset the timer for the next trigger interval measurement
-			}
+            if( resetTrigger.process( inputs[RESET_INPUT].getVoltage() ) || manualResetPressed ) {
+                step = 0;  // Reset to the first step
+            
+                // Measure the trigger interval here
+                triggerInterval = triggerIntervalTimer.time;  // Get the accumulated time since the last reset
+                triggerIntervalTimer.reset();  // Reset the timer for the next trigger interval measurement
+            }
         }
   
         // Handle CIRC and STAR modes based on SHAPE_INPUT voltage
@@ -147,14 +154,8 @@ struct PentaSequencer : Module {
             ccwMode = false;
         }
 
-        // Define Knob to Output maps
-        //                      A  B  C  D  E
-        int CIRC_CW_map[5]  =  {0, 1, 2, 3, 4};
-        int STAR_CW_map[5]  =  {0, 3, 1, 4, 2}; 
-        int CIRC_CCW_map[5] =  {0, 4, 3, 2, 1};
-        int STAR_CCW_map[5] =  {0, 2, 4, 1, 3}; 
 
-        int* newMapping = nullptr;  // Pointer to hold the new mapping based on the current mode
+        int* newMapping = CIRC_CW_map;  // map to default
 
         // Determine the new mapping based on the mode
         if (cwMode && circMode) {
