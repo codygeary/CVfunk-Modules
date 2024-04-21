@@ -100,6 +100,14 @@
       "tags": [
         "Oscillator"
       ]
+    },  {
+      "slug": "PressedDuck",
+      "name": "Pressed Duck",
+      "description": "A dynamic stereo compressing mixer with sidechain ducking, saturation, and feedback.",
+      "tags": [
+        "Mixer",
+        "VCA"
+      ]
     },
 	{
       "slug": "Magnets",
