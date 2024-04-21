@@ -19,6 +19,7 @@ void init(Plugin* p) {
 	p->addModel(modelStrings);
 	p->addModel(modelMagnets);
 	p->addModel(modelOuros);
+	p->addModel(modelPressedDuck);
 
 
 	// Any other plugin initialization may go here.

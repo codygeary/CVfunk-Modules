@@ -19,3 +19,4 @@ extern Model* modelCollatz;
 extern Model* modelStrings;
 extern Model* modelMagnets;
 extern Model* modelOuros;
+extern Model* modelPressedDuck;

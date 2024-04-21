@@ -461,8 +461,8 @@ struct EnvelopeArrayWidget : ModuleWidget {
 
         addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(29.337, 24.514+2.5)), module, EnvelopeArray::SLANT_PARAM));
         addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(47.525, 24.514+2.5)), module, EnvelopeArray::CURVE_PARAM));
-        addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(11.228, 28.738+2.5)), module, EnvelopeArray::TIME1_PARAM));
-        addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(65.323, 28.738+2.5)), module, EnvelopeArray::TIME6_PARAM));
+        addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(11.228, 28.738+2.5)), module, EnvelopeArray::TIME1_PARAM));
+        addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(65.323, 28.738+2.5)), module, EnvelopeArray::TIME6_PARAM));
 
         addParam(createParamCentered<Trimpot>(mm2px(Vec(29.337, 41.795+2)), module, EnvelopeArray::SLANT_ATTEN_PARAM));
         addParam(createParamCentered<Trimpot>(mm2px(Vec(47.525, 41.795+2)), module, EnvelopeArray::CURVE_ATTEN_PARAM));
