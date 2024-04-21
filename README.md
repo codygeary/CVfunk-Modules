@@ -35,9 +35,12 @@ Generate polyrhythmic trigger sequences synchronized to a clock. Uses the Collat
 Generates chord voicings of a guitar. Intuitive button interface makes generating chord progressions a breeze. Displays guitar chords. Allows per string bending, whammy bar bending, and capo.
 
 ### Magnets
-Simulate magnetism using an Ising spin-lattice. Interact with the spin-lattice with CV inputs. Outputs 24 4-pole filtered LFO signals.
+Simulate magnetism in a spin-lattice. Interact with the lattice with CV inputs. Outputs 24 4-pole filtered LFO signals.
 
 ### Ouros
 A stereo phase injection oscillator with a unique polar display. Generate unique timbres, animated waveforms, and stereo effects. Morph continuously in an enormous latent space of complex wave shapes.
+
+### Pressed Duck
+A stereo 6 channel side-chain ducking mixer with compression, saturation, and feedback distortion.
 
 See the [User's Manual](/img/CV_funk_Manual.pdf) for more information.
