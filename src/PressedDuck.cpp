@@ -1,11 +1,11 @@
 ////////////////////////////////////////////////////////////
 //
-//   Dynamic Mixer
+//   Pressed Duck
 //
 //   written by Cody Geary
 //   Copyright 2024, MIT License
 //
-//   A stereo mixer with dynamic mixing and ducking
+//   A stereo 6 channel mixer with compression and ducking.
 //
 ////////////////////////////////////////////////////////////
 
