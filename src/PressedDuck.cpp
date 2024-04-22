@@ -16,7 +16,7 @@ struct PressedDuck : Module {
         VOLUME1_PARAM, VOLUME2_PARAM, VOLUME3_PARAM, VOLUME4_PARAM, VOLUME5_PARAM, VOLUME6_PARAM,   
         PAN1_PARAM, PAN2_PARAM, PAN3_PARAM, PAN4_PARAM, PAN5_PARAM, PAN6_PARAM,      
         BASS_VOLUME_PARAM, BASS_DUCK_AMOUNT_PARAM, BASS_DUCK_AMOUNT_ATT,
-        SATURATION_CEILING_PARAM, SATURATION_CEILING_ATT, MASTER_VOL, MASTER_VOL_ATT, FEEDBACK_PARAM, FEEDBACK_ATT, 
+        PRESS_PARAM, PRESS_ATT, MASTER_VOL, MASTER_VOL_ATT, FEEDBACK_PARAM, FEEDBACK_ATT, 
         NUM_PARAMS
     };
     enum InputIds {
@@ -29,7 +29,7 @@ struct PressedDuck : Module {
         NUM_INPUTS
     };
     enum OutputIds {
-        AUDIO_OUTPUT_L, AUDIO_OUTPUT_R, 
+        AUDIO_OUTPUT_L, AUDIO_OUTPUT_R, SURVEY,
         NUM_OUTPUTS
     };
     enum LightIds {
@@ -45,6 +45,14 @@ struct PressedDuck : Module {
 	float envelope[6] = {0.0f}; 
     int cycleCount = 0;
 
+    // Arrays to hold last computed values for differentiation
+    float lastOutputL = 0.0f;
+    float lastOutputR = 0.0f;
+	float bassEnvelope = 0.0f;
+	float inputL[6] = {0.0f};
+	float inputR[6] = {0.0f};
+    float filteredEnvelope[6] = {0.0f}; 
+
     PressedDuck() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
 
@@ -56,8 +64,7 @@ struct PressedDuck : Module {
         configParam(VOLUME5_PARAM, 0.f, 2.f, 1.0f, "Channel 5 Volume");
         configParam(VOLUME6_PARAM, 0.f, 2.f, 1.0f, "Channel 6 Volume");
         configParam(MASTER_VOL, 0.f, 2.f, 1.0f, "Master Volume");
-        configParam(FEEDBACK_PARAM, 0.f, 11.f, 0.0f, "FEEDBACK");
-
+        configParam(FEEDBACK_PARAM, 0.f, 11.f, 0.0f, "Feedback");
 
         configParam(PAN1_PARAM, -1.f, 1.f, 0.f, "Channel 1 Pan");
         configParam(PAN2_PARAM, -1.f, 1.f, 0.f, "Channel 2 Pan");
@@ -73,8 +80,8 @@ struct PressedDuck : Module {
         configParam(FEEDBACK_ATT, -1.f, 1.f, 0.0f, "Feedback Attenuation");
         configParam(MASTER_VOL_ATT, -1.f, 1.f, 0.0f, "Master Volume Attenuation");
 
-        configParam(SATURATION_CEILING_PARAM, 0.f, 10.f, 5.f, "Saturation");
-        configParam(SATURATION_CEILING_ATT, -1.f, 1.f, 0.0f, "Saturation Attenuation");
+        configParam(PRESS_PARAM, 0.f, 1.f, 0.f, "Press");
+        configParam(PRESS_ATT, -1.f, 1.f, 0.0f, "Press Attenuation");
 
         // Configure inputs for each channel
         configInput(AUDIO_1L_INPUT, "Channel 1 L");
@@ -114,39 +121,59 @@ struct PressedDuck : Module {
         configInput(MASTER_VOL_CV, "Master Volume CV");
 
         // Outputs
+        
+        //configOutput(SURVEY, "Survey Test Out"); //hidden output for testing
+
         configOutput(AUDIO_OUTPUT_L, "Main Out L");
         configOutput(AUDIO_OUTPUT_R, "Main Out R");    }
 
-    void process(const ProcessArgs& args) override {
+	void process(const ProcessArgs& args) override {
 		float mixL = 0.0f;
 		float mixR = 0.0f;
+		float sampleRate = args.sampleRate;
+        float alpha = 0.01f;  // Smoothing factor for envelope
 
 		// State variables for bass envelope tracking
-		float decayRate = 0.999f; // Controls the rate at which the peak decays
+		float decayRate = 0.999f;
+        float compressionAmount = 0.0f;
 
 		// Process each of the six main channels
 		for (int i = 0; i < 6; i++) {
-			float inputL = inputs[AUDIO_1L_INPUT + 2 * i].getVoltage();
-			float inputR = inputs[AUDIO_1R_INPUT + 2 * i].getVoltage();
 
+            inputL[i]=0.0f;
+            inputR[i]=0.0f;
+			// Check left input connection
+			if (inputs[AUDIO_1L_INPUT + 2 * i].isConnected()) {
+				inputL[i] = inputs[AUDIO_1L_INPUT + 2 * i].getVoltage();  // Use left input if connected
+				inputR[i] = inputL[i];  // Copy left input to right if right is not connected
+			}
+
+			// Check right input connection
+			if (inputs[AUDIO_1R_INPUT + 2 * i].isConnected()) {
+				inputR[i] = inputs[AUDIO_1R_INPUT + 2 * i].getVoltage();  // Use right input if connected
+				if (!inputs[AUDIO_1L_INPUT + 2 * i].isConnected()) {
+					inputL[i] = inputR[i];  // Copy right input to left if left is not connected
+				}
+			}			
+			
 			// Apply VCA control and volume
 			if (inputs[VCA_CV1_INPUT + i].isConnected()) {
-				inputL *= clamp(inputs[VCA_CV1_INPUT + i].getVoltage() / 10.f, 0.f, 2.f);
-				inputR *= clamp(inputs[VCA_CV1_INPUT + i].getVoltage() / 10.f, 0.f, 2.f);
+				inputL[i] *= clamp(inputs[VCA_CV1_INPUT + i].getVoltage() / 10.f, 0.f, 2.f);
+				inputR[i] *= clamp(inputs[VCA_CV1_INPUT + i].getVoltage() / 10.f, 0.f, 2.f);
 			}
 
 			float vol = params[VOLUME1_PARAM + i].getValue();
-			inputL *= vol;
-			inputR *= vol;
-			
+			inputL[i] *= vol;
+			inputR[i] *= vol;
+
 			// Simple peak detection using the absolute maximum of the current input
-    		envPeakL[i] = fmax(envPeakL[i] * decayRate, fabs(inputL));
-	     	envPeakR[i] = fmax(envPeakR[i] * decayRate, fabs(inputR));
-    		envelope[i] = (envPeakL[i] + envPeakR[i]) / 2.0f;
-			
-			inputL *= envelope[i];
-			inputR *= envelope[i];
-			
+			envPeakL[i] = fmax(envPeakL[i] * decayRate, fabs(inputL[i]));
+			envPeakR[i] = fmax(envPeakR[i] * decayRate, fabs(inputR[i]));
+			envelope[i] = (envPeakL[i] + envPeakR[i]) / 2.0f;
+            filteredEnvelope[i] = alpha * envelope[i] + (1 - alpha) * filteredEnvelope[i];
+
+			compressionAmount += filteredEnvelope[i];
+
 			// Apply panning
 			float pan = params[PAN1_PARAM + i].getValue();
 			if (inputs[PAN_CV1_INPUT + i].isConnected()) {
@@ -157,75 +184,123 @@ struct PressedDuck : Module {
 			float panR = sinf(M_PI_4 * (pan + 1.f));
 
 			// Mix processed signals into left and right outputs
-			mixL += inputL * panL;
-			mixR += inputR * panR;
+			inputL[i] = inputL[i] * panL;
+			inputR[i] = inputR[i] * panR;
+		}
+
+		compressionAmount = compressionAmount/30.0f; //divide by the expected ceiling.
+
+        float pressAmount = params[PRESS_PARAM].getValue();
+
+		for (int i=0; i<6; i++){
+			if (compressionAmount > 0.0f){ //avoid div by zero
+					mixL += inputL[i]*(1.0f*(1-pressAmount) + pressAmount/compressionAmount);
+					mixR += inputR[i]*(1.0f*(1-pressAmount) + pressAmount/compressionAmount);
+			} 
 		}
 
 		// Bass processing and envelope calculation
 		float bassL = inputs[BASS_AUDIO_INPUT_L].getVoltage();
 		float bassR = inputs[BASS_AUDIO_INPUT_R].getVoltage();
+		processBass(bassL, bassR, decayRate, mixL, mixR);
+
+        float saturationEffect = 1 + params[FEEDBACK_PARAM].getValue();
+        mixL *= saturationEffect;
+        mixR *= saturationEffect;
+        
+		// Apply ADAA
+		mixL = clamp(mixL, -40.f, 40.f);
+		mixR = clamp(mixR, -40.f, 40.f);
+		mixL = applyADAA(mixL/30.f, lastOutputL, sampleRate);
+		mixR = applyADAA(mixR/30.f, lastOutputR, sampleRate);
+		lastOutputL = mixL;
+		lastOutputR = mixR;
+
+		// Set outputs
+		float masterVol = params[MASTER_VOL].getValue();
+
+		// Processing the outputs
+		float outputL = mixL * 10.f * masterVol;
+		float outputR = mixR * 10.f * masterVol;
+
+		// Check output connections to implement conditional mono-to-stereo mirroring
+		if (outputs[AUDIO_OUTPUT_L].isConnected() && !outputs[AUDIO_OUTPUT_R].isConnected()) {
+			// Only left output is connected, copy to right output
+			outputs[AUDIO_OUTPUT_L].setVoltage(outputL);
+			outputs[AUDIO_OUTPUT_R].setVoltage(outputL);  // Mirror left to right
+		} else if (!outputs[AUDIO_OUTPUT_L].isConnected() && outputs[AUDIO_OUTPUT_R].isConnected()) {
+			// Only right output is connected, copy to left output
+			outputs[AUDIO_OUTPUT_L].setVoltage(outputR);  // Mirror right to left
+			outputs[AUDIO_OUTPUT_R].setVoltage(outputR);
+		} else {
+			// Both outputs are connected, or neither are, operate in true stereo or silence both
+			outputs[AUDIO_OUTPUT_L].setVoltage(outputL);
+			outputs[AUDIO_OUTPUT_R].setVoltage(outputR);
+		}
+
+		// Update lights periodically
+		updateLights();
+	}
+
+	float applyADAA(float input, float lastInput, float sampleRate) {
+		float delta = input - lastInput;
+		if (fabs(delta) > 1e-6) {
+			return (antiderivative(input) - antiderivative(lastInput)) / delta;
+		} else {
+			return tanh(input);
+		}
+	}
+
+	float antiderivative(float x) {
+		float x2 = x * x;
+		float x4 = x2 * x2;
+		float x6 = x4 * x2;
+		float x8 = x4 * x4;
+		return x2 / 2.0f - x4 / 12.0f + x6 / 45.0f - 17.0f * x8 / 2520.0f;
+	}
+	
+	void processBass(float &bassL, float &bassR, float decayRate, float &mixL, float &mixR) {
+		// Apply VCA control if connected
 		if (inputs[VCA_BASS_INPUT].isConnected()) {
 			bassL *= clamp(inputs[VCA_BASS_INPUT].getVoltage() / 10.f, 0.f, 2.f);
 			bassR *= clamp(inputs[VCA_BASS_INPUT].getVoltage() / 10.f, 0.f, 2.f);
 		}
 
+		// Apply volume control from the parameters
 		float bassVol = params[BASS_VOLUME_PARAM].getValue();
 		bassL *= bassVol;
 		bassR *= bassVol;
 
+		// Calculate the envelope for the bass signals
 		bassPeakL = fmax(bassPeakL * decayRate, fabs(bassL));
 		bassPeakR = fmax(bassPeakR * decayRate, fabs(bassR));
-		float bassEnvelope = (bassPeakL + bassPeakR) / 2.0f;
+		bassEnvelope = (bassPeakL + bassPeakR) / 2.0f;
 
-        bassL *= bassEnvelope;
-        bassR *= bassEnvelope;
+		// Apply the envelope to the bass signals
+		bassL *= bassEnvelope;
+		bassR *= bassEnvelope;
 
-		// Ducking based on bass
+		// Calculate ducking based on the bass envelope
 		float duckAmount = params[BASS_DUCK_AMOUNT_PARAM].getValue();
 		if (inputs[BASS_DUCK_CV_INPUT].isConnected()) {
 			duckAmount += clamp(inputs[BASS_DUCK_CV_INPUT].getVoltage() / 10.f, 0.f, 1.f) * params[BASS_DUCK_AMOUNT_ATT].getValue();
 		}
-		float duckingFactor = fmax( 0.0f, 1.f - duckAmount * (bassEnvelope / 5.0f));
+		float duckingFactor = fmax(0.0f, 1.f - duckAmount * (bassEnvelope / 5.0f));
 
-		// Apply ducking to the main mix
-		mixL = (mixL * duckingFactor ) + bassL;
-		mixR = (mixR * duckingFactor ) + bassR;
+		// Apply ducking to the main mix and add the processed bass signals
+		mixL = (mixL * duckingFactor) + bassL;
+		mixR = (mixR * duckingFactor) + bassR;
+	}	
 
-		float feedback = params[FEEDBACK_PARAM].getValue();
-		if (inputs[FEEDBACK_CV].isConnected() ){
-			feedback += inputs[FEEDBACK_CV].getVoltage()*params[FEEDBACK_ATT].getValue();
-		}
-		feedback = pow(feedback, 0.5f);
-		feedback = clamp(feedback,0.0f, 11.0f) + 1;
-
-		mixL *= feedback;
-		mixR *= feedback;
-
-		// Apply saturation
-		float satKnob = params[SATURATION_CEILING_PARAM].getValue();
-		if (inputs[SATURATION_CV_INPUT].isConnected()) {
-			satKnob += inputs[SATURATION_CV_INPUT].getVoltage() * params[SATURATION_CEILING_ATT].getValue();
-		}
-		satKnob = clamp (satKnob, 0.01f, 10.0f); //clamp to reasonable values
-		float saturationCeiling = 3.f * (10.5f - satKnob); //reverse the knob and make it to 30, since 6x5 channels =30v headroom		
-		saturationCeiling = fmax(0.01f, saturationCeiling); // Avoid division by zero
-		float masterVol = params[MASTER_VOL].getValue();
-		mixL =  (6.f-satKnob/2.f) * tanh(mixL / saturationCeiling);
-		mixR =  (6.f-satKnob/2.f) * tanh(mixR / saturationCeiling);
-
-		// Update lights every 1000 process cycles
+	void updateLights() {
 		if (++cycleCount >= 1000) {
 			for (int i = 0; i < 6; i++) {
-				lights[VOLUME1_LIGHT + i].setBrightness(envelope[i]);
+				lights[VOLUME1_LIGHT + i].setBrightness(filteredEnvelope[i]);
 			}
 			lights[BASS_VOLUME_LIGHT].setBrightness(bassEnvelope);
-			cycleCount = 0; // Reset the cycle counter
+			cycleCount = 0;
 		}
-
-		// Set the outputs
-		outputs[AUDIO_OUTPUT_L].setVoltage(mixL*masterVol);
-		outputs[AUDIO_OUTPUT_R].setVoltage(mixR*masterVol);
-	}
+	}	
 };
 
 struct PressedDuckWidget : ModuleWidget {
@@ -316,12 +391,12 @@ struct PressedDuckWidget : ModuleWidget {
         yPos += 0.5*Spacing;
 
         // Saturation ceiling knob
-        addParam(createParamCentered<RoundHugeBlackKnob>(Vec(xPos, yPos), module, PressedDuck::SATURATION_CEILING_PARAM));
+        addParam(createParamCentered<RoundHugeBlackKnob>(Vec(xPos, yPos), module, PressedDuck::PRESS_PARAM));
 
         // Saturation ceiling attenuator
         yPos += 1.5*Spacing ;
         xPos -= .5*sliderX; // Shift to the right of the last channel
-        addParam(createParamCentered<Trimpot>(Vec(xPos, yPos), module, PressedDuck::SATURATION_CEILING_ATT));
+        addParam(createParamCentered<Trimpot>(Vec(xPos, yPos), module, PressedDuck::PRESS_ATT));
 
         // Saturation CV input
         xPos += 1.0*sliderX; // Shift to the right of the last channel
@@ -368,6 +443,10 @@ struct PressedDuckWidget : ModuleWidget {
         addOutput(createOutputCentered<PJ301MPort>(Vec(xPos, yPos), module, PressedDuck::AUDIO_OUTPUT_L));
         xPos += 1*sliderX; // Shift to the right of the last channel
         addOutput(createOutputCentered<PJ301MPort>(Vec(xPos, yPos), module, PressedDuck::AUDIO_OUTPUT_R));
+
+        xPos -= 2*sliderX; // Shift to the right of the last channel
+        // addOutput(createOutputCentered<PJ301MPort>(Vec(xPos, yPos), module, PressedDuck::SURVEY));
+
     }};
 
 Model* modelPressedDuck = createModel<PressedDuck, PressedDuckWidget>("PressedDuck");
