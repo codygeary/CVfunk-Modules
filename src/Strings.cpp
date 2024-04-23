@@ -292,6 +292,9 @@ struct Strings : Module {
     bool ChordBank = false;
     bool VOctCV = false;
 
+	int latchedChordIndex = -1; // Initialize to invalid index to ensure first update
+	int latchedRowIndex = -1; // Initialize to invalid index to ensure first update
+
     int process_count = 0;
     int display_count = 0;
     int process_skip = 10;
@@ -403,7 +406,7 @@ struct Strings : Module {
 
             // Calculate the whammy bar effect if connected
             float whammyBarEffect = inputs[WHAMMY_BAR_CV].isConnected() ? std::abs(inputs[WHAMMY_BAR_CV].getVoltage() * (0.2f / 12.0f)) : 0.f;
-            float CapoAmount = inputs[CAPO_CV].isConnected() ? (floor(inputs[CAPO_CV].getVoltage() + params[CAPO_PARAM].getValue()) * (2.f/12.f)) : floor(params[CAPO_PARAM].getValue()) * (2.f/12.f); 
+            float CapoAmount = inputs[CAPO_CV].isConnected() ? (floor(inputs[CAPO_CV].getVoltage() + params[CAPO_PARAM].getValue()) * (1.f/12.f)) : floor(params[CAPO_PARAM].getValue()) * (1.f/12.f); 
             float PitchBend[6] = {0.0f};
 
             // Determine the current chord and row selections
@@ -440,8 +443,8 @@ struct Strings : Module {
 
             // V/Oct CV processing
             if(VOctCV) {
-                float chordInputVal = params[CHORD_SELECTOR_PARAM].getValue() + 
-                                      (inputs[CHORD_SELECTOR_CV].isConnected() ? inputs[CHORD_SELECTOR_CV].getVoltage() : 0);
+                //param chord_selector has no effect in V/Oct mode
+                float chordInputVal = (inputs[CHORD_SELECTOR_CV].isConnected() ? inputs[CHORD_SELECTOR_CV].getVoltage() : 0);
 
                 if (chordInputVal >= 1) { octavesDifference = 1.0f; }
                 else if (chordInputVal < 0) { octavesDifference = 0.0f; }
@@ -490,9 +493,6 @@ struct Strings : Module {
             // Clamp and adjust CapoAmount based on semitoneDifference and octavesDifference
             semitoneDifference = clamp(semitoneDifference, 0, 10);
             CapoAmount += semitoneDifference / 12.f + octavesDifference;
-            if (VOctCV){CapoAmount -= 1;}
-            static int latchedChordIndex = -1; // Initialize to invalid index to ensure first update
-            static int latchedRowIndex = -1; // Initialize to invalid index to ensure first update
 
             // Check for button presses
             bool buttonPressed = false;
