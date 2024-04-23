@@ -51,7 +51,13 @@ struct PressedDuck : Module {
     float bassEnvelope = 0.0f;
     float inputL[6] = {0.0f};
     float inputR[6] = {0.0f};
+    float panL[6] = {0.0f};
+    float panR[6] = {0.0f};
+    float lastPan[6] = {0.0f}; 
+    bool initialized[6] = {false};  
     float filteredEnvelope[6] = {0.0f}; 
+    float filteredBassEnvelope = 0.0f;
+    float alpha = 0.01f;
 
     PressedDuck() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
@@ -130,11 +136,19 @@ struct PressedDuck : Module {
     void process(const ProcessArgs& args) override {
         float mixL = 0.0f;
         float mixR = 0.0f;
-        float sampleRate = args.sampleRate;
-        float alpha = 0.01f;  // Smoothing factor for envelope
 
-        // State variables for bass envelope tracking
-        float decayRate = 0.999f;
+		float sampleRate = args.sampleRate;
+	
+		// Reference sample rate (96 kHz)
+		const float referenceRate = 96000.0f;
+
+		// Calculate scale factor based on the current sample rate
+		float scaleFactor = sampleRate / referenceRate;
+
+		// Adjust alpha and decayRate based on sample rate
+		alpha = 0.01f / scaleFactor;  // Smoothing factor for envelope
+		float decayRate = pow(0.999f, scaleFactor);  // Decay rate adjusted for sample rate
+
         float compressionAmount = 0.0f;
 
         // Process each of the six main channels
@@ -180,15 +194,29 @@ struct PressedDuck : Module {
                 pan += inputs[PAN_CV1_INPUT + i].getVoltage() / 5.f; // Scale CV influence
             }
             pan = clamp(pan, -1.f, 1.f);
-            float panL = cosf(M_PI_4 * (pan + 1.f));
-            float panR = sinf(M_PI_4 * (pan + 1.f));
 
+			// Initialization for panning
+			if (!initialized[i] || pan != lastPan[i]) {
+				panL[i] = polyCos(M_PI_4 * (pan + 1.f));
+				panR[i] = polySin(M_PI_4 * (pan + 1.f));
+				lastPan[i] = pan;
+				initialized[i] = true;  // Mark as initialized
+			}
+
+            // Only compute the pan if the value has changed            
+            if (pan != lastPan[i]){
+                panL[i] = polyCos(M_PI_4 * (pan + 1.f));
+                panR[i] = polySin(M_PI_4 * (pan + 1.f));
+            }
+
+            lastPan[i] = pan;
+            
             // Mix processed signals into left and right outputs
-            inputL[i] = inputL[i] * panL;
-            inputR[i] = inputR[i] * panR;
+            inputL[i] = inputL[i] * panL[i];
+            inputR[i] = inputR[i] * panR[i];
         }
 
-        compressionAmount = compressionAmount/30.0f; //divide by the expected ceiling.
+        compressionAmount = compressionAmount/35.0f; //divide by the expected ceiling of 7x5v
 
         float pressAmount = params[PRESS_PARAM].getValue();
         if(inputs[PRESS_CV_INPUT].isConnected()){
@@ -208,11 +236,12 @@ struct PressedDuck : Module {
         float bassR = inputs[BASS_AUDIO_INPUT_R].getVoltage();
         processBass(bassL, bassR, decayRate, mixL, mixR);
 
-
         float feedbackSetting = params[FEEDBACK_PARAM].getValue();
         if(inputs[FEEDBACK_CV].isConnected()){
             feedbackSetting += inputs[FEEDBACK_CV].getVoltage()*params[FEEDBACK_ATT].getValue();
         }
+                
+        feedbackSetting = 11.0f*pow(feedbackSetting/11.0f, 3.0f);       
         feedbackSetting = clamp(feedbackSetting, 0.0f, 11.0f);
 
         float saturationEffect = 1 + feedbackSetting;
@@ -220,19 +249,20 @@ struct PressedDuck : Module {
         mixR *= saturationEffect;
         
         // Apply ADAA
-        mixL = clamp(mixL, -40.f, 40.f);
-        mixR = clamp(mixR, -40.f, 40.f);
-        mixL = applyADAA(mixL/30.f, lastOutputL, sampleRate);
-        mixR = applyADAA(mixR/30.f, lastOutputR, sampleRate);
+        float maxHeadRoom = 46.f;
+        mixL = clamp(mixL, -maxHeadRoom, maxHeadRoom);
+        mixR = clamp(mixR, -maxHeadRoom, maxHeadRoom);
+        mixL = applyADAA(mixL/35.f, lastOutputL, sampleRate); //35 is 7x5v
+        mixR = applyADAA(mixR/35.f, lastOutputR, sampleRate);
         lastOutputL = mixL;
         lastOutputR = mixR;
 
         // Set outputs
-		float masterVol = params[MASTER_VOL].getValue();
-		if (inputs[MASTER_VOL_CV].isConnected()){
-			masterVol += inputs[MASTER_VOL_CV].getVoltage()*params[MASTER_VOL_ATT].getValue()/10.f;
-		}
-		masterVol = clamp(masterVol, 0.0f, 2.0f);
+        float masterVol = params[MASTER_VOL].getValue();
+        if (inputs[MASTER_VOL_CV].isConnected()){
+            masterVol += inputs[MASTER_VOL_CV].getVoltage()*params[MASTER_VOL_ATT].getValue()/10.f;
+        }
+        masterVol = clamp(masterVol, 0.0f, 2.0f);
 
         // Processing the outputs
         float outputL = mixL * 10.f * masterVol;
@@ -262,7 +292,7 @@ struct PressedDuck : Module {
         if (fabs(delta) > 1e-6) {
             return (antiderivative(input) - antiderivative(lastInput)) / delta;
         } else {
-            return tanh(input);
+            return polyTanh(input);
         }
     }
 
@@ -273,7 +303,30 @@ struct PressedDuck : Module {
         float x8 = x4 * x4;
         return x2 / 2.0f - x4 / 12.0f + x6 / 45.0f - 17.0f * x8 / 2520.0f;
     }
-    
+
+    float polyTanh(float x) {
+        float x2 = x * x;       // x^2
+        float x3 = x2 * x;      // x^3
+        float x5 = x3 * x2;     // x^5
+        float x7 = x5 * x2;     // x^7
+        return x - x3 / 3.0f + (2.0f * x5) / 15.0f - (17.0f * x7) / 315.0f;
+    }
+
+    float polySin(float x) {
+        float x2 = x * x;       // x^2
+        float x3 = x * x2;      // x^3
+        float x5 = x3 * x2;     // x^5
+        float x7 = x5 * x2;     // x^7
+        return x - x3 / 6.0f + x5 / 120.0f - x7 / 5040.0f;
+    }
+
+    float polyCos(float x) {
+        float x2 = x * x;       // x^2
+        float x4 = x2 * x2;     // x^4
+        float x6 = x4 * x2;     // x^6
+        return 1.0f - x2 / 2.0f + x4 / 24.0f - x6 / 720.0f;
+    }
+
     void processBass(float &bassL, float &bassR, float decayRate, float &mixL, float &mixR) {
         // Apply VCA control if connected
         if (inputs[VCA_BASS_INPUT].isConnected()) {
@@ -290,17 +343,18 @@ struct PressedDuck : Module {
         bassPeakL = fmax(bassPeakL * decayRate, fabs(bassL));
         bassPeakR = fmax(bassPeakR * decayRate, fabs(bassR));
         bassEnvelope = (bassPeakL + bassPeakR) / 2.0f;
+        filteredBassEnvelope = alpha * bassEnvelope + (1 - alpha) * filteredBassEnvelope;
 
         // Apply the envelope to the bass signals
-        bassL *= bassEnvelope;
-        bassR *= bassEnvelope;
+        bassL *= filteredBassEnvelope;
+        bassR *= filteredBassEnvelope;
 
         // Calculate ducking based on the bass envelope
         float duckAmount = params[DUCK_PARAM].getValue();
         if (inputs[DUCK_CV].isConnected()) {
             duckAmount += clamp(inputs[DUCK_CV].getVoltage() / 5.0f, 0.f, 1.f) * params[DUCK_ATT].getValue();
         }
-        float duckingFactor = fmax(0.0f, 1.f - duckAmount * (bassEnvelope / 5.0f));
+        float duckingFactor = fmax(0.0f, 1.f - duckAmount * (filteredBassEnvelope / 5.0f));
 
         // Apply ducking to the main mix and add the processed bass signals
         mixL = (mixL * duckingFactor) + bassL;
@@ -308,7 +362,7 @@ struct PressedDuck : Module {
     }    
 
     void updateLights() {
-        if (++cycleCount >= 1000) {
+        if (++cycleCount >= 2000) {
             for (int i = 0; i < 6; i++) {
                 lights[VOLUME1_LIGHT + i].setBrightness(filteredEnvelope[i]);
             }
