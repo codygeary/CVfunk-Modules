@@ -11,11 +11,46 @@
 
 #include "plugin.hpp"
 
+struct SecondOrderHPF {
+	float x1 = 0, x2 = 0; // previous two inputs
+	float y1 = 0, y2 = 0; // previous two outputs
+	float a0, a1, a2;     // filter coefficients for the input
+	float b1, b2;         // filter coefficients for the output
+
+	SecondOrderHPF() {}
+
+	// Initialize the filter coefficients
+	void setCutoffFrequency(float sampleRate, float cutoffFreq) {
+		float w0 = 2 * M_PI * cutoffFreq / sampleRate;
+		float cosw0 = cos(w0);
+		float sinw0 = sin(w0);
+		float alpha = sinw0 / 2 * sqrt(2);  // sqrt(2) results in a Butterworth filter
+
+		float a = 1 + alpha;
+		a0 = (1 + cosw0) / 2 / a;
+		a1 = -(1 + cosw0) / a;
+		a2 = (1 + cosw0) / 2 / a;
+		b1 = -2 * cosw0 / a;
+		b2 = (1 - alpha) / a;
+	}
+
+	// Process the input sample
+	float process(float input) {
+		float output = a0 * input + a1 * x1 + a2 * x2 - b1 * y1 - b2 * y2;
+		x2 = x1;
+		x1 = input;
+		y2 = y1;
+		y1 = output;
+		return output;
+	}
+};
+
 struct PressedDuck : Module {
+
     enum ParamIds {
         VOLUME1_PARAM, VOLUME2_PARAM, VOLUME3_PARAM, VOLUME4_PARAM, VOLUME5_PARAM, VOLUME6_PARAM,   
         PAN1_PARAM, PAN2_PARAM, PAN3_PARAM, PAN4_PARAM, PAN5_PARAM, PAN6_PARAM,      
-        BASS_VOLUME_PARAM, DUCK_PARAM, DUCK_ATT,
+        SIDECHAIN_VOLUME_PARAM, DUCK_PARAM, DUCK_ATT,
         PRESS_PARAM, PRESS_ATT, MASTER_VOL, MASTER_VOL_ATT, FEEDBACK_PARAM, FEEDBACK_ATT, 
         NUM_PARAMS
     };
@@ -23,19 +58,21 @@ struct PressedDuck : Module {
         AUDIO_1L_INPUT, AUDIO_1R_INPUT, AUDIO_2L_INPUT, AUDIO_2R_INPUT, 
         AUDIO_3L_INPUT, AUDIO_3R_INPUT, AUDIO_4L_INPUT, AUDIO_4R_INPUT, 
         AUDIO_5L_INPUT, AUDIO_5R_INPUT, AUDIO_6L_INPUT, AUDIO_6R_INPUT,   
-        VCA_CV1_INPUT, VCA_CV2_INPUT, VCA_CV3_INPUT, VCA_CV4_INPUT, VCA_CV5_INPUT, VCA_CV6_INPUT, VCA_BASS_INPUT,
+        VCA_CV1_INPUT, VCA_CV2_INPUT, VCA_CV3_INPUT, VCA_CV4_INPUT, VCA_CV5_INPUT, VCA_CV6_INPUT, VCA_SIDECHAIN_INPUT,
         PAN_CV1_INPUT, PAN_CV2_INPUT, PAN_CV3_INPUT, PAN_CV4_INPUT, PAN_CV5_INPUT, PAN_CV6_INPUT,  
-        BASS_AUDIO_INPUT_L, BASS_AUDIO_INPUT_R, DUCK_CV, PRESS_CV_INPUT, FEEDBACK_CV, MASTER_VOL_CV,
+        SIDECHAIN_INPUT_L, SIDECHAIN_INPUT_R, DUCK_CV, PRESS_CV_INPUT, FEEDBACK_CV, MASTER_VOL_CV,
         NUM_INPUTS
     };
     enum OutputIds {
-        AUDIO_OUTPUT_L, AUDIO_OUTPUT_R, SURVEY,
+        AUDIO_OUTPUT_L, AUDIO_OUTPUT_R, 
         NUM_OUTPUTS
     };
     enum LightIds {
         VOLUME1_LIGHT, VOLUME2_LIGHT, VOLUME3_LIGHT, VOLUME4_LIGHT, VOLUME5_LIGHT, VOLUME6_LIGHT, BASS_VOLUME_LIGHT, 
         NUM_LIGHTS
     };
+
+    bool applyFilters = true;
 
     float bassPeakL = 0.0f;
     float bassPeakR = 0.0f;
@@ -59,6 +96,16 @@ struct PressedDuck : Module {
     float filteredBassEnvelope = 0.0f;
     float alpha = 0.01f;
 
+	//for filters
+    float lastInputL, lastInputR;
+    float lastHPOutputL, lastHPOutputR;
+    float lastLPOutputL, lastLPOutputR;
+
+	// Declare high-pass filter
+	SecondOrderHPF hpfL, hpfR;
+
+
+
     PressedDuck() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
 
@@ -80,7 +127,7 @@ struct PressedDuck : Module {
         configParam(PAN6_PARAM, -1.f, 1.f, 0.f, "Channel 6 Pan");
 
         // Configure bass and saturation parameters
-        configParam(BASS_VOLUME_PARAM, 0.f, 2.f, 0.6f, "Bass Volume");
+        configParam(SIDECHAIN_VOLUME_PARAM, 0.f, 2.f, 0.6f, "Sidechain Volume");
         configParam(DUCK_PARAM, 0.f, 1.f, 0.7f, "Duck Amount");
         configParam(DUCK_ATT, -1.f, 1.f, 0.0f, "Duck Attenuation");
         configParam(FEEDBACK_ATT, -1.f, 1.f, 0.0f, "Feedback Attenuation");
@@ -109,7 +156,7 @@ struct PressedDuck : Module {
         configInput(VCA_CV4_INPUT, "Channel 4 VCA CV");
         configInput(VCA_CV5_INPUT, "Channel 5 VCA CV");
         configInput(VCA_CV6_INPUT, "Channel 6 VCA CV");
-        configInput(VCA_BASS_INPUT, "Bass CV");
+        configInput(VCA_SIDECHAIN_INPUT, "Sidechain VCA CV");
 
         configInput(PAN_CV1_INPUT, "Channel 1 Pan CV");
         configInput(PAN_CV2_INPUT, "Channel 2 Pan CV");
@@ -119,8 +166,8 @@ struct PressedDuck : Module {
         configInput(PAN_CV6_INPUT, "Channel 6 Pan CV");
 
         // Bass and saturation CV inputs
-        configInput(BASS_AUDIO_INPUT_L, "Bass Audio L");
-        configInput(BASS_AUDIO_INPUT_R, "Bass Audio R");
+        configInput(SIDECHAIN_INPUT_L, "Sidechain L");
+        configInput(SIDECHAIN_INPUT_R, "Sidechain R");
         configInput(DUCK_CV, "Duck CV");
         configInput(PRESS_CV_INPUT, "Press CV");
         configInput(FEEDBACK_CV, "Feedback CV");
@@ -133,12 +180,26 @@ struct PressedDuck : Module {
         configOutput(AUDIO_OUTPUT_L, "Main Out L");
         configOutput(AUDIO_OUTPUT_R, "Main Out R");    }
 
+		void lowPassFilter(float &input, float &lastOutput, float lpAlpha) {
+			float newOutput = lpAlpha * input + (1.0f - lpAlpha) * lastOutput;
+			lastOutput = newOutput;
+			input = newOutput;
+		}
+
     void process(const ProcessArgs& args) override {
         float mixL = 0.0f;
         float mixR = 0.0f;
 
 		float sampleRate = args.sampleRate;
-	
+
+		// Setup filters 
+		hpfL.setCutoffFrequency(args.sampleRate, 30.0f); // Set cutoff frequency
+		hpfR.setCutoffFrequency(args.sampleRate, 30.0f);
+
+		float lpCutoffFreq = sampleRate * 0.45f; // Nyquist frequency
+		float lpRC = 1.0f / (2.0f * M_PI * lpCutoffFreq);
+		float lpAlpha = args.sampleTime / (lpRC + args.sampleTime);
+
 		// Reference sample rate (96 kHz)
 		const float referenceRate = 96000.0f;
 
@@ -150,6 +211,7 @@ struct PressedDuck : Module {
 		float decayRate = pow(0.999f, scaleFactor);  // Decay rate adjusted for sample rate
 
         float compressionAmount = 0.0f;
+        float inputCount = 0.0f;
 
         // Process each of the six main channels
         for (int i = 0; i < 6; i++) {
@@ -169,7 +231,11 @@ struct PressedDuck : Module {
                     inputL[i] = inputR[i];  // Copy right input to left if left is not connected
                 }
             }            
-            
+ 
+            if ( inputs[AUDIO_1L_INPUT + 2 * i].isConnected() || inputs[AUDIO_1R_INPUT + 2 * i].isConnected() ) {
+                inputCount += 1.0f;
+            }
+        
             // Apply VCA control and volume
             if (inputs[VCA_CV1_INPUT + i].isConnected()) {
                 inputL[i] *= clamp(inputs[VCA_CV1_INPUT + i].getVoltage() / 10.f, 0.f, 2.f);
@@ -180,6 +246,7 @@ struct PressedDuck : Module {
             inputL[i] *= vol;
             inputR[i] *= vol;
 
+
             // Simple peak detection using the absolute maximum of the current input
             envPeakL[i] = fmax(envPeakL[i] * decayRate, fabs(inputL[i]));
             envPeakR[i] = fmax(envPeakR[i] * decayRate, fabs(inputR[i]));
@@ -188,35 +255,35 @@ struct PressedDuck : Module {
 
             compressionAmount += filteredEnvelope[i];
 
-            // Apply panning
-            float pan = params[PAN1_PARAM + i].getValue();
-            if (inputs[PAN_CV1_INPUT + i].isConnected()) {
-                pan += inputs[PAN_CV1_INPUT + i].getVoltage() / 5.f; // Scale CV influence
-            }
-            pan = clamp(pan, -1.f, 1.f);
+			// Apply panning
+			float pan = params[PAN1_PARAM + i].getValue();
+			if (inputs[PAN_CV1_INPUT + i].isConnected()) {
+				pan += inputs[PAN_CV1_INPUT + i].getVoltage() / 5.f; // Scale CV influence
+			}
+			pan = clamp(pan, -1.f, 1.f);
 
-			// Initialization for panning
+			// Convert pan range from -1...1 to 0...1 for sinusoidal calculations
+			float scaledPan = (pan + 1.f) * 0.5f;
+
+			// Initialize or update panning if the pan value has changed
 			if (!initialized[i] || pan != lastPan[i]) {
-				panL[i] = polyCos(M_PI_4 * (pan + 1.f));
-				panR[i] = polySin(M_PI_4 * (pan + 1.f));
+				panL[i] = polyCos(M_PI_2 * scaledPan);  // π/2 * scaledPan ranges from 0 to π/2
+				panR[i] = polySin(M_PI_2 * scaledPan);
 				lastPan[i] = pan;
-				initialized[i] = true;  // Mark as initialized
+				initialized[i] = true;
 			}
 
-            // Only compute the pan if the value has changed            
-            if (pan != lastPan[i]){
-                panL[i] = polyCos(M_PI_4 * (pan + 1.f));
-                panR[i] = polySin(M_PI_4 * (pan + 1.f));
-            }
-
-            lastPan[i] = pan;
+			// Mix processed signals into left and right outputs
+			inputL[i] *= panL[i];
+			inputR[i] *= panR[i];
             
             // Mix processed signals into left and right outputs
             inputL[i] = inputL[i] * panL[i];
             inputR[i] = inputR[i] * panR[i];
         }
 
-        compressionAmount = compressionAmount/35.0f; //divide by the expected ceiling of 7x5v
+        compressionAmount = compressionAmount/((inputCount+1.f)*5.0f); //divide by the expected ceiling 
+
 
         float pressAmount = params[PRESS_PARAM].getValue();
         if(inputs[PRESS_CV_INPUT].isConnected()){
@@ -225,15 +292,15 @@ struct PressedDuck : Module {
         pressAmount = clamp(pressAmount, 0.0f, 1.0f);
 
         for (int i=0; i<6; i++){
-            if (compressionAmount > 0.0f){ //avoid div by zero
-                    mixL += inputL[i]*(1.0f*(1-pressAmount) + pressAmount/compressionAmount);
-                    mixR += inputR[i]*(1.0f*(1-pressAmount) + pressAmount/compressionAmount);
+            if (compressionAmount > 0.0f && inputCount>0.0f){ //avoid div by zero
+                    mixL += inputL[i]*(1.0f*(1-pressAmount) + pressAmount/compressionAmount)*6/inputCount;
+                    mixR += inputR[i]*(1.0f*(1-pressAmount) + pressAmount/compressionAmount)*6/inputCount;
             } 
         }
 
         // Bass processing and envelope calculation
-        float bassL = inputs[BASS_AUDIO_INPUT_L].getVoltage();
-        float bassR = inputs[BASS_AUDIO_INPUT_R].getVoltage();
+        float bassL = inputs[SIDECHAIN_INPUT_L].getVoltage();
+        float bassR = inputs[SIDECHAIN_INPUT_R].getVoltage();
         processBass(bassL, bassR, decayRate, mixL, mixR);
 
         float feedbackSetting = params[FEEDBACK_PARAM].getValue();
@@ -247,7 +314,14 @@ struct PressedDuck : Module {
         float saturationEffect = 1 + feedbackSetting;
         mixL *= saturationEffect;
         mixR *= saturationEffect;
-        
+ 
+ 
+ 		if(applyFilters){
+            mixL = hpfL.process(mixL);
+            mixR = hpfR.process(mixR);
+		} 
+
+ 
         // Apply ADAA
         float maxHeadRoom = 46.f;
         mixL = clamp(mixL, -maxHeadRoom, maxHeadRoom);
@@ -256,7 +330,12 @@ struct PressedDuck : Module {
         mixR = applyADAA(mixR/35.f, lastOutputR, sampleRate);
         lastOutputL = mixL;
         lastOutputR = mixR;
-
+  
+		if(applyFilters){
+			lowPassFilter(mixL, lastLPOutputL, lpAlpha);
+			lowPassFilter(mixR, lastLPOutputR, lpAlpha);
+		} 
+ 
         // Set outputs
         float masterVol = params[MASTER_VOL].getValue();
         if (inputs[MASTER_VOL_CV].isConnected()){
@@ -329,13 +408,13 @@ struct PressedDuck : Module {
 
     void processBass(float &bassL, float &bassR, float decayRate, float &mixL, float &mixR) {
         // Apply VCA control if connected
-        if (inputs[VCA_BASS_INPUT].isConnected()) {
-            bassL *= clamp(inputs[VCA_BASS_INPUT].getVoltage() / 10.f, 0.f, 2.f);
-            bassR *= clamp(inputs[VCA_BASS_INPUT].getVoltage() / 10.f, 0.f, 2.f);
+        if (inputs[VCA_SIDECHAIN_INPUT].isConnected()) {
+            bassL *= clamp(inputs[VCA_SIDECHAIN_INPUT].getVoltage() / 10.f, 0.f, 2.f);
+            bassR *= clamp(inputs[VCA_SIDECHAIN_INPUT].getVoltage() / 10.f, 0.f, 2.f);
         }
 
         // Apply volume control from the parameters
-        float bassVol = params[BASS_VOLUME_PARAM].getValue();
+        float bassVol = params[SIDECHAIN_VOLUME_PARAM].getValue();
         bassL *= bassVol;
         bassR *= bassVol;
 
@@ -369,7 +448,8 @@ struct PressedDuck : Module {
             lights[BASS_VOLUME_LIGHT].setBrightness(bassEnvelope);
             cycleCount = 0;
         }
-    }    
+    } 
+    
 };
 
 struct PressedDuckWidget : ModuleWidget {
@@ -397,17 +477,17 @@ struct PressedDuckWidget : ModuleWidget {
         float xPos = channelOffset.x;
 
          // Audio inputs
-        addInput(createInputCentered<PJ301MPort>(Vec(xPos, yPos), module, PressedDuck::BASS_AUDIO_INPUT_L ));
+        addInput(createInputCentered<PJ301MPort>(Vec(xPos, yPos), module, PressedDuck::SIDECHAIN_INPUT_L ));
         yPos += Spacing;
-        addInput(createInputCentered<PJ301MPort>(Vec(xPos, yPos), module, PressedDuck::BASS_AUDIO_INPUT_R ));
+        addInput(createInputCentered<PJ301MPort>(Vec(xPos, yPos), module, PressedDuck::SIDECHAIN_INPUT_R ));
    
         // Volume slider with light
         yPos += 40+Spacing;
-        addParam(createLightParamCentered<VCVLightSlider<YellowLight>>(Vec(xPos, yPos), module, PressedDuck::BASS_VOLUME_PARAM , PressedDuck::BASS_VOLUME_LIGHT));
+        addParam(createLightParamCentered<VCVLightSlider<YellowLight>>(Vec(xPos, yPos), module, PressedDuck::SIDECHAIN_VOLUME_PARAM , PressedDuck::BASS_VOLUME_LIGHT));
 
         // VCA CV input
         yPos += 38+Spacing;
-        addInput(createInputCentered<PJ301MPort>(Vec(xPos, yPos), module, PressedDuck::VCA_BASS_INPUT ));
+        addInput(createInputCentered<PJ301MPort>(Vec(xPos, yPos), module, PressedDuck::VCA_SIDECHAIN_INPUT ));
 
         yPos += 1.95*Spacing;
         // Ducking amount knob
@@ -513,9 +593,38 @@ struct PressedDuckWidget : ModuleWidget {
         xPos += 1*sliderX; // Shift to the right of the last channel
         addOutput(createOutputCentered<PJ301MPort>(Vec(xPos, yPos), module, PressedDuck::AUDIO_OUTPUT_R));
 
-        xPos -= 2*sliderX; // Shift to the right of the last channel
-        // addOutput(createOutputCentered<PJ301MPort>(Vec(xPos, yPos), module, PressedDuck::SURVEY));
+    }
+    
+    void appendContextMenu(Menu* menu) override {
+        ModuleWidget::appendContextMenu(menu);
 
-    }};
+        PressedDuck* PressedDuckModule = dynamic_cast<PressedDuck*>(module);
+        assert(PressedDuckModule); // Ensure the cast succeeds
+
+        // Separator for visual grouping in the context menu
+        menu->addChild(new MenuSeparator());
+
+        // VOctCV menu item
+        struct FilterMenuItem : MenuItem {
+            PressedDuck* PressedDuckModule;
+            void onAction(const event::Action& e) override {
+                // Toggle the "Apply Filters" mode
+                PressedDuckModule->applyFilters = !PressedDuckModule->applyFilters;
+            }
+            void step() override {
+                // Update the display to show a checkmark when the mode is active
+                rightText = PressedDuckModule->applyFilters ? "✔" : "";
+                MenuItem::step();
+            }
+        };
+        
+        FilterMenuItem* filterItem = new FilterMenuItem();
+        filterItem->text = "Apply Filters";
+        filterItem->PressedDuckModule = PressedDuckModule;
+        menu->addChild(filterItem);
+
+    }    
+    
+};
 
 Model* modelPressedDuck = createModel<PressedDuck, PressedDuckWidget>("PressedDuck");
