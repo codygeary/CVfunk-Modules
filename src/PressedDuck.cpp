@@ -27,6 +27,7 @@ struct SecondOrderHPF {
 		float alpha = sinw0 / 2 * sqrt(2);  // sqrt(2) results in a Butterworth filter
 
 		float a = 1 + alpha;
+		a = fmax(a, 0.00001f); //prevent div by zero
 		a0 = (1 + cosw0) / 2 / a;
 		a1 = -(1 + cosw0) / a;
 		a2 = (1 + cosw0) / 2 / a;
@@ -74,6 +75,26 @@ struct PressedDuck : Module {
 
     bool applyFilters = true;
 
+    // Serialization method to save module state
+    json_t* dataToJson() override {
+        json_t* rootJ = json_object();
+
+        // Save the state of retriggerEnabled as a boolean
+        json_object_set_new(rootJ, "applyFilters", json_boolean(applyFilters));
+
+        return rootJ;
+    }
+
+    // Deserialization method to load module state
+    void dataFromJson(json_t* rootJ) override {
+        // Load the state of retriggerEnabled
+        json_t* applyFiltersJ = json_object_get(rootJ, "applyFilters");
+        if (applyFiltersJ) {
+            // Use json_is_true() to check if the JSON value is true; otherwise, set to false
+            applyFilters = json_is_true(applyFiltersJ);
+        }              
+    }
+
     float bassPeakL = 0.0f;
     float bassPeakR = 0.0f;
     float envPeakL[6] = {0.0f};
@@ -103,8 +124,6 @@ struct PressedDuck : Module {
 
 	// Declare high-pass filter
 	SecondOrderHPF hpfL, hpfR;
-
-
 
     PressedDuck() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
@@ -180,12 +199,6 @@ struct PressedDuck : Module {
         configOutput(AUDIO_OUTPUT_L, "Main Out L");
         configOutput(AUDIO_OUTPUT_R, "Main Out R");    }
 
-		void lowPassFilter(float &input, float &lastOutput, float lpAlpha) {
-			float newOutput = lpAlpha * input + (1.0f - lpAlpha) * lastOutput;
-			lastOutput = newOutput;
-			input = newOutput;
-		}
-
     void process(const ProcessArgs& args) override {
         float mixL = 0.0f;
         float mixR = 0.0f;
@@ -196,15 +209,8 @@ struct PressedDuck : Module {
 		hpfL.setCutoffFrequency(args.sampleRate, 30.0f); // Set cutoff frequency
 		hpfR.setCutoffFrequency(args.sampleRate, 30.0f);
 
-		float lpCutoffFreq = sampleRate * 0.45f; // Nyquist frequency
-		float lpRC = 1.0f / (2.0f * M_PI * lpCutoffFreq);
-		float lpAlpha = args.sampleTime / (lpRC + args.sampleTime);
-
-		// Reference sample rate (96 kHz)
-		const float referenceRate = 96000.0f;
-
 		// Calculate scale factor based on the current sample rate
-		float scaleFactor = sampleRate / referenceRate;
+		float scaleFactor = sampleRate / 96000.0f; // Reference sample rate (96 kHz)
 
 		// Adjust alpha and decayRate based on sample rate
 		alpha = 0.01f / scaleFactor;  // Smoothing factor for envelope
@@ -246,13 +252,12 @@ struct PressedDuck : Module {
             inputL[i] *= vol;
             inputR[i] *= vol;
 
-
             // Simple peak detection using the absolute maximum of the current input
             envPeakL[i] = fmax(envPeakL[i] * decayRate, fabs(inputL[i]));
             envPeakR[i] = fmax(envPeakR[i] * decayRate, fabs(inputR[i]));
             envelope[i] = (envPeakL[i] + envPeakR[i]) / 2.0f;
             filteredEnvelope[i] = alpha * envelope[i] + (1 - alpha) * filteredEnvelope[i];
-
+            filteredEnvelope[i] = fmax(filteredEnvelope[i],0.1f);
             compressionAmount += filteredEnvelope[i];
 
 			// Apply panning
@@ -284,7 +289,6 @@ struct PressedDuck : Module {
 
         compressionAmount = compressionAmount/((inputCount+1.f)*5.0f); //divide by the expected ceiling 
 
-
         float pressAmount = params[PRESS_PARAM].getValue();
         if(inputs[PRESS_CV_INPUT].isConnected()){
             pressAmount += inputs[PRESS_CV_INPUT].getVoltage()*params[PRESS_ATT].getValue();
@@ -315,27 +319,21 @@ struct PressedDuck : Module {
         mixL *= saturationEffect;
         mixR *= saturationEffect;
  
- 
+        // Remove DC offsets by high pass filtering
  		if(applyFilters){
             mixL = hpfL.process(mixL);
             mixR = hpfR.process(mixR);
 		} 
 
- 
         // Apply ADAA
-        float maxHeadRoom = 46.f;
+        float maxHeadRoom = 46.f; //exceeding this number results in strange wavefolding due to the polytanh bad fit beyond this point
         mixL = clamp(mixL, -maxHeadRoom, maxHeadRoom);
         mixR = clamp(mixR, -maxHeadRoom, maxHeadRoom);
         mixL = applyADAA(mixL/35.f, lastOutputL, sampleRate); //35 is 7x5v
         mixR = applyADAA(mixR/35.f, lastOutputR, sampleRate);
         lastOutputL = mixL;
         lastOutputR = mixR;
-  
-		if(applyFilters){
-			lowPassFilter(mixL, lastLPOutputL, lpAlpha);
-			lowPassFilter(mixR, lastLPOutputR, lpAlpha);
-		} 
- 
+   
         // Set outputs
         float masterVol = params[MASTER_VOL].getValue();
         if (inputs[MASTER_VOL_CV].isConnected()){
