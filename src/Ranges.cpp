@@ -113,20 +113,20 @@ struct RangesWidget : ModuleWidget {
         // Left Section
         addParam(createParam<RoundBlackKnob>(mm2px(Vec(5, 12)), module, Ranges::TOP_PARAM));
         addParam(createParam<Trimpot>(mm2px(Vec(7, 24)), module, Ranges::TOP_ATT_PARAM));
-        addInput(createInput<PJ301MPort>(mm2px(Vec(6, 32)), module, Ranges::TOP_INPUT));
+        addInput(createInput<ThemedPJ301MPort>(mm2px(Vec(6, 32)), module, Ranges::TOP_INPUT));
 
         addParam(createParam<RoundBlackKnob>(mm2px(Vec(5, 52)), module, Ranges::BOTTOM_PARAM));
         addParam(createParam<Trimpot>(mm2px(Vec(7, 64)), module, Ranges::BOTTOM_ATT_PARAM));
-        addInput(createInput<PJ301MPort>(mm2px(Vec(6, 72)), module, Ranges::BOTTOM_INPUT));
+        addInput(createInput<ThemedPJ301MPort>(mm2px(Vec(6, 72)), module, Ranges::BOTTOM_INPUT));
 
         addParam(createParam<RoundBlackKnob>(mm2px(Vec(5, 97)), module, Ranges::DIVISIONS_PARAM)); 
-        addInput(createInput<PJ301MPort>(mm2px(Vec(6, 109)), module, Ranges::DIVISIONS_INPUT)); 
+        addInput(createInput<ThemedPJ301MPort>(mm2px(Vec(6, 109)), module, Ranges::DIVISIONS_INPUT)); 
 
         // Right Section - 13 outputs
         for (int i = 0; i < 13; ++i) {
             float yPos = 13 + i * 8; // Reduced spacing between outputs
             addChild(createLight<SmallLight<RedLight>>(mm2px(Vec(23, yPos+3)), module, Ranges::OUT1_LIGHT + i));
-            addOutput(createOutput<PJ301MPort>(mm2px(Vec(26, yPos)), module, Ranges::OUT1_OUTPUT + i));
+            addOutput(createOutput<ThemedPJ301MPort>(mm2px(Vec(26, yPos)), module, Ranges::OUT1_OUTPUT + i));
         }
       }
 };

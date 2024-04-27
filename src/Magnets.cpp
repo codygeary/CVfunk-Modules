@@ -395,7 +395,7 @@ struct MagnetsWidget : ModuleWidget {
                 // Add output ports for all sections except the central one
                 if (!(sectionX == 2 && sectionY == 2)) {
                     Vec outputPos = sectionStartPos.plus(lightSpacing.mult(Vec(2, 2)));
-                    addOutput(createOutputCentered<PJ301MPort>(outputPos, module, Magnets::OUTPUTS_START + sectionX + sectionY * 5));
+                    addOutput(createOutputCentered<ThemedPJ301MPort>(outputPos, module, Magnets::OUTPUTS_START + sectionX + sectionY * 5));
                 } else {
                     // Logic for the central section (without an output port) if needed
                 }
@@ -409,21 +409,21 @@ struct MagnetsWidget : ModuleWidget {
         // Add controls and inputs for column 1
         addParam(createParamCentered<RoundBlackKnob>(Vec(column1Pos.x, column1Pos.y), module, Magnets::TEMP_PARAM));
         addParam(createParamCentered<Trimpot>(Vec(column1Pos.x, column1Pos.y + verticalSpacing + 1), module, Magnets::TEMP_ATTENUATOR));
-        addInput(createInputCentered<PJ301MPort>(Vec(column1Pos.x, column1Pos.y + 2 * verticalSpacing), module, Magnets::TEMP_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(Vec(column1Pos.x, column1Pos.y + 2 * verticalSpacing), module, Magnets::TEMP_INPUT));
         addParam(createParamCentered<RoundBlackKnob>(Vec(column1Pos.x, column1Pos.y + 4 * verticalSpacing), module, Magnets::UPDATE_INTERVAL_PARAM));
         // Head input at the blightIndexottom of column 1
-        addInput(createInputCentered<PJ301MPort>(Vec(column1Pos.x, column1Pos.y + 8 * verticalSpacing), module, Magnets::HEAD_INPUT));
-        addInput(createInputCentered<PJ301MPort>(Vec(column2Pos.x, column1Pos.y + 8 * verticalSpacing), module, Magnets::RESET_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(Vec(column1Pos.x, column1Pos.y + 8 * verticalSpacing), module, Magnets::HEAD_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(Vec(column2Pos.x, column1Pos.y + 8 * verticalSpacing), module, Magnets::RESET_INPUT));
 		//Add button for Reset
         addParam(createParamCentered<TL1105>(Vec(column2Pos.x, column1Pos.y + 7.25 * verticalSpacing ), module, Magnets::RESET_BUTTON));
 
         // Add controls and inputs for column 2
         addParam(createParamCentered<RoundBlackKnob>(Vec(column2Pos.x, column2Pos.y), module, Magnets::POLARIZATION_PARAM));
         addParam(createParamCentered<Trimpot>(Vec(column2Pos.x, column2Pos.y + verticalSpacing + 1), module, Magnets::POLARIZATION_ATTENUATOR));
-        addInput(createInputCentered<PJ301MPort>(Vec(column2Pos.x, column2Pos.y + 2 * verticalSpacing), module, Magnets::POLARIZATION_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(Vec(column2Pos.x, column2Pos.y + 2 * verticalSpacing), module, Magnets::POLARIZATION_INPUT));
         addParam(createParamCentered<RoundBlackKnob>(Vec(column2Pos.x, column2Pos.y + 4 * verticalSpacing), module, Magnets::INTERACTION_PARAM));
         addParam(createParamCentered<Trimpot>(Vec(column2Pos.x, column2Pos.y + 5 * verticalSpacing + 1), module, Magnets::INTERACTION_ATTENUATOR));
-        addInput(createInputCentered<PJ301MPort>(Vec(column2Pos.x, column2Pos.y + 6 * verticalSpacing), module, Magnets::INTERACTION_INPUT));       
+        addInput(createInputCentered<ThemedPJ301MPort>(Vec(column2Pos.x, column2Pos.y + 6 * verticalSpacing), module, Magnets::INTERACTION_INPUT));       
     }
     
 	void appendContextMenu(Menu* menu) override {

@@ -270,21 +270,21 @@ struct StepsWidget : ModuleWidget {
         addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(37.219, 49.183)), module, Steps::RANGE_PARAM));
         addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(12.978, 78.965)), module, Steps::STEP_PARAM));
 
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(7.3, 28.408)), module, Steps::COMPARATOR_INPUT));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(19.545, 28.408)), module, Steps::BIAS_INPUT));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(32.159, 28.408)), module, Steps::RANGE_INPUT));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(7.3, 94.974)), module, Steps::INVERT_INPUT));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(7.3, 112.263)), module, Steps::STEP_INPUT));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(19.545, 112.263)), module, Steps::TRIGGER_INPUT));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(32.159, 112.263)), module, Steps::RESET_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(7.3, 28.408)), module, Steps::COMPARATOR_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(19.545, 28.408)), module, Steps::BIAS_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(32.159, 28.408)), module, Steps::RANGE_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(7.3, 94.974)), module, Steps::INVERT_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(7.3, 112.263)), module, Steps::STEP_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(19.545, 112.263)), module, Steps::TRIGGER_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(32.159, 112.263)), module, Steps::RESET_INPUT));
 
         addParam(createParamCentered<TL1105>(mm2px(Vec(19.545, 105.263)), module, Steps::TRIGGER_BUTTON_PARAM));
         addParam(createParamCentered<TL1105>(mm2px(Vec(32.159, 105.263)), module, Steps::RESET_BUTTON_PARAM));
 
 
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(44.445, 19.632)), module, Steps::COMPARATOR_UP_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(44.426, 28.485)), module, Steps::COMPARATOR_DN_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(44.426, 112.263)), module, Steps::STEPPER_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(44.445, 19.632)), module, Steps::COMPARATOR_UP_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(44.426, 28.485)), module, Steps::COMPARATOR_DN_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(44.426, 112.263)), module, Steps::STEPPER_OUTPUT));
 
         addChild(createLightCentered<MediumLight<RedLight>>(mm2px(Vec(39.075, 21.719)), module, Steps::UP_LIGHT));
         addChild(createLightCentered<MediumLight<RedLight>>(mm2px(Vec(39.19, 31.283)), module, Steps::DOWN_LIGHT));

@@ -338,21 +338,21 @@ struct CollatzWidget : ModuleWidget {
         addParam(createParamCentered<Trimpot>(mm2px(Vec(30, 41.795+7)), module, Collatz::BEAT_MODULUS_ATT));
 
         // Inputs
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(10, 60.194)), module, Collatz::START_NUMBER_CV));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(30, 60.194)), module, Collatz::BEAT_MODULUS_CV));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(10, 60.194)), module, Collatz::START_NUMBER_CV));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(30, 60.194)), module, Collatz::BEAT_MODULUS_CV));
 
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(10,  93.125)), module, Collatz::CLOCK_INPUT));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(30,  93.125)), module, Collatz::START_INPUT));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(20,  93.125)), module, Collatz::RESET_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(10,  93.125)), module, Collatz::CLOCK_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(30,  93.125)), module, Collatz::START_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(20,  93.125)), module, Collatz::RESET_INPUT));
 
         // Buttons
         addParam(createParamCentered<LEDButton>(mm2px(Vec(30, 82)), module, Collatz::START_BUTTON_PARAM));
         addParam(createParamCentered<LEDButton>(mm2px(Vec(20, 82)), module, Collatz::RESET_BUTTON_PARAM));
     
         // Outputs 
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(10, 112.3)), module, Collatz::GATE_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(20, 112.3)), module, Collatz::ACCENT_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(30, 112.3)), module, Collatz::COMPLETION_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(10, 112.3)), module, Collatz::GATE_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(20, 112.3)), module, Collatz::ACCENT_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(30, 112.3)), module, Collatz::COMPLETION_OUTPUT));
         addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(30,  105.867)), module, Collatz::COMPLETION_LIGHT));
         addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(20,   105.867)), module, Collatz::ACCENT_LIGHT));
         addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(10,   105.867)), module, Collatz::GATE_LIGHT));

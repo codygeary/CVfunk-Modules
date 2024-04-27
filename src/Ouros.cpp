@@ -141,19 +141,19 @@ struct Ouros : Module {
         // Reset all parameters
         Module::onReset(e);
   
-  		params[RATE_KNOB].setValue(0.0f);
-  		params[NODE_KNOB].setValue(0.0f);
-  		params[POSITION_KNOB].setValue(0.0f);
-  		params[ROTATE_KNOB].setValue(0.0f);
-  		params[SPREAD_KNOB].setValue(0.0f);
-  		params[FEEDBACK_KNOB].setValue(0.0f);
-  		params[MULTIPLY_KNOB].setValue(1.0f);
-  		params[NODE_ATT_KNOB].setValue(0.0f);
-  		params[ROTATE_ATT_KNOB].setValue(0.0f);
-  		params[SPREAD_ATT_KNOB].setValue(0.0f);
-  		params[FEEDBACK_ATT_KNOB].setValue(0.0f);
-  		params[POSITION_ATT_KNOB].setValue(0.0f);
-  		params[MULTIPLY_ATT_KNOB].setValue(0.0f);
+          params[RATE_KNOB].setValue(0.0f);
+          params[NODE_KNOB].setValue(0.0f);
+          params[POSITION_KNOB].setValue(0.0f);
+          params[ROTATE_KNOB].setValue(0.0f);
+          params[SPREAD_KNOB].setValue(0.0f);
+          params[FEEDBACK_KNOB].setValue(0.0f);
+          params[MULTIPLY_KNOB].setValue(1.0f);
+          params[NODE_ATT_KNOB].setValue(0.0f);
+          params[ROTATE_ATT_KNOB].setValue(0.0f);
+          params[SPREAD_ATT_KNOB].setValue(0.0f);
+          params[FEEDBACK_ATT_KNOB].setValue(0.0f);
+          params[POSITION_ATT_KNOB].setValue(0.0f);
+          params[MULTIPLY_ATT_KNOB].setValue(0.0f);
 
         // Trigger resets the phase 
         resetPulse.trigger(1e-4);       
@@ -172,12 +172,12 @@ struct Ouros : Module {
         configParam(FEEDBACK_KNOB, -1.0f, 1.0f, 0.0f, "Feedback Amount"); // 
         configParam(MULTIPLY_KNOB, 1.0f, 10.0f, 1.0f, "Multiply Feedback Osc"); // 
 
-        configParam(NODE_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Node Attenuation"); // 
-        configParam(ROTATE_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Rotate Attenuation"); // 
-        configParam(SPREAD_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Spread Attenuation"); // 
-        configParam(FEEDBACK_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Feedback Attenuation"); // 
-        configParam(POSITION_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Feedback Position Attenuation"); // 
-        configParam(MULTIPLY_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Multiply Attenuation"); // 
+        configParam(NODE_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Node Attenuverter"); // 
+        configParam(ROTATE_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Rotate Attenuverter"); // 
+        configParam(SPREAD_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Spread Attenuverter"); // 
+        configParam(FEEDBACK_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Feedback Attenuverter"); // 
+        configParam(POSITION_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Feedback Position Attenuverter"); // 
+        configParam(MULTIPLY_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Multiply Attenuverter"); // 
 
         configInput(ROTATE_INPUT, "Rotate");
         configInput(SPREAD_INPUT, "Phase Spread");
@@ -205,7 +205,7 @@ struct Ouros : Module {
         if (inputs[FM_INPUT].isConnected()) {
             fm += inputs[FM_INPUT].getVoltage()*0.2f*params[FM_ATT_KNOB].getValue(); 
         }
-        fm = clamp(fm, -2.0f, 2.0f); //limit FM to 1 octave
+        fm = clamp(fm, -3.0f, 3.0f);
 
         float multiply = params[MULTIPLY_KNOB].getValue();
         if (inputs[MULTIPLY_INPUT].isConnected()) {
@@ -420,7 +420,7 @@ struct Ouros : Module {
 
             ////////////
             //COMPUTE the Oscillator Shape
-            oscOutput[i] = 5.0f * sinf(2.0f * M_PI * oscPhase[i]);
+            oscOutput[i] = clamp(5.0f * sinf(2.0f * M_PI * oscPhase[i]), -5.0f, 5.0f);
 
             if (i<2){
                 //Output Voltage
@@ -496,8 +496,14 @@ struct PolarXYDisplay : TransparentWidget {
     }
 
     Vec polarToCartesian(float theta, float radius) {
-        float x = centerX + radius * cosf(theta);
-        float y = centerY + radius * sinf(theta);
+	
+		// Wrap theta between -pi and pi
+		theta = fmod(theta + M_PI, 2 * M_PI);
+		if (theta < 0) theta += 2 * M_PI;
+		theta -= M_PI;
+        
+        float x = centerX + radius * cos(theta);
+        float y = centerY + radius * sin(theta);
         return Vec(x, y);
     }
 
@@ -509,6 +515,7 @@ struct PolarXYDisplay : TransparentWidget {
         nvgStrokeWidth(args.vg, 1.5);
         nvgStroke(args.vg);
     }
+            
 };
 
 struct OurosWidget : ModuleWidget {
@@ -531,40 +538,40 @@ struct OurosWidget : ModuleWidget {
         const float knobSpacing = 50.5f;
 
         addParam(createParamCentered<TL1105>        (knobStartPos.plus(Vec( 0*knobSpacing, -25  )), module, Ouros::RESET_BUTTON));
-        addInput(createInputCentered<PJ301MPort>    (knobStartPos.plus(Vec( 0*knobSpacing, 0  )), module, Ouros::HARD_SYNC_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>    (knobStartPos.plus(Vec( 0*knobSpacing, 0  )), module, Ouros::HARD_SYNC_INPUT));
  
         addParam(createParamCentered<Trimpot>       (knobStartPos.plus(Vec( 0*knobSpacing, 40 )), module, Ouros::FM_ATT_KNOB));
-        addInput(createInputCentered<PJ301MPort>    (knobStartPos.plus(Vec( 0*knobSpacing, 65 )), module, Ouros::FM_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>    (knobStartPos.plus(Vec( 0*knobSpacing, 65 )), module, Ouros::FM_INPUT));
 
         addParam(createParamCentered<RoundBlackKnob>(knobStartPos.plus(Vec( 1*knobSpacing, 0  )), module, Ouros::ROTATE_KNOB));
         addParam(createParamCentered<Trimpot>       (knobStartPos.plus(Vec( 1*knobSpacing, 30 )), module, Ouros::ROTATE_ATT_KNOB));
-        addInput(createInputCentered<PJ301MPort>    (knobStartPos.plus(Vec( 1*knobSpacing, 55 )), module, Ouros::ROTATE_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>    (knobStartPos.plus(Vec( 1*knobSpacing, 55 )), module, Ouros::ROTATE_INPUT));
 
         addParam(createParamCentered<RoundBlackKnob>(knobStartPos.plus(Vec( 2*knobSpacing, 0  )), module, Ouros::SPREAD_KNOB));
         addParam(createParamCentered<Trimpot>       (knobStartPos.plus(Vec( 2*knobSpacing, 30 )), module, Ouros::SPREAD_ATT_KNOB));
-        addInput(createInputCentered<PJ301MPort>    (knobStartPos.plus(Vec( 2*knobSpacing, 55 )), module, Ouros::SPREAD_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>    (knobStartPos.plus(Vec( 2*knobSpacing, 55 )), module, Ouros::SPREAD_INPUT));
 
         addParam(createParamCentered<RoundBlackKnob>(knobStartPos.plus(Vec( 3*knobSpacing, 0  )), module, Ouros::MULTIPLY_KNOB));
         addParam(createParamCentered<Trimpot>       (knobStartPos.plus(Vec( 3*knobSpacing, 30 )), module, Ouros::MULTIPLY_ATT_KNOB));
-        addInput(createInputCentered<PJ301MPort>    (knobStartPos.plus(Vec( 3*knobSpacing, 55 )), module, Ouros::MULTIPLY_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>    (knobStartPos.plus(Vec( 3*knobSpacing, 55 )), module, Ouros::MULTIPLY_INPUT));
 
         addParam(createParamCentered<RoundBlackKnob>(knobStartPos.plus(Vec( 0*knobSpacing, 125 )), module, Ouros::RATE_KNOB));
-        addInput(createInputCentered<PJ301MPort>    (knobStartPos.plus(Vec( 0*knobSpacing, 165 )), module, Ouros::RATE_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>    (knobStartPos.plus(Vec( 0*knobSpacing, 165 )), module, Ouros::RATE_INPUT));
 
         addParam(createParamCentered<RoundBlackKnob>(knobStartPos.plus(Vec( 1*knobSpacing, 110 )), module, Ouros::FEEDBACK_KNOB));
         addParam(createParamCentered<Trimpot>       (knobStartPos.plus(Vec( 1*knobSpacing, 140 )), module, Ouros::FEEDBACK_ATT_KNOB));
-        addInput(createInputCentered<PJ301MPort>    (knobStartPos.plus(Vec( 1*knobSpacing, 165 )), module, Ouros::FEEDBACK_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>    (knobStartPos.plus(Vec( 1*knobSpacing, 165 )), module, Ouros::FEEDBACK_INPUT));
 
         addParam(createParamCentered<RoundBlackKnob>(knobStartPos.plus(Vec( 2*knobSpacing, 110 )), module, Ouros::POSITION_KNOB));
         addParam(createParamCentered<Trimpot>       (knobStartPos.plus(Vec( 2*knobSpacing, 140 )), module, Ouros::POSITION_ATT_KNOB));
-        addInput(createInputCentered<PJ301MPort>    (knobStartPos.plus(Vec( 2*knobSpacing, 165 )), module, Ouros::POSITION_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>    (knobStartPos.plus(Vec( 2*knobSpacing, 165 )), module, Ouros::POSITION_INPUT));
 
         addParam(createParamCentered<RoundBlackKnob>(knobStartPos.plus(Vec( 3*knobSpacing, 110 )), module, Ouros::NODE_KNOB));
         addParam(createParamCentered<Trimpot>       (knobStartPos.plus(Vec( 3*knobSpacing, 140 )), module, Ouros::NODE_ATT_KNOB));
-        addInput(createInputCentered<PJ301MPort>    (knobStartPos.plus(Vec( 3*knobSpacing, 165 )), module, Ouros::NODE_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>    (knobStartPos.plus(Vec( 3*knobSpacing, 165 )), module, Ouros::NODE_INPUT));
 
-        addOutput(createOutputCentered<PJ301MPort>(knobStartPos.plus(Vec(3*knobSpacing, -102)), module, Ouros::L_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(knobStartPos.plus(Vec(3*knobSpacing, -72)), module, Ouros::R_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(knobStartPos.plus(Vec(3*knobSpacing, -102)), module, Ouros::L_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(knobStartPos.plus(Vec(3*knobSpacing, -72)), module, Ouros::R_OUTPUT));
 
         // Create and add the PolarXYDisplay
         PolarXYDisplay* polarDisplay = createWidget<PolarXYDisplay>(Vec(56.5,55.5)); // Positioning

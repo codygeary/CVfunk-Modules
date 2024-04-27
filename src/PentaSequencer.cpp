@@ -374,18 +374,18 @@ struct PentaSequencerWidget : ModuleWidget {
         addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(67.146, 77.271)), module, PentaSequencer::KNOB4_PARAM));
 
         addParam(createParamCentered<TL1105>(mm2px(Vec(7.235, 105)), module, PentaSequencer::MANUAL_TRIGGER_PARAM));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(7.235, 112.373)), module, PentaSequencer::TRIG_INPUT));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(22.67, 112.373)), module, PentaSequencer::SHAPE_INPUT));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(38.105, 112.373)), module, PentaSequencer::SHIFT_INPUT));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(53.54, 112.373)), module, PentaSequencer::DIR_INPUT));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(68.975, 112.373)), module, PentaSequencer::RESET_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(7.235, 112.373)), module, PentaSequencer::TRIG_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(22.67, 112.373)), module, PentaSequencer::SHAPE_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(38.105, 112.373)), module, PentaSequencer::SHIFT_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(53.54, 112.373)), module, PentaSequencer::DIR_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(68.975, 112.373)), module, PentaSequencer::RESET_INPUT));
         addParam(createParamCentered<TL1105>(mm2px(Vec(68.975, 105)), module, PentaSequencer::MANUAL_RESET_PARAM));
 
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(38.287, 70.309)), module, PentaSequencer::A_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(13.478, 52.214)), module, PentaSequencer::B_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(22.639, 23.158)), module, PentaSequencer::C_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(53.652, 23.333)), module, PentaSequencer::D_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(62.813, 52.274)), module, PentaSequencer::E_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(38.287, 70.309)), module, PentaSequencer::A_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(13.478, 52.214)), module, PentaSequencer::B_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(22.639, 23.158)), module, PentaSequencer::C_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(53.652, 23.333)), module, PentaSequencer::D_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(62.813, 52.274)), module, PentaSequencer::E_OUTPUT));
 
         addChild(createLightCentered<MediumLight<RedLight>>(mm2px(Vec(9.143, 84.666)), module, PentaSequencer::STEP3_LIGHT));
         addChild(createLightCentered<MediumLight<RedLight>>(mm2px(Vec(20.172, 99.422)), module, PentaSequencer::STEP2_LIGHT));

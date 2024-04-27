@@ -138,7 +138,7 @@ struct PressedDuck : Module {
         configParam(VOLUME4_PARAM, 0.f, 2.f, 1.0f, "Channel 4 Volume");
         configParam(VOLUME5_PARAM, 0.f, 2.f, 1.0f, "Channel 5 Volume");
         configParam(VOLUME6_PARAM, 0.f, 2.f, 1.0f, "Channel 6 Volume");
-        configParam(MASTER_VOL, 0.f, 10.f, 5.0f, "Master Volume");
+        configParam(MASTER_VOL, 0.f, 2.f, 1.0f, "Master Volume");
         configParam(FEEDBACK_PARAM, 0.f, 11.f, 0.0f, "Feedback");
 
         configParam(PAN1_PARAM, -1.f, 1.f, 0.f, "Channel 1 Pan");
@@ -347,13 +347,13 @@ struct PressedDuck : Module {
         // Set outputs
         float masterVol = params[MASTER_VOL].getValue();
         if (inputs[MASTER_VOL_CV].isConnected()){
-            masterVol += inputs[MASTER_VOL_CV].getVoltage()*params[MASTER_VOL_ATT].getValue();
+            masterVol += inputs[MASTER_VOL_CV].getVoltage()*params[MASTER_VOL_ATT].getValue()/10.f;
         }
-        masterVol = clamp(masterVol, 0.0f, 10.0f);
+        masterVol = clamp(masterVol, 0.0f, 2.0f);
 
         // Processing the outputs
-        float outputL = mixL * 1.38f * masterVol;
-        float outputR = mixR * 1.38f * masterVol;
+        float outputL = mixL * 6.9f * masterVol;
+        float outputR = mixR * 6.9f * masterVol;
 
         // Check output connections to implement conditional mono-to-stereo mirroring
         if (outputs[AUDIO_OUTPUT_L].isConnected() && !outputs[AUDIO_OUTPUT_R].isConnected()) {
@@ -485,9 +485,9 @@ struct PressedDuckWidget : ModuleWidget {
         float xPos = channelOffset.x;
 
          // Audio inputs
-        addInput(createInputCentered<PJ301MPort>(Vec(xPos, yPos), module, PressedDuck::SIDECHAIN_INPUT_L ));
+        addInput(createInputCentered<ThemedPJ301MPort>(Vec(xPos, yPos), module, PressedDuck::SIDECHAIN_INPUT_L ));
         yPos += Spacing;
-        addInput(createInputCentered<PJ301MPort>(Vec(xPos, yPos), module, PressedDuck::SIDECHAIN_INPUT_R ));
+        addInput(createInputCentered<ThemedPJ301MPort>(Vec(xPos, yPos), module, PressedDuck::SIDECHAIN_INPUT_R ));
    
         // Volume slider with light
         yPos += 40+Spacing;
@@ -495,7 +495,7 @@ struct PressedDuckWidget : ModuleWidget {
 
         // VCA CV input
         yPos += 38+Spacing;
-        addInput(createInputCentered<PJ301MPort>(Vec(xPos, yPos), module, PressedDuck::VCA_SIDECHAIN_INPUT ));
+        addInput(createInputCentered<ThemedPJ301MPort>(Vec(xPos, yPos), module, PressedDuck::VCA_SIDECHAIN_INPUT ));
 
         yPos += 1.95*Spacing;
         // Ducking amount knob
@@ -509,7 +509,7 @@ struct PressedDuckWidget : ModuleWidget {
 
         // Ducking CV input
         yPos += Spacing;
-        addInput(createInputCentered<PJ301MPort>(Vec(xPos, yPos), module, PressedDuck::DUCK_CV));
+        addInput(createInputCentered<ThemedPJ301MPort>(Vec(xPos, yPos), module, PressedDuck::DUCK_CV));
 
         yPos = channelOffset.y;
         // Loop through each channel
@@ -517,9 +517,9 @@ struct PressedDuckWidget : ModuleWidget {
             xPos = 1.25*sliderX + channelOffset.x + i * sliderX;
 
             // Audio inputs
-            addInput(createInputCentered<PJ301MPort>(Vec(xPos, yPos), module, PressedDuck::AUDIO_1L_INPUT + 2 * i));
+            addInput(createInputCentered<ThemedPJ301MPort>(Vec(xPos, yPos), module, PressedDuck::AUDIO_1L_INPUT + 2 * i));
             yPos += Spacing;
-            addInput(createInputCentered<PJ301MPort>(Vec(xPos, yPos), module, PressedDuck::AUDIO_1R_INPUT + 2 * i));
+            addInput(createInputCentered<ThemedPJ301MPort>(Vec(xPos, yPos), module, PressedDuck::AUDIO_1R_INPUT + 2 * i));
 
             // Volume slider with light
             yPos += 40+Spacing;
@@ -527,7 +527,7 @@ struct PressedDuckWidget : ModuleWidget {
 
             // VCA CV input
             yPos += 38+Spacing;
-            addInput(createInputCentered<PJ301MPort>(Vec(xPos, yPos), module, PressedDuck::VCA_CV1_INPUT + i));
+            addInput(createInputCentered<ThemedPJ301MPort>(Vec(xPos, yPos), module, PressedDuck::VCA_CV1_INPUT + i));
 
             // Pan knob
             yPos += Spacing + 40;
@@ -535,7 +535,7 @@ struct PressedDuckWidget : ModuleWidget {
 
             // Pan CV input
             yPos += 1.5*Spacing;
-            addInput(createInputCentered<PJ301MPort>(Vec(xPos, yPos), module, PressedDuck::PAN_CV1_INPUT + i));
+            addInput(createInputCentered<ThemedPJ301MPort>(Vec(xPos, yPos), module, PressedDuck::PAN_CV1_INPUT + i));
 
             // Reset yPos for next channel
             yPos = channelOffset.y;
@@ -557,7 +557,7 @@ struct PressedDuckWidget : ModuleWidget {
 
         // Saturation CV input
         xPos += 1.0*sliderX; // Shift to the right of the last channel
-        addInput(createInputCentered<PJ301MPort>(Vec(xPos, yPos), module, PressedDuck::PRESS_CV_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(Vec(xPos, yPos), module, PressedDuck::PRESS_CV_INPUT));
 
         xPos -= .5*sliderX; // Shift to the right of the last channel
 
@@ -574,7 +574,7 @@ struct PressedDuckWidget : ModuleWidget {
         // FEEDBACK CV input
         xPos += 1.0*sliderX; // Shift to the right of the last channel
 
-        addInput(createInputCentered<PJ301MPort>(Vec(xPos, yPos), module, PressedDuck::FEEDBACK_CV));
+        addInput(createInputCentered<ThemedPJ301MPort>(Vec(xPos, yPos), module, PressedDuck::FEEDBACK_CV));
         xPos -= .5*sliderX; // Shift to the right of the last channel
 
         yPos = channelOffset.y + 4.4*Spacing + 85;
@@ -590,16 +590,16 @@ struct PressedDuckWidget : ModuleWidget {
         // Master Volume CV input
         xPos += 1.0*sliderX; // Shift to the right of the last channel
 
-        addInput(createInputCentered<PJ301MPort>(Vec(xPos, yPos), module, PressedDuck::MASTER_VOL_CV));
+        addInput(createInputCentered<ThemedPJ301MPort>(Vec(xPos, yPos), module, PressedDuck::MASTER_VOL_CV));
         xPos -= .5*sliderX; // Shift to the right of the last channel
 
         xPos -= .5*sliderX; // Shift to the right of the last channel
 
         // Outputs
         yPos = channelOffset.y + 4*Spacing + 170;
-        addOutput(createOutputCentered<PJ301MPort>(Vec(xPos, yPos), module, PressedDuck::AUDIO_OUTPUT_L));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(Vec(xPos, yPos), module, PressedDuck::AUDIO_OUTPUT_L));
         xPos += 1*sliderX; // Shift to the right of the last channel
-        addOutput(createOutputCentered<PJ301MPort>(Vec(xPos, yPos), module, PressedDuck::AUDIO_OUTPUT_R));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(Vec(xPos, yPos), module, PressedDuck::AUDIO_OUTPUT_R));
 
     }
     

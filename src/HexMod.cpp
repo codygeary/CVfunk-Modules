@@ -461,22 +461,22 @@ struct HexModWidget : ModuleWidget {
         // Envelope Inputs at the top
         const Vec inputStartPos = Vec(15+10, 30);
         const float inputSpacing = 31.0f;
-            addInput(createInput<PJ301MPort>(inputStartPos.plus(Vec(inputSpacing * 0, 0)), module, HexMod::ENV_INPUT_1 + 0));
+            addInput(createInput<ThemedPJ301MPort>(inputStartPos.plus(Vec(inputSpacing * 0, 0)), module, HexMod::ENV_INPUT_1 + 0));
             addChild(createLight<TinyLight<YellowLight>>(inputStartPos.plus(Vec(inputSpacing * 0+11, 27)), module, HexMod::IN_LED_1 + 0));
 
-            addInput(createInput<PJ301MPort>(inputStartPos.plus(Vec(inputSpacing * 1, 0)), module, HexMod::ENV_INPUT_1 + 1));
+            addInput(createInput<ThemedPJ301MPort>(inputStartPos.plus(Vec(inputSpacing * 1, 0)), module, HexMod::ENV_INPUT_1 + 1));
             addChild(createLight<TinyLight<YellowLight>>(inputStartPos.plus(Vec(inputSpacing * 1+11, 27)), module, HexMod::IN_LED_1 + 1));
 
-            addInput(createInput<PJ301MPort>(inputStartPos.plus(Vec(inputSpacing * 2, 0)), module, HexMod::ENV_INPUT_1 + 2));
+            addInput(createInput<ThemedPJ301MPort>(inputStartPos.plus(Vec(inputSpacing * 2, 0)), module, HexMod::ENV_INPUT_1 + 2));
             addChild(createLight<TinyLight<YellowLight>>(inputStartPos.plus(Vec(inputSpacing * 2+11, 27)), module, HexMod::IN_LED_1 + 2));
 
-            addInput(createInput<PJ301MPort>(inputStartPos.plus(Vec(inputSpacing * 3, 0)), module, HexMod::ENV_INPUT_1 + 3));
+            addInput(createInput<ThemedPJ301MPort>(inputStartPos.plus(Vec(inputSpacing * 3, 0)), module, HexMod::ENV_INPUT_1 + 3));
             addChild(createLight<TinyLight<YellowLight>>(inputStartPos.plus(Vec(inputSpacing * 3+11, 27)), module, HexMod::IN_LED_1 + 3));
 
-            addInput(createInput<PJ301MPort>(inputStartPos.plus(Vec(inputSpacing * 4, 0)), module, HexMod::ENV_INPUT_1 + 4));
+            addInput(createInput<ThemedPJ301MPort>(inputStartPos.plus(Vec(inputSpacing * 4, 0)), module, HexMod::ENV_INPUT_1 + 4));
             addChild(createLight<TinyLight<YellowLight>>(inputStartPos.plus(Vec(inputSpacing * 4+11, 27)), module, HexMod::IN_LED_1 + 4));
 
-            addInput(createInput<PJ301MPort>(inputStartPos.plus(Vec(inputSpacing * 5, 0)), module, HexMod::ENV_INPUT_1 + 5));
+            addInput(createInput<ThemedPJ301MPort>(inputStartPos.plus(Vec(inputSpacing * 5, 0)), module, HexMod::ENV_INPUT_1 + 5));
             addChild(createLight<TinyLight<YellowLight>>(inputStartPos.plus(Vec(inputSpacing * 5+11, 27)), module, HexMod::IN_LED_1 + 5));
 
         // Hexagon of Outputs and LED strips in the center
@@ -488,7 +488,7 @@ struct HexModWidget : ModuleWidget {
             Vec jackPos = Vec(hexCenter.x + cos(angle) * (hexRadius + jackOffset), hexCenter.y + sin(angle) * (hexRadius + jackOffset));
             jackPos = jackPos.minus(Vec(8, 8)); // Offset the jack position 
 
-            addOutput(createOutput<PJ301MPort>(jackPos, module, HexMod::LFO_OUTPUT_1 + i));
+            addOutput(createOutput<ThemedPJ301MPort>(jackPos, module, HexMod::LFO_OUTPUT_1 + i));
 
             Vec outputPos = Vec(hexCenter.x + cos(angle) * hexRadius, hexCenter.y + sin(angle) * hexRadius); // Original position for LED calculations
 
@@ -535,10 +535,10 @@ struct HexModWidget : ModuleWidget {
         addParam(createParam<Trimpot>(knobStartPos.plus(Vec(0+5, 41)), module, HexMod::RATE_ATT_KNOB));
         addParam(createParam<Trimpot>(knobStartPos.plus(Vec( knobSpacing+5, 41)), module, HexMod::NODE_ATT_KNOB));
 
-        addInput(createInput<PJ301MPort>(knobStartPos.plus(Vec(0+2, 63)), module, HexMod::RATE_INPUT));
-        addInput(createInput<PJ301MPort>(knobStartPos.plus(Vec(knobSpacing+2, 63)), module, HexMod::NODE_INPUT));
+        addInput(createInput<ThemedPJ301MPort>(knobStartPos.plus(Vec(0+2, 63)), module, HexMod::RATE_INPUT));
+        addInput(createInput<ThemedPJ301MPort>(knobStartPos.plus(Vec(knobSpacing+2, 63)), module, HexMod::NODE_INPUT));
 
-        addInput(createInput<PJ301MPort>(knobStartPos.plus(Vec(0.5*knobSpacing+2, 40)), module, HexMod::SYNC_INPUT));
+        addInput(createInput<ThemedPJ301MPort>(knobStartPos.plus(Vec(0.5*knobSpacing+2, 40)), module, HexMod::SYNC_INPUT));
 
     }
 

@@ -108,7 +108,7 @@ struct Signals : Module {
 
         for (int i = 0; i < NUM_INPUTS; ++i) {
             if (inputs[i].isConnected()) {
-                float inputVoltage = inputs[i].getVoltage();
+                float inputVoltage = clamp (inputs[i].getVoltage(), -10.f, 10.f);
 
                 // Force a retrigger for this channel if the flag is set
                 if (forceRetriggerFlags[i]) {
@@ -300,8 +300,8 @@ struct SignalsWidget : ModuleWidget {
         for (int i = 0; i < 6; ++i) {
             float yPos = initialYPos + i * spacing; // Adjusted positioning and spacing
 
-            addInput(createInput<PJ301MPort>(Vec(5, yPos+20), module, i));
-            addOutput(createOutput<PJ301MPort>(Vec(148, yPos+20), module, i));
+            addInput(createInput<ThemedPJ301MPort>(Vec(5, yPos+20), module, i));
+            addOutput(createOutput<ThemedPJ301MPort>(Vec(148, yPos+20), module, i));
 
             WaveformDisplay* display = new WaveformDisplay(colors[i]);
             display->box.pos = Vec(40, yPos );

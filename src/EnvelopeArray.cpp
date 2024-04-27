@@ -473,16 +473,16 @@ struct EnvelopeArrayWidget : ModuleWidget {
         //addParam(createParamCentered<Trimpot>(mm2px(Vec(38.277, 45)), module, EnvelopeArray::SECRET_PARAM));
         /////////////////////
 
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(29.337, 55.194)), module, EnvelopeArray::SLANT_INPUT));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(47.525, 55.194)), module, EnvelopeArray::CURVE_INPUT));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(11.228, 58.715)), module, EnvelopeArray::TIME1_INPUT));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(65.323, 58.715)), module, EnvelopeArray::TIME6_INPUT));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(7.1   , 78.815)), module, EnvelopeArray::_1_INPUT));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(19.459, 78.815)), module, EnvelopeArray::_2_INPUT));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(31.818, 78.815)), module, EnvelopeArray::_3_INPUT));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(44.178, 78.815)), module, EnvelopeArray::_4_INPUT));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(56.537, 78.815)), module, EnvelopeArray::_5_INPUT));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(68.896, 78.815)), module, EnvelopeArray::_6_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(29.337, 55.194)), module, EnvelopeArray::SLANT_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(47.525, 55.194)), module, EnvelopeArray::CURVE_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(11.228, 58.715)), module, EnvelopeArray::TIME1_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(65.323, 58.715)), module, EnvelopeArray::TIME6_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(7.1   , 78.815)), module, EnvelopeArray::_1_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(19.459, 78.815)), module, EnvelopeArray::_2_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(31.818, 78.815)), module, EnvelopeArray::_3_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(44.178, 78.815)), module, EnvelopeArray::_4_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(56.537, 78.815)), module, EnvelopeArray::_5_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(68.896, 78.815)), module, EnvelopeArray::_6_INPUT));
 
         // For Time1 Group
         float groupStartXTime1 = 11.228 - 11.5; // Starting x-coordinate for the Time1 group
@@ -502,18 +502,18 @@ struct EnvelopeArrayWidget : ModuleWidget {
         addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(groupStartXTime6 + 15, 15)), module, EnvelopeArray::TIME6_LED2_LIGHT)); // Second LED
         addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(groupStartXTime6 + 18, 15)), module, EnvelopeArray::TIME6_LED3_LIGHT)); // Third LED
 
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(7.1, 93.125)), module, EnvelopeArray::_1_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(19.459, 93.125)), module, EnvelopeArray::_2_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(31.818, 93.125)), module, EnvelopeArray::_3_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(44.178, 93.125)), module, EnvelopeArray::_4_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(56.537, 93.125)), module, EnvelopeArray::_5_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(68.896, 93.125)), module, EnvelopeArray::_6_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(7.1, 112.33)), module, EnvelopeArray::EOF1_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(19.459, 112.33)), module, EnvelopeArray::EOF2_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(31.818, 112.33)), module, EnvelopeArray::EOF3_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(44.178, 112.33)), module, EnvelopeArray::EOF4_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(56.537, 112.33)), module, EnvelopeArray::EOF5_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(68.896, 112.33)), module, EnvelopeArray::EOF6_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(7.1, 93.125)), module, EnvelopeArray::_1_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(19.459, 93.125)), module, EnvelopeArray::_2_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(31.818, 93.125)), module, EnvelopeArray::_3_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(44.178, 93.125)), module, EnvelopeArray::_4_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(56.537, 93.125)), module, EnvelopeArray::_5_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(68.896, 93.125)), module, EnvelopeArray::_6_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(7.1, 112.33)), module, EnvelopeArray::EOF1_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(19.459, 112.33)), module, EnvelopeArray::EOF2_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(31.818, 112.33)), module, EnvelopeArray::EOF3_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(44.178, 112.33)), module, EnvelopeArray::EOF4_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(56.537, 112.33)), module, EnvelopeArray::EOF5_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(68.896, 112.33)), module, EnvelopeArray::EOF6_OUTPUT));
 
         addChild(createLightCentered<MediumLight<RedLight>>(mm2px(Vec(7.1, 86.153)), module, EnvelopeArray::_1_LIGHT));
         addChild(createLightCentered<MediumLight<RedLight>>(mm2px(Vec(19.518, 86.153)), module, EnvelopeArray::_2_LIGHT));

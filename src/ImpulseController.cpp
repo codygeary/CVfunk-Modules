@@ -336,7 +336,7 @@ struct ImpulseControllerWidget : ModuleWidget {
 
         addParam(createParamCentered<TL1105>(mm2px(Vec(10.916, 65)), module, ImpulseController::TRIGGER_BUTTON));
 
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(10.916, 72.73)), module, ImpulseController::_00_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(10.916, 72.73)), module, ImpulseController::_00_INPUT));
 
         // Attenuverter Knobs
         addParam(createParamCentered<Trimpot>(mm2px(Vec(11.064, 35.728)), module, ImpulseController::LAG_ATT_PARAM));
@@ -346,34 +346,34 @@ struct ImpulseControllerWidget : ModuleWidget {
         addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(10.957, 24)), module, ImpulseController::LAG_PARAM));
         addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(29.649, 24)), module, ImpulseController::SPREAD_PARAM));
         addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(48.342, 24)), module, ImpulseController::DECAY_PARAM));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(11.171, 45.049)), module, ImpulseController::LAG_INPUT));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(29.864, 45.049)), module, ImpulseController::SPREAD_INPUT));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(48.556, 45.049)), module, ImpulseController::DECAY_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(11.171, 45.049)), module, ImpulseController::LAG_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(29.864, 45.049)), module, ImpulseController::SPREAD_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(48.556, 45.049)), module, ImpulseController::DECAY_INPUT));
 
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(29.445, 72.73)), module, ImpulseController::_01_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(47.974, 72.73)), module, ImpulseController::_02_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(66.503, 72.73)), module, ImpulseController::_03_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(66.503, 54.201)), module, ImpulseController::_04_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(85.031, 72.73)), module, ImpulseController::_05_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(85.031, 35.672)), module, ImpulseController::_06_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(85.031, 91.258)), module, ImpulseController::_07_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(103.56, 72.73)), module, ImpulseController::_08_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(103.56, 35.672)), module, ImpulseController::_09_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(103.56, 109.656)), module, ImpulseController::_10_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(103.56, 54.201)), module, ImpulseController::_11_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(122.089, 91.258)), module, ImpulseController::_12_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(122.089, 72.73)), module, ImpulseController::_13_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(122.089, 17.144)), module, ImpulseController::_14_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(122.089, 35.672)), module, ImpulseController::_15_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(122.089, 54.201)), module, ImpulseController::_16_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(122.089, 109.656)), module, ImpulseController::_17_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(140.618, 54.201)), module, ImpulseController::_18_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(103.56, 17.144)), module, ImpulseController::_19_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(140.618, 91.258)), module, ImpulseController::_20_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(140.618, 72.73)), module, ImpulseController::_21_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(140.618, 109.656)), module, ImpulseController::_22_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(140.618, 17.144)), module, ImpulseController::_23_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(140.618, 35.672)), module, ImpulseController::_24_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(29.445, 72.73)), module, ImpulseController::_01_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(47.974, 72.73)), module, ImpulseController::_02_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(66.503, 72.73)), module, ImpulseController::_03_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(66.503, 54.201)), module, ImpulseController::_04_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(85.031, 72.73)), module, ImpulseController::_05_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(85.031, 35.672)), module, ImpulseController::_06_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(85.031, 91.258)), module, ImpulseController::_07_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(103.56, 72.73)), module, ImpulseController::_08_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(103.56, 35.672)), module, ImpulseController::_09_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(103.56, 109.656)), module, ImpulseController::_10_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(103.56, 54.201)), module, ImpulseController::_11_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(122.089, 91.258)), module, ImpulseController::_12_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(122.089, 72.73)), module, ImpulseController::_13_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(122.089, 17.144)), module, ImpulseController::_14_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(122.089, 35.672)), module, ImpulseController::_15_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(122.089, 54.201)), module, ImpulseController::_16_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(122.089, 109.656)), module, ImpulseController::_17_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(140.618, 54.201)), module, ImpulseController::_18_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(103.56, 17.144)), module, ImpulseController::_19_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(140.618, 91.258)), module, ImpulseController::_20_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(140.618, 72.73)), module, ImpulseController::_21_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(140.618, 109.656)), module, ImpulseController::_22_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(140.618, 17.144)), module, ImpulseController::_23_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(140.618, 35.672)), module, ImpulseController::_24_OUTPUT));
 
         addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(20.181, 72.73)), module, ImpulseController::_00A_LIGHT));
         addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(23.139, 72.73)), module, ImpulseController::_00B_LIGHT));

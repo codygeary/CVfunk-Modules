@@ -808,13 +808,13 @@ struct StringsWidget : ModuleWidget {
 
         // Knobs
         addParam(createParamCentered<RoundBlackKnob>(Vec(30,  30), module, Strings::CHORD_SELECTOR_PARAM));
-        addInput(createInputCentered<PJ301MPort>(Vec(30,   65), module, Strings::CHORD_SELECTOR_CV));
+        addInput(createInputCentered<ThemedPJ301MPort>(Vec(30,   65), module, Strings::CHORD_SELECTOR_CV));
 
         addParam(createParamCentered<RoundBlackKnob>(Vec(30, 40+80), module, Strings::ROW_SELECTOR_PARAM));
-        addInput(createInputCentered<PJ301MPort>(Vec(30,  75+80), module, Strings::ROW_SELECTOR_CV));
+        addInput(createInputCentered<ThemedPJ301MPort>(Vec(30,  75+80), module, Strings::ROW_SELECTOR_CV));
 
         addParam(createParamCentered<RoundBlackKnob>(Vec(270, 30), module, Strings::CAPO_PARAM));
-        addInput(createInputCentered<PJ301MPort>(Vec(270,  65), module, Strings::CAPO_CV));
+        addInput(createInputCentered<ThemedPJ301MPort>(Vec(270,  65), module, Strings::CAPO_CV));
 
         // CV Mode Indicator
         DigitalDisplay* CVModeDisplay = new DigitalDisplay();
@@ -839,8 +839,8 @@ struct StringsWidget : ModuleWidget {
 
         // Gate Inputs
 
-        addInput(createInputCentered<PJ301MPort>(Vec(30, 220), module, Strings::BARRE_CHORD_GATE));
-        addInput(createInputCentered<PJ301MPort>(Vec(60, 220), module, Strings::ALT_CHORD_GATE));
+        addInput(createInputCentered<ThemedPJ301MPort>(Vec(30, 220), module, Strings::BARRE_CHORD_GATE));
+        addInput(createInputCentered<ThemedPJ301MPort>(Vec(60, 220), module, Strings::ALT_CHORD_GATE));
 
         addParam(createParamCentered<LEDButton>           (Vec(30, 195), module, Strings::BARRE_CHORD_BUTTON));
         addChild(createLightCentered<SmallLight<RedLight>>(Vec(30, 195), module, Strings::BARRE_CHORD_LIGHT));
@@ -851,30 +851,30 @@ struct StringsWidget : ModuleWidget {
         float jack = 35; //sets spacing between jacks
 
         // Inputs
-        addInput(createInputCentered<PJ301MPort>(Vec(left,        270), module, Strings::ENVELOPE_IN_1));
-        addInput(createInputCentered<PJ301MPort>(Vec(1*jack+left, 270), module, Strings::ENVELOPE_IN_2));
-        addInput(createInputCentered<PJ301MPort>(Vec(2*jack+left, 270), module, Strings::ENVELOPE_IN_3));
-        addInput(createInputCentered<PJ301MPort>(Vec(3*jack+left, 270), module, Strings::ENVELOPE_IN_4));
-        addInput(createInputCentered<PJ301MPort>(Vec(4*jack+left, 270), module, Strings::ENVELOPE_IN_5));
-        addInput(createInputCentered<PJ301MPort>(Vec(5*jack+left, 270), module, Strings::ENVELOPE_IN_6));
-        addInput(createInputCentered<PJ301MPort>(Vec(6.5*jack+left, 270), module, Strings::WHAMMY_BAR_CV));
+        addInput(createInputCentered<ThemedPJ301MPort>(Vec(left,        270), module, Strings::ENVELOPE_IN_1));
+        addInput(createInputCentered<ThemedPJ301MPort>(Vec(1*jack+left, 270), module, Strings::ENVELOPE_IN_2));
+        addInput(createInputCentered<ThemedPJ301MPort>(Vec(2*jack+left, 270), module, Strings::ENVELOPE_IN_3));
+        addInput(createInputCentered<ThemedPJ301MPort>(Vec(3*jack+left, 270), module, Strings::ENVELOPE_IN_4));
+        addInput(createInputCentered<ThemedPJ301MPort>(Vec(4*jack+left, 270), module, Strings::ENVELOPE_IN_5));
+        addInput(createInputCentered<ThemedPJ301MPort>(Vec(5*jack+left, 270), module, Strings::ENVELOPE_IN_6));
+        addInput(createInputCentered<ThemedPJ301MPort>(Vec(6.5*jack+left, 270), module, Strings::WHAMMY_BAR_CV));
 
         // Outputs              
-        addOutput(createOutputCentered<PJ301MPort>(Vec(left,        310), module, Strings::MUTE_OUT_1));
-        addOutput(createOutputCentered<PJ301MPort>(Vec(1*jack+left, 310), module, Strings::MUTE_OUT_2));
-        addOutput(createOutputCentered<PJ301MPort>(Vec(2*jack+left, 310), module, Strings::MUTE_OUT_3));
-        addOutput(createOutputCentered<PJ301MPort>(Vec(3*jack+left, 310), module, Strings::MUTE_OUT_4));
-        addOutput(createOutputCentered<PJ301MPort>(Vec(4*jack+left, 310), module, Strings::MUTE_OUT_5));
-        addOutput(createOutputCentered<PJ301MPort>(Vec(5*jack+left, 310), module, Strings::MUTE_OUT_6));
-        addOutput(createOutputCentered<PJ301MPort>(Vec(6.5*jack+left, 310), module, Strings::TRIGGER_OUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(Vec(left,        310), module, Strings::MUTE_OUT_1));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(Vec(1*jack+left, 310), module, Strings::MUTE_OUT_2));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(Vec(2*jack+left, 310), module, Strings::MUTE_OUT_3));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(Vec(3*jack+left, 310), module, Strings::MUTE_OUT_4));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(Vec(4*jack+left, 310), module, Strings::MUTE_OUT_5));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(Vec(5*jack+left, 310), module, Strings::MUTE_OUT_6));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(Vec(6.5*jack+left, 310), module, Strings::TRIGGER_OUT));
 
-        addOutput(createOutputCentered<PJ301MPort>(Vec(left,        340), module, Strings::STRING_CV_OUT_1));
-        addOutput(createOutputCentered<PJ301MPort>(Vec(1*jack+left, 340), module, Strings::STRING_CV_OUT_2));
-        addOutput(createOutputCentered<PJ301MPort>(Vec(2*jack+left, 340), module, Strings::STRING_CV_OUT_3));
-        addOutput(createOutputCentered<PJ301MPort>(Vec(3*jack+left, 340), module, Strings::STRING_CV_OUT_4));
-        addOutput(createOutputCentered<PJ301MPort>(Vec(4*jack+left, 340), module, Strings::STRING_CV_OUT_5));
-        addOutput(createOutputCentered<PJ301MPort>(Vec(5*jack+left, 340), module, Strings::STRING_CV_OUT_6));
-        addOutput(createOutputCentered<PJ301MPort>(Vec(6.5*jack+left, 340), module, Strings::ROOT_NOTE_CV_OUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(Vec(left,        340), module, Strings::STRING_CV_OUT_1));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(Vec(1*jack+left, 340), module, Strings::STRING_CV_OUT_2));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(Vec(2*jack+left, 340), module, Strings::STRING_CV_OUT_3));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(Vec(3*jack+left, 340), module, Strings::STRING_CV_OUT_4));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(Vec(4*jack+left, 340), module, Strings::STRING_CV_OUT_5));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(Vec(5*jack+left, 340), module, Strings::STRING_CV_OUT_6));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(Vec(6.5*jack+left, 340), module, Strings::ROOT_NOTE_CV_OUT));
 
         // Chord selection buttons and indicator lights
         Vec buttonStartPos = Vec(70, 110);
