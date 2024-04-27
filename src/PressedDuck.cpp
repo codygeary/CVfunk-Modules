@@ -138,7 +138,7 @@ struct PressedDuck : Module {
         configParam(VOLUME4_PARAM, 0.f, 2.f, 1.0f, "Channel 4 Volume");
         configParam(VOLUME5_PARAM, 0.f, 2.f, 1.0f, "Channel 5 Volume");
         configParam(VOLUME6_PARAM, 0.f, 2.f, 1.0f, "Channel 6 Volume");
-        configParam(MASTER_VOL, 0.f, 2.f, 1.0f, "Master Volume");
+        configParam(MASTER_VOL, 0.f, 10.f, 5.0f, "Master Volume");
         configParam(FEEDBACK_PARAM, 0.f, 11.f, 0.0f, "Feedback");
 
         configParam(PAN1_PARAM, -1.f, 1.f, 0.f, "Channel 1 Pan");
@@ -347,13 +347,13 @@ struct PressedDuck : Module {
         // Set outputs
         float masterVol = params[MASTER_VOL].getValue();
         if (inputs[MASTER_VOL_CV].isConnected()){
-            masterVol += inputs[MASTER_VOL_CV].getVoltage()*params[MASTER_VOL_ATT].getValue()/10.f;
+            masterVol += inputs[MASTER_VOL_CV].getVoltage()*params[MASTER_VOL_ATT].getValue();
         }
-        masterVol = clamp(masterVol, 0.0f, 2.0f);
+        masterVol = clamp(masterVol, 0.0f, 10.0f);
 
         // Processing the outputs
-        float outputL = mixL * 6.9f * masterVol;
-        float outputR = mixR * 6.9f * masterVol;
+        float outputL = mixL * 1.38f * masterVol;
+        float outputR = mixR * 1.38f * masterVol;
 
         // Check output connections to implement conditional mono-to-stereo mirroring
         if (outputs[AUDIO_OUTPUT_L].isConnected() && !outputs[AUDIO_OUTPUT_R].isConnected()) {
