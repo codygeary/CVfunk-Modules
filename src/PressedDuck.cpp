@@ -118,9 +118,12 @@ struct PressedDuck : Module {
     float alpha = 0.01f;
 
 	//for filters
-    float lastInputL, lastInputR;
-    float lastHPOutputL, lastHPOutputR;
-    float lastLPOutputL, lastLPOutputR;
+    float lastInputL = 0.0f;
+    float lastInputR = 0.0f;
+    float lastHPOutputL = 0.0f;
+    float lastHPOutputR = 0.0f;
+    float lastLPOutputL = 0.0f;
+    float lastLPOutputR = 0.0f;
 
 	// Declare high-pass filter
 	SecondOrderHPF hpfL, hpfR;
@@ -238,8 +241,11 @@ struct PressedDuck : Module {
                 }
             }            
  
+            bool inputActive = false;
+ 
             if ( inputs[AUDIO_1L_INPUT + 2 * i].isConnected() || inputs[AUDIO_1R_INPUT + 2 * i].isConnected() ) {
                 inputCount += 1.0f;
+                inputActive = true;
             }
         
             // Apply VCA control and volume
@@ -256,8 +262,12 @@ struct PressedDuck : Module {
             envPeakL[i] = fmax(envPeakL[i] * decayRate, fabs(inputL[i]));
             envPeakR[i] = fmax(envPeakR[i] * decayRate, fabs(inputR[i]));
             envelope[i] = (envPeakL[i] + envPeakR[i]) / 2.0f;
+
+            if (inputActive){
+                filteredEnvelope[i] = fmax(filteredEnvelope[i],0.1f);
+            }
+
             filteredEnvelope[i] = alpha * envelope[i] + (1 - alpha) * filteredEnvelope[i];
-            filteredEnvelope[i] = fmax(filteredEnvelope[i],0.1f);
             compressionAmount += filteredEnvelope[i];
 
 			// Apply panning
@@ -342,8 +352,8 @@ struct PressedDuck : Module {
         masterVol = clamp(masterVol, 0.0f, 2.0f);
 
         // Processing the outputs
-        float outputL = mixL * 10.f * masterVol;
-        float outputR = mixR * 10.f * masterVol;
+        float outputL = mixL * 6.9f * masterVol;
+        float outputR = mixR * 6.9f * masterVol;
 
         // Check output connections to implement conditional mono-to-stereo mirroring
         if (outputs[AUDIO_OUTPUT_L].isConnected() && !outputs[AUDIO_OUTPUT_R].isConnected()) {
