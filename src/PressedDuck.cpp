@@ -12,38 +12,38 @@
 #include "plugin.hpp"
 
 struct SecondOrderHPF {
-	float x1 = 0, x2 = 0; // previous two inputs
-	float y1 = 0, y2 = 0; // previous two outputs
-	float a0, a1, a2;     // filter coefficients for the input
-	float b1, b2;         // filter coefficients for the output
+    float x1 = 0, x2 = 0; // previous two inputs
+    float y1 = 0, y2 = 0; // previous two outputs
+    float a0, a1, a2;     // filter coefficients for the input
+    float b1, b2;         // filter coefficients for the output
 
-	SecondOrderHPF() {}
+    SecondOrderHPF() {}
 
-	// Initialize the filter coefficients
-	void setCutoffFrequency(float sampleRate, float cutoffFreq) {
-		float w0 = 2 * M_PI * cutoffFreq / sampleRate;
-		float cosw0 = cos(w0);
-		float sinw0 = sin(w0);
-		float alpha = sinw0 / 2 * sqrt(2);  // sqrt(2) results in a Butterworth filter
+    // Initialize the filter coefficients
+    void setCutoffFrequency(float sampleRate, float cutoffFreq) {
+        float w0 = 2 * M_PI * cutoffFreq / sampleRate;
+        float cosw0 = cos(w0);
+        float sinw0 = sin(w0);
+        float alpha = sinw0 / 2 * sqrt(2);  // sqrt(2) results in a Butterworth filter
 
-		float a = 1 + alpha;
-		a = fmax(a, 0.00001f); //prevent div by zero
-		a0 = (1 + cosw0) / 2 / a;
-		a1 = -(1 + cosw0) / a;
-		a2 = (1 + cosw0) / 2 / a;
-		b1 = -2 * cosw0 / a;
-		b2 = (1 - alpha) / a;
-	}
+        float a = 1 + alpha;
+        a = fmax(a, 0.00001f); //prevent div by zero
+        a0 = (1 + cosw0) / 2 / a;
+        a1 = -(1 + cosw0) / a;
+        a2 = (1 + cosw0) / 2 / a;
+        b1 = -2 * cosw0 / a;
+        b2 = (1 - alpha) / a;
+    }
 
-	// Process the input sample
-	float process(float input) {
-		float output = a0 * input + a1 * x1 + a2 * x2 - b1 * y1 - b2 * y2;
-		x2 = x1;
-		x1 = input;
-		y2 = y1;
-		y1 = output;
-		return output;
-	}
+    // Process the input sample
+    float process(float input) {
+        float output = a0 * input + a1 * x1 + a2 * x2 - b1 * y1 - b2 * y2;
+        x2 = x1;
+        x1 = input;
+        y2 = y1;
+        y1 = output;
+        return output;
+    }
 };
 
 struct PressedDuck : Module {
@@ -53,6 +53,7 @@ struct PressedDuck : Module {
         PAN1_PARAM, PAN2_PARAM, PAN3_PARAM, PAN4_PARAM, PAN5_PARAM, PAN6_PARAM,      
         SIDECHAIN_VOLUME_PARAM, DUCK_PARAM, DUCK_ATT,
         PRESS_PARAM, PRESS_ATT, MASTER_VOL, MASTER_VOL_ATT, FEEDBACK_PARAM, FEEDBACK_ATT, 
+        MUTE1_PARAM, MUTE2_PARAM, MUTE3_PARAM, MUTE4_PARAM, MUTE5_PARAM, MUTE6_PARAM, MUTESIDE_PARAM,
         NUM_PARAMS
     };
     enum InputIds {
@@ -70,10 +71,16 @@ struct PressedDuck : Module {
     };
     enum LightIds {
         VOLUME1_LIGHT, VOLUME2_LIGHT, VOLUME3_LIGHT, VOLUME4_LIGHT, VOLUME5_LIGHT, VOLUME6_LIGHT, BASS_VOLUME_LIGHT, 
+        MUTE1_LIGHT, MUTE2_LIGHT, MUTE3_LIGHT, MUTE4_LIGHT, MUTE5_LIGHT, MUTE6_LIGHT, MUTESIDE_LIGHT,
         NUM_LIGHTS
     };
 
     bool applyFilters = true;
+
+    //for tracking the mute state of each channel
+    bool muteLatch[7] = {false,false,false,false,false,false,false};
+    bool muteState[7] = {false,false,false,false,false,false,false};
+
 
     // Serialization method to save module state
     json_t* dataToJson() override {
@@ -81,6 +88,19 @@ struct PressedDuck : Module {
 
         // Save the state of retriggerEnabled as a boolean
         json_object_set_new(rootJ, "applyFilters", json_boolean(applyFilters));
+
+        // Save the muteLatch and muteState arrays
+        json_t* muteLatchJ = json_array();
+        json_t* muteStateJ = json_array();
+
+        for (int i = 0; i < 7; i++) {
+            json_array_append_new(muteLatchJ, json_boolean(muteLatch[i]));
+            json_array_append_new(muteStateJ, json_boolean(muteState[i]));
+        }
+
+    json_object_set_new(rootJ, "muteLatch", muteLatchJ);
+    json_object_set_new(rootJ, "muteState", muteStateJ);
+
 
         return rootJ;
     }
@@ -92,7 +112,30 @@ struct PressedDuck : Module {
         if (applyFiltersJ) {
             // Use json_is_true() to check if the JSON value is true; otherwise, set to false
             applyFilters = json_is_true(applyFiltersJ);
-        }              
+        }   
+        
+        // Load muteLatch and muteState arrays
+        json_t* muteLatchJ = json_object_get(rootJ, "muteLatch");
+        json_t* muteStateJ = json_object_get(rootJ, "muteState");
+
+        if (muteLatchJ) {
+            for (size_t i = 0; i < json_array_size(muteLatchJ) && i < 7; i++) {
+                json_t* muteLatchValue = json_array_get(muteLatchJ, i);
+                if (muteLatchValue) {
+                    muteLatch[i] = json_is_true(muteLatchValue);
+                }
+            }
+        }
+
+        if (muteStateJ) {
+            for (size_t i = 0; i < json_array_size(muteStateJ) && i < 7; i++) {
+                json_t* muteStateValue = json_array_get(muteStateJ, i);
+                if (muteStateValue) {
+                    muteState[i] = json_is_true(muteStateValue);
+                }
+            }
+        }        
+                   
     }
 
     float bassPeakL = 0.0f;
@@ -117,7 +160,7 @@ struct PressedDuck : Module {
     float filteredBassEnvelope = 0.0f;
     float alpha = 0.01f;
 
-	//for filters
+    //for filters
     float lastInputL = 0.0f;
     float lastInputR = 0.0f;
     float lastHPOutputL = 0.0f;
@@ -125,8 +168,9 @@ struct PressedDuck : Module {
     float lastLPOutputL = 0.0f;
     float lastLPOutputR = 0.0f;
 
-	// Declare high-pass filter
-	SecondOrderHPF hpfL, hpfR;
+ 
+    // Declare high-pass filter
+    SecondOrderHPF hpfL, hpfR;
 
     PressedDuck() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
@@ -206,18 +250,18 @@ struct PressedDuck : Module {
         float mixL = 0.0f;
         float mixR = 0.0f;
 
-		float sampleRate = args.sampleRate;
+        float sampleRate = args.sampleRate;
 
-		// Setup filters 
-		hpfL.setCutoffFrequency(args.sampleRate, 30.0f); // Set cutoff frequency
-		hpfR.setCutoffFrequency(args.sampleRate, 30.0f);
+        // Setup filters 
+        hpfL.setCutoffFrequency(args.sampleRate, 30.0f); // Set cutoff frequency
+        hpfR.setCutoffFrequency(args.sampleRate, 30.0f);
 
-		// Calculate scale factor based on the current sample rate
-		float scaleFactor = sampleRate / 96000.0f; // Reference sample rate (96 kHz)
+        // Calculate scale factor based on the current sample rate
+        float scaleFactor = sampleRate / 96000.0f; // Reference sample rate (96 kHz)
 
-		// Adjust alpha and decayRate based on sample rate
-		alpha = 0.01f / scaleFactor;  // Smoothing factor for envelope
-		float decayRate = pow(0.999f, scaleFactor);  // Decay rate adjusted for sample rate
+        // Adjust alpha and decayRate based on sample rate
+        alpha = 0.01f / scaleFactor;  // Smoothing factor for envelope
+        float decayRate = pow(0.999f, scaleFactor);  // Decay rate adjusted for sample rate
 
         float compressionAmount = 0.0f;
         float inputCount = 0.0f;
@@ -247,11 +291,30 @@ struct PressedDuck : Module {
                 inputCount += 1.0f;
                 inputActive = true;
             }
-        
-            // Apply VCA control and volume
-            if (inputs[VCA_CV1_INPUT + i].isConnected()) {
-                inputL[i] *= clamp(inputs[VCA_CV1_INPUT + i].getVoltage() / 10.f, 0.f, 2.f);
-                inputR[i] *= clamp(inputs[VCA_CV1_INPUT + i].getVoltage() / 10.f, 0.f, 2.f);
+
+
+            if (params[MUTE1_PARAM + i].getValue() > 0.5f) {
+                if (!muteLatch[i]) {  // Button is pressed and not previously latched
+                    muteLatch[i] = true;  // Toggle the latch state
+                    // Toggle the actual mute state
+                    // Assuming a bool array or similar to track actual mute state
+                    muteState[i] = !muteState[i];
+                }
+            } else {
+                muteLatch[i] = false;  // Reset latch when button is released
+            }
+
+            if (muteState[i]) {
+                inputL[i] = 0.0f;
+                inputR[i] = 0.0f;
+                inputActive = false;
+                inputCount -= 1.0f;
+            } else {
+                // Apply VCA control and volume
+                if (inputs[VCA_CV1_INPUT + i].isConnected()) {
+                    inputL[i] *= clamp(inputs[VCA_CV1_INPUT + i].getVoltage() / 10.f, 0.f, 2.f);
+                    inputR[i] *= clamp(inputs[VCA_CV1_INPUT + i].getVoltage() / 10.f, 0.f, 2.f);
+                }
             }
 
             float vol = params[VOLUME1_PARAM + i].getValue();
@@ -270,27 +333,27 @@ struct PressedDuck : Module {
             filteredEnvelope[i] = alpha * envelope[i] + (1 - alpha) * filteredEnvelope[i];
             compressionAmount += filteredEnvelope[i];
 
-			// Apply panning
-			float pan = params[PAN1_PARAM + i].getValue();
-			if (inputs[PAN_CV1_INPUT + i].isConnected()) {
-				pan += inputs[PAN_CV1_INPUT + i].getVoltage() / 5.f; // Scale CV influence
-			}
-			pan = clamp(pan, -1.f, 1.f);
+            // Apply panning
+            float pan = params[PAN1_PARAM + i].getValue();
+            if (inputs[PAN_CV1_INPUT + i].isConnected()) {
+                pan += inputs[PAN_CV1_INPUT + i].getVoltage() / 5.f; // Scale CV influence
+            }
+            pan = clamp(pan, -1.f, 1.f);
 
-			// Convert pan range from -1...1 to 0...1 for sinusoidal calculations
-			float scaledPan = (pan + 1.f) * 0.5f;
+            // Convert pan range from -1...1 to 0...1 for sinusoidal calculations
+            float scaledPan = (pan + 1.f) * 0.5f;
 
-			// Initialize or update panning if the pan value has changed
-			if (!initialized[i] || pan != lastPan[i]) {
-				panL[i] = polyCos(M_PI_2 * scaledPan);  // π/2 * scaledPan ranges from 0 to π/2
-				panR[i] = polySin(M_PI_2 * scaledPan);
-				lastPan[i] = pan;
-				initialized[i] = true;
-			}
+            // Initialize or update panning if the pan value has changed
+            if (!initialized[i] || pan != lastPan[i]) {
+                panL[i] = polyCos(M_PI_2 * scaledPan);  // π/2 * scaledPan ranges from 0 to π/2
+                panR[i] = polySin(M_PI_2 * scaledPan);
+                lastPan[i] = pan;
+                initialized[i] = true;
+            }
 
-			// Mix processed signals into left and right outputs
-			inputL[i] *= panL[i];
-			inputR[i] *= panR[i];
+            // Mix processed signals into left and right outputs
+            inputL[i] *= panL[i];
+            inputR[i] *= panR[i];
             
             // Mix processed signals into left and right outputs
             inputL[i] = inputL[i] * panL[i];
@@ -330,10 +393,10 @@ struct PressedDuck : Module {
         mixR *= saturationEffect;
  
         // Remove DC offsets by high pass filtering
- 		if(applyFilters){
+         if(applyFilters){
             mixL = hpfL.process(mixL);
             mixR = hpfR.process(mixR);
-		} 
+        } 
 
         // Apply ADAA
         float maxHeadRoom = 46.f; //exceeding this number results in strange wavefolding due to the polytanh bad fit beyond this point
@@ -426,6 +489,22 @@ struct PressedDuck : Module {
         bassL *= bassVol;
         bassR *= bassVol;
 
+        if (params[MUTESIDE_PARAM].getValue() > 0.5f) {
+            if (!muteLatch[6]) {  // Button is pressed and not previously latched
+                muteLatch[6] = true;  // Toggle the latch state
+                // Toggle the actual mute state
+                // Assuming a bool array or similar to track actual mute state
+                muteState[6] = !muteState[6];
+            }
+        } else {
+            muteLatch[6] = false;  // Reset latch when button is released
+        }
+
+        if (muteState[6]) {
+            bassL = 0.0f;
+            bassR = 0.0f;
+        } 
+
         // Calculate the envelope for the bass signals
         bassPeakL = fmax(bassPeakL * decayRate, fabs(bassL));
         bassPeakR = fmax(bassPeakR * decayRate, fabs(bassR));
@@ -452,12 +531,22 @@ struct PressedDuck : Module {
         if (++cycleCount >= 2000) {
             for (int i = 0; i < 6; i++) {
                 lights[VOLUME1_LIGHT + i].setBrightness(filteredEnvelope[i]);
+                // Update mute lights based on the mute button state
+                if (muteState[i]){
+                    lights[MUTE1_LIGHT + i].setBrightness(1.0f);
+                } else {
+                    lights[MUTE1_LIGHT + i].setBrightness(0.0f);
+                }
             }
             lights[BASS_VOLUME_LIGHT].setBrightness(bassEnvelope);
+            if (muteState[6]){
+                lights[MUTESIDE_LIGHT].setBrightness(1.0f);
+            } else {
+                lights[MUTESIDE_LIGHT].setBrightness(0.0f);
+            }            
             cycleCount = 0;
         }
-    } 
-    
+    }    
 };
 
 struct PressedDuckWidget : ModuleWidget {
@@ -484,24 +573,24 @@ struct PressedDuckWidget : ModuleWidget {
         float yPos = channelOffset.y;
         float xPos = channelOffset.x;
 
-         // Audio inputs
+         // Sidechain audio inputs
         addInput(createInputCentered<ThemedPJ301MPort>(Vec(xPos, yPos), module, PressedDuck::SIDECHAIN_INPUT_L ));
         yPos += Spacing;
         addInput(createInputCentered<ThemedPJ301MPort>(Vec(xPos, yPos), module, PressedDuck::SIDECHAIN_INPUT_R ));
    
-        // Volume slider with light
+        // Sidechain Volume slider with light
         yPos += 40+Spacing;
         addParam(createLightParamCentered<VCVLightSlider<YellowLight>>(Vec(xPos, yPos), module, PressedDuck::SIDECHAIN_VOLUME_PARAM , PressedDuck::BASS_VOLUME_LIGHT));
 
-        // VCA CV input
+        // Sidechain VCA CV input
         yPos += 38+Spacing;
         addInput(createInputCentered<ThemedPJ301MPort>(Vec(xPos, yPos), module, PressedDuck::VCA_SIDECHAIN_INPUT ));
 
-        yPos += 1.95*Spacing;
+        yPos += 1.25*Spacing;
         // Ducking amount knob
-        addParam(createParamCentered<RoundLargeBlackKnob>(Vec(xPos, yPos), module, PressedDuck::DUCK_PARAM));
+        addParam(createParamCentered<RoundBlackKnob>(Vec(xPos, yPos), module, PressedDuck::DUCK_PARAM));
 
-        yPos = channelOffset.y + 4*Spacing + 120;
+        yPos = channelOffset.y + 4*Spacing + 92;
 
         // Ducking attenuator
         yPos += Spacing -8;
@@ -510,6 +599,11 @@ struct PressedDuckWidget : ModuleWidget {
         // Ducking CV input
         yPos += Spacing;
         addInput(createInputCentered<ThemedPJ301MPort>(Vec(xPos, yPos), module, PressedDuck::DUCK_CV));
+
+        // Sidechain Mute
+        yPos = channelOffset.y + 4*Spacing + 170;
+        addParam(createParamCentered<LEDButton>           (Vec(xPos, yPos), module, PressedDuck::MUTESIDE_PARAM));
+        addChild(createLightCentered<SmallLight<RedLight>>(Vec(xPos, yPos), module, PressedDuck::MUTESIDE_LIGHT));
 
         yPos = channelOffset.y;
         // Loop through each channel
@@ -530,12 +624,17 @@ struct PressedDuckWidget : ModuleWidget {
             addInput(createInputCentered<ThemedPJ301MPort>(Vec(xPos, yPos), module, PressedDuck::VCA_CV1_INPUT + i));
 
             // Pan knob
-            yPos += Spacing + 40;
+            yPos += Spacing + 20;
             addParam(createParamCentered<RoundBlackKnob>(Vec(xPos, yPos), module, PressedDuck::PAN1_PARAM + i));
 
             // Pan CV input
             yPos += 1.5*Spacing;
             addInput(createInputCentered<ThemedPJ301MPort>(Vec(xPos, yPos), module, PressedDuck::PAN_CV1_INPUT + i));
+
+            // Mute
+            yPos = channelOffset.y + 4*Spacing + 170;
+            addParam(createParamCentered<LEDButton>           (Vec(xPos, yPos), module, PressedDuck::MUTE1_PARAM + i));
+            addChild(createLightCentered<SmallLight<RedLight>>(Vec(xPos, yPos), module, PressedDuck::MUTE1_LIGHT + i));
 
             // Reset yPos for next channel
             yPos = channelOffset.y;
