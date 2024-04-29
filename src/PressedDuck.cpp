@@ -81,7 +81,6 @@ struct PressedDuck : Module {
     bool muteLatch[7] = {false,false,false,false,false,false,false};
     bool muteState[7] = {false,false,false,false,false,false,false};
 
-
     // Serialization method to save module state
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
@@ -98,8 +97,8 @@ struct PressedDuck : Module {
             json_array_append_new(muteStateJ, json_boolean(muteState[i]));
         }
 
-    json_object_set_new(rootJ, "muteLatch", muteLatchJ);
-    json_object_set_new(rootJ, "muteState", muteStateJ);
+        json_object_set_new(rootJ, "muteLatch", muteLatchJ);
+        json_object_set_new(rootJ, "muteState", muteStateJ);
 
 
         return rootJ;
@@ -168,9 +167,15 @@ struct PressedDuck : Module {
     float lastLPOutputL = 0.0f;
     float lastLPOutputR = 0.0f;
 
- 
     // Declare high-pass filter
     SecondOrderHPF hpfL, hpfR;
+
+    //for mute transition
+    float transitionTimeMs = 10000.f; // Transition time in milliseconds
+    float transitionSamples; // Number of samples to complete the transition
+    float fadeLevel[7] = {1.0f}; 
+    int transitionCount[7] = {0};  // Array to track transition progress for each channel
+    float targetFadeLevel[7] = {0.0f};
 
     PressedDuck() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
@@ -244,7 +249,14 @@ struct PressedDuck : Module {
         //configOutput(SURVEY, "Survey Test Out"); //hidden output for testing
 
         configOutput(AUDIO_OUTPUT_L, "Main Out L");
-        configOutput(AUDIO_OUTPUT_R, "Main Out R");    }
+        configOutput(AUDIO_OUTPUT_R, "Main Out R");
+        
+        // Calculate transition samples (default assuming 44100 Hz, will update in process)
+        transitionSamples = 0.005 * 44100; // 5 ms * sample rate
+ 
+		bool localMuteLatch[7] = {false, false, false, false, false, false, false};
+		bool localMuteState[7] = {false, false, false, false, false, false, false};
+    }
 
     void process(const ProcessArgs& args) override {
         float mixL = 0.0f;
@@ -268,53 +280,57 @@ struct PressedDuck : Module {
 
         // Process each of the six main channels
         for (int i = 0; i < 6; i++) {
+           
+            // Initially check connection and set initial input values
+            bool isConnectedL = inputs[AUDIO_1L_INPUT + 2 * i].isConnected();
+            bool isConnectedR = inputs[AUDIO_1R_INPUT + 2 * i].isConnected();
+            inputL[i] = isConnectedL ? inputs[AUDIO_1L_INPUT + 2 * i].getVoltage() : 0.0f;
+            inputR[i] = isConnectedR ? inputs[AUDIO_1R_INPUT + 2 * i].getVoltage() : 0.0f;
 
-            inputL[i]=0.0f;
-            inputR[i]=0.0f;
-            // Check left input connection
-            if (inputs[AUDIO_1L_INPUT + 2 * i].isConnected()) {
-                inputL[i] = inputs[AUDIO_1L_INPUT + 2 * i].getVoltage();  // Use left input if connected
-                inputR[i] = inputL[i];  // Copy left input to right if right is not connected
+            // Handle mono to stereo routing
+            if (!isConnectedL && isConnectedR) {
+                inputL[i] = inputR[i];
             }
+            if (!isConnectedR && isConnectedL) {
+                inputR[i] = inputL[i];
+            } 
 
-            // Check right input connection
-            if (inputs[AUDIO_1R_INPUT + 2 * i].isConnected()) {
-                inputR[i] = inputs[AUDIO_1R_INPUT + 2 * i].getVoltage();  // Use right input if connected
-                if (!inputs[AUDIO_1L_INPUT + 2 * i].isConnected()) {
-                    inputL[i] = inputR[i];  // Copy right input to left if left is not connected
-                }
-            }            
- 
-            bool inputActive = false;
- 
-            if ( inputs[AUDIO_1L_INPUT + 2 * i].isConnected() || inputs[AUDIO_1R_INPUT + 2 * i].isConnected() ) {
+            bool inputActive = false; 
+            if ( isConnectedR || isConnectedL ) {
                 inputCount += 1.0f;
                 inputActive = true;
             }
 
-
+            // Mute logic
             if (params[MUTE1_PARAM + i].getValue() > 0.5f) {
-                if (!muteLatch[i]) {  // Button is pressed and not previously latched
-                    muteLatch[i] = true;  // Toggle the latch state
-                    // Toggle the actual mute state
-                    // Assuming a bool array or similar to track actual mute state
+                if (!muteLatch[i]) {
+                    muteLatch[i] = true;
                     muteState[i] = !muteState[i];
+                    transitionCount[i] = transitionSamples;  // Reset the transition count
                 }
             } else {
-                muteLatch[i] = false;  // Reset latch when button is released
+                muteLatch[i] = false;
             }
 
-            if (muteState[i]) {
-                inputL[i] = 0.0f;
-                inputR[i] = 0.0f;
-                inputActive = false;
-                inputCount -= 1.0f;
-            } else {
-                // Apply VCA control and volume
-                if (inputs[VCA_CV1_INPUT + i].isConnected()) {
-                    inputL[i] *= clamp(inputs[VCA_CV1_INPUT + i].getVoltage() / 10.f, 0.f, 2.f);
-                    inputR[i] *= clamp(inputs[VCA_CV1_INPUT + i].getVoltage() / 10.f, 0.f, 2.f);
-                }
+			if (transitionCount[i] > 0) {
+				float fadeStep = (muteState[i] ? -1.0f : 1.0f) / transitionSamples;
+				fadeLevel[i] += fadeStep;
+				if ((muteState[i] && fadeLevel[i] < 0.0f) || (!muteState[i] && fadeLevel[i] > 1.0f)) {
+					fadeLevel[i] = muteState[i] ? 0.0f : 1.0f;
+					transitionCount[i] = 0;  // End transition
+				}
+				transitionCount[i]--;
+			} else {
+				fadeLevel[i] = muteState[i] ? 0.0f : 1.0f;
+			}
+
+            inputL[i] *= fadeLevel[i];
+            inputR[i] *= fadeLevel[i];
+
+            // Apply VCA control and volume
+            if (inputs[VCA_CV1_INPUT + i].isConnected()) {
+                inputL[i] *= clamp(inputs[VCA_CV1_INPUT + i].getVoltage() / 10.f, 0.f, 2.f);
+                inputR[i] *= clamp(inputs[VCA_CV1_INPUT + i].getVoltage() / 10.f, 0.f, 2.f);
             }
 
             float vol = params[VOLUME1_PARAM + i].getValue();
@@ -355,9 +371,6 @@ struct PressedDuck : Module {
             inputL[i] *= panL[i];
             inputR[i] *= panR[i];
             
-            // Mix processed signals into left and right outputs
-            inputL[i] = inputL[i] * panL[i];
-            inputR[i] = inputR[i] * panR[i];
         }
 
         compressionAmount = compressionAmount/((inputCount+1.f)*5.0f); //divide by the expected ceiling 
@@ -490,20 +503,30 @@ struct PressedDuck : Module {
         bassR *= bassVol;
 
         if (params[MUTESIDE_PARAM].getValue() > 0.5f) {
-            if (!muteLatch[6]) {  // Button is pressed and not previously latched
-                muteLatch[6] = true;  // Toggle the latch state
-                // Toggle the actual mute state
-                // Assuming a bool array or similar to track actual mute state
-                muteState[6] = !muteState[6];
-            }
-        } else {
-            muteLatch[6] = false;  // Reset latch when button is released
+                if (!muteLatch[6]) {
+                    muteLatch[6] = true;
+                    muteState[6] = !muteState[6];
+                    transitionCount[6] = transitionSamples;  // Reset the transition count
+                }
+            } else {
+                muteLatch[6] = false;
         }
 
-        if (muteState[6]) {
-            bassL = 0.0f;
-            bassR = 0.0f;
-        } 
+        // Compute mute fade transition
+		if (transitionCount[6] > 0) {
+			float fadeStep = (muteState[6] ? -1.0f : 1.0f) / transitionSamples;
+			fadeLevel[6] += fadeStep;
+			if ((muteState[6] && fadeLevel[6] < 0.0f) || (!muteState[6] && fadeLevel[6] > 1.0f)) {
+				fadeLevel[6] = muteState[6] ? 0.0f : 1.0f;
+				transitionCount[6] = 0;  // End transition
+			}
+			transitionCount[6]--;
+		} else {
+			fadeLevel[6] = muteState[6] ? 0.0f : 1.0f;
+		}
+
+        bassL *= fadeLevel[6];
+        bassR *= fadeLevel[6];
 
         // Calculate the envelope for the bass signals
         bassPeakL = fmax(bassPeakL * decayRate, fabs(bassL));
