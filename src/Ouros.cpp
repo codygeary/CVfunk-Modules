@@ -23,7 +23,7 @@ private:
 public:
     CircularBuffer() {
         // Initialize buffer to zero
-        std::fill(std::begin(buffer), std::end(buffer), T{});
+		for (size_t i = 0; i < Size; ++i) buffer[i] = T{};
     }
 
     void push(T value) {
@@ -44,11 +44,13 @@ public:
     }
 };
 
+static const float twoPi = 2.0f * M_PI;
+
 struct Ouros : Module {
 
-    float linearInterpolation(float a, float b, float fraction) {
-        return a + fraction * (b - a);
-    }
+	static inline float linearInterpolation(float a, float b, float fraction) {
+		return a + fraction * (b - a);
+	}
 
     enum ParamIds {
         RATE_KNOB,
@@ -195,7 +197,6 @@ struct Ouros : Module {
      }
 
     void process(const ProcessArgs &args) override {    
-
         float deltaTime = args.sampleTime; 
 
         //PROCESS INPUTS
@@ -360,32 +361,22 @@ struct Ouros : Module {
             
             targetPhase += place[i];
         
-            if (i==2){
-                targetPhase = place [i];
-            }
-        
-            while (targetPhase >= 1.0f) targetPhase -= 1.0f;
-            while (targetPhase < 0.0f) targetPhase += 1.0f;
+			if (i == 2) {
+				targetPhase = place[i];
+			}
 
-            float phaseDiff = targetPhase - oscPhase[i];
-            // Ensure phaseDiff is within the -0.5 to 0.5 range to find the shortest path
-            if (phaseDiff > 0.5f) phaseDiff -= 1.0f;
-            if (phaseDiff < -0.5f) phaseDiff += 1.0f;
+			targetPhase = fmod(targetPhase, 1.0f);
+			if (targetPhase < 0.0f) targetPhase += 1.0f;
+
+			float phaseDiff = targetPhase - oscPhase[i];
+			phaseDiff -= roundf(phaseDiff);  // Ensures phaseDiff is in the range -0.5 to 0.5
 
             //Phase returns to the correct spot, rate determined by PhaseGate
             oscPhase[i] += phaseDiff*( 0.05f )  ;
 
-            // Ensure phase is within [0, 1)
-            while (oscPhase[i] >= 1.0f) oscPhase[i] -= 1.0f;
-            while (oscPhase[i] < 0.0f) oscPhase[i] += 1.0f;
-
             if (i==3){
                     // Update the LFO phase based on the rate
                     oscPhase[i] += multi_rate * deltaTime ;        
-                     // Ensure phase is within [0, 1)
-                    while (oscPhase[i] >= 1.0f) oscPhase[i] -= 1.0f;
-                    while (oscPhase[i] < 0.0f) oscPhase[i] += 1.0f;
-
                     place[i] += multi_rate * deltaTime;
                 
                     if (oscPhase[2]==0){
@@ -394,13 +385,11 @@ struct Ouros : Module {
                     }
             } else {
                     // Update the LFO phase based on the rate
-                    oscPhase[i] += rate * deltaTime ;        
-                     // Ensure phase is within [0, 1)
-                    while (oscPhase[i] >= 1.0f) oscPhase[i] -= 1.0f;
-                    while (oscPhase[i] < 0.0f) oscPhase[i] += 1.0f;
-
+                    oscPhase[i] += rate * deltaTime ;           
                     place[i] += rate * deltaTime;
             }
+
+            oscPhase[i] -= (int)oscPhase[i];
 
             if (place[i] >= 1.0f) place[i] -= 1.0f; // Wrap 
 
@@ -420,7 +409,7 @@ struct Ouros : Module {
 
             ////////////
             //COMPUTE the Oscillator Shape
-            oscOutput[i] = clamp(5.0f * sinf(2.0f * M_PI * oscPhase[i]), -5.0f, 5.0f);
+            oscOutput[i] = clamp(5.0f * sinf(twoPi * oscPhase[i]), -5.0f, 5.0f);
 
             if (i<2){
                 //Output Voltage
@@ -431,7 +420,8 @@ struct Ouros : Module {
         }
     
         int sampleIndex = static_cast<int>(oscPhase[2] * 1024); 
-        sampleIndex = std::max(0, std::min(sampleIndex, 1023)); 
+        if (sampleIndex < 0) sampleIndex = 0;
+        else if (sampleIndex > 1023) sampleIndex = 1023;
         waveBuffers[0][sampleIndex] = outputs[L_OUTPUT].getVoltage();
         waveBuffers[1][sampleIndex] = outputs[R_OUTPUT].getVoltage();
         lastoscPhase[2] = oscPhase[2];
@@ -498,8 +488,8 @@ struct PolarXYDisplay : TransparentWidget {
     Vec polarToCartesian(float theta, float radius) {
 	
 		// Wrap theta between -pi and pi
-		theta = fmod(theta + M_PI, 2 * M_PI);
-		if (theta < 0) theta += 2 * M_PI;
+		theta = fmod(theta + M_PI, twoPi);
+		if (theta < 0) theta += twoPi;
 		theta -= M_PI;
         
         float x = centerX + radius * cos(theta);

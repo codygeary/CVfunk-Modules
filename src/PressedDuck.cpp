@@ -100,7 +100,6 @@ struct PressedDuck : Module {
         json_object_set_new(rootJ, "muteLatch", muteLatchJ);
         json_object_set_new(rootJ, "muteState", muteStateJ);
 
-
         return rootJ;
     }
 
@@ -253,15 +252,11 @@ struct PressedDuck : Module {
         
         // Calculate transition samples (default assuming 44100 Hz, will update in process)
         transitionSamples = 0.005 * 44100; // 5 ms * sample rate
- 
-		bool localMuteLatch[7] = {false, false, false, false, false, false, false};
-		bool localMuteState[7] = {false, false, false, false, false, false, false};
-    }
+     }
 
     void process(const ProcessArgs& args) override {
         float mixL = 0.0f;
         float mixR = 0.0f;
-
         float sampleRate = args.sampleRate;
 
         // Setup filters 
