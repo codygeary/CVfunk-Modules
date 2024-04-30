@@ -366,7 +366,6 @@ struct Ouros : Module {
 			}
 
 			targetPhase = fmod(targetPhase, 1.0f);
-			if (targetPhase < 0.0f) targetPhase += 1.0f;
 
 			float phaseDiff = targetPhase - oscPhase[i];
 			phaseDiff -= roundf(phaseDiff);  // Ensures phaseDiff is in the range -0.5 to 0.5
