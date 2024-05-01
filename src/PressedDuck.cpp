@@ -72,6 +72,22 @@ struct PressedDuck : Module {
     enum LightIds {
         VOLUME1_LIGHT, VOLUME2_LIGHT, VOLUME3_LIGHT, VOLUME4_LIGHT, VOLUME5_LIGHT, VOLUME6_LIGHT, BASS_VOLUME_LIGHT, 
         MUTE1_LIGHT, MUTE2_LIGHT, MUTE3_LIGHT, MUTE4_LIGHT, MUTE5_LIGHT, MUTE6_LIGHT, MUTESIDE_LIGHT,
+        PRESS_LIGHT1,  PRESS_LIGHT2,  PRESS_LIGHT3,  PRESS_LIGHT4,  PRESS_LIGHT5,  
+        PRESS_LIGHT6,  PRESS_LIGHT7,  PRESS_LIGHT8,  PRESS_LIGHT9,  PRESS_LIGHT10, 
+        PRESS_LIGHT11,  PRESS_LIGHT12,  PRESS_LIGHT13,  PRESS_LIGHT14,  PRESS_LIGHT15,  
+        PRESS_LIGHT16,  PRESS_LIGHT17,  PRESS_LIGHT18,  PRESS_LIGHT19,  PRESS_LIGHT20, 
+        FEED_LIGHT1, FEED_LIGHT2, FEED_LIGHT3, FEED_LIGHT4, FEED_LIGHT5, 
+        FEED_LIGHT6, FEED_LIGHT7, FEED_LIGHT8, FEED_LIGHT9, FEED_LIGHT10, 
+        FEED_LIGHT11, FEED_LIGHT12, FEED_LIGHT13, FEED_LIGHT14, FEED_LIGHT15, 
+        FEED_LIGHT16, FEED_LIGHT17, FEED_LIGHT18, FEED_LIGHT19, FEED_LIGHT20, 
+        VOL_LIGHT1, VOL_LIGHT2, VOL_LIGHT3, VOL_LIGHT4, VOL_LIGHT5, 
+        VOL_LIGHT6, VOL_LIGHT7, VOL_LIGHT8, VOL_LIGHT9, VOL_LIGHT10, 
+        VOL_LIGHT11, VOL_LIGHT12, VOL_LIGHT13, VOL_LIGHT14, VOL_LIGHT15, 
+        VOL_LIGHT16, VOL_LIGHT17, VOL_LIGHT18, VOL_LIGHT19, VOL_LIGHT20, 
+        VOL_LIGHT1R, VOL_LIGHT2R, VOL_LIGHT3R, VOL_LIGHT4R, VOL_LIGHT5R, 
+        VOL_LIGHT6R, VOL_LIGHT7R, VOL_LIGHT8R, VOL_LIGHT9R, VOL_LIGHT10R, 
+        VOL_LIGHT11R, VOL_LIGHT12R, VOL_LIGHT13R, VOL_LIGHT14R, VOL_LIGHT15R, 
+        VOL_LIGHT16R, VOL_LIGHT17R, VOL_LIGHT18R, VOL_LIGHT19R, VOL_LIGHT20R, 
         NUM_LIGHTS
     };
 
@@ -136,6 +152,7 @@ struct PressedDuck : Module {
                    
     }
 
+    // Variables for envelope followers and lights
     float bassPeakL = 0.0f;
     float bassPeakR = 0.0f;
     float envPeakL[6] = {0.0f};
@@ -143,6 +160,10 @@ struct PressedDuck : Module {
     float peak[6] = {0.0f};
     float envelope[6] = {0.0f}; 
     int cycleCount = 0;
+    float pressTotal = 1.0f;
+    float distortTotal = 1.0f;
+    float volTotal = 1.0f;
+    float volTotalR = 1.0f;
 
     // Arrays to hold last computed values for differentiation
     float lastOutputL = 0.0f;
@@ -158,7 +179,7 @@ struct PressedDuck : Module {
     float filteredBassEnvelope = 0.0f;
     float alpha = 0.01f;
 
-    //for filters
+    // For filters
     float lastInputL = 0.0f;
     float lastInputR = 0.0f;
     float lastHPOutputL = 0.0f;
@@ -169,7 +190,7 @@ struct PressedDuck : Module {
     // Declare high-pass filter
     SecondOrderHPF hpfL, hpfR;
 
-    //for mute transition
+    // Ror mute transition
     float transitionTimeMs = 10000.f; // Transition time in milliseconds
     float transitionSamples; // Number of samples to complete the transition
     float fadeLevel[7] = {1.0f}; 
@@ -199,9 +220,9 @@ struct PressedDuck : Module {
         // Configure bass and saturation parameters
         configParam(SIDECHAIN_VOLUME_PARAM, 0.f, 2.f, 0.6f, "Sidechain Volume");
         configParam(DUCK_PARAM, 0.f, 1.f, 0.7f, "Duck Amount");
-        configParam(DUCK_ATT, -1.f, 1.f, 0.0f, "Duck Attenuation");
-        configParam(FEEDBACK_ATT, -1.f, 1.f, 0.0f, "Feedback Attenuation");
-        configParam(MASTER_VOL_ATT, -1.f, 1.f, 0.0f, "Master Volume Attenuation");
+        configParam(DUCK_ATT, -1.f, 1.f, 0.0f, "Duck Attenuverter");
+        configParam(FEEDBACK_ATT, -1.f, 1.f, 0.0f, "Feedback Attenuverter");
+        configParam(MASTER_VOL_ATT, -1.f, 1.f, 0.0f, "Master Volume Attenuverter");
 
         configParam(PRESS_PARAM, 0.f, 1.f, 0.f, "Press");
         configParam(PRESS_ATT, -1.f, 1.f, 0.0f, "Press Attenuation");
@@ -244,9 +265,6 @@ struct PressedDuck : Module {
         configInput(MASTER_VOL_CV, "Master Volume CV");
 
         // Outputs
-        
-        //configOutput(SURVEY, "Survey Test Out"); //hidden output for testing
-
         configOutput(AUDIO_OUTPUT_L, "Main Out L");
         configOutput(AUDIO_OUTPUT_R, "Main Out R");
         
@@ -307,17 +325,17 @@ struct PressedDuck : Module {
                 muteLatch[i] = false;
             }
 
-			if (transitionCount[i] > 0) {
-				float fadeStep = (muteState[i] ? -1.0f : 1.0f) / transitionSamples;
-				fadeLevel[i] += fadeStep;
-				if ((muteState[i] && fadeLevel[i] < 0.0f) || (!muteState[i] && fadeLevel[i] > 1.0f)) {
-					fadeLevel[i] = muteState[i] ? 0.0f : 1.0f;
-					transitionCount[i] = 0;  // End transition
-				}
-				transitionCount[i]--;
-			} else {
-				fadeLevel[i] = muteState[i] ? 0.0f : 1.0f;
-			}
+            if (transitionCount[i] > 0) {
+                float fadeStep = (muteState[i] ? -1.0f : 1.0f) / transitionSamples;
+                fadeLevel[i] += fadeStep;
+                if ((muteState[i] && fadeLevel[i] < 0.0f) || (!muteState[i] && fadeLevel[i] > 1.0f)) {
+                    fadeLevel[i] = muteState[i] ? 0.0f : 1.0f;
+                    transitionCount[i] = 0;  // End transition
+                }
+                transitionCount[i]--;
+            } else {
+                fadeLevel[i] = muteState[i] ? 0.0f : 1.0f;
+            }
 
             inputL[i] *= fadeLevel[i];
             inputR[i] *= fadeLevel[i];
@@ -375,11 +393,13 @@ struct PressedDuck : Module {
             pressAmount += inputs[PRESS_CV_INPUT].getVoltage()*params[PRESS_ATT].getValue();
         }
         pressAmount = clamp(pressAmount, 0.0f, 1.0f);
+        
+        pressTotal = (1.0f*(1-pressAmount) + pressAmount/compressionAmount)*6/inputCount;
 
         for (int i=0; i<6; i++){
             if (compressionAmount > 0.0f && inputCount>0.0f){ //avoid div by zero
-                    mixL += inputL[i]*(1.0f*(1-pressAmount) + pressAmount/compressionAmount)*6/inputCount;
-                    mixR += inputR[i]*(1.0f*(1-pressAmount) + pressAmount/compressionAmount)*6/inputCount;
+                    mixL += inputL[i]*pressTotal;
+                    mixR += inputR[i]*pressTotal;
             } 
         }
 
@@ -406,6 +426,8 @@ struct PressedDuck : Module {
             mixR = hpfR.process(mixR);
         } 
 
+        distortTotal = log1p(fmax(fmax(mixL,mixR)-35.f, 0.0f)) * (35.0f / log1p(35)); 
+
         // Apply ADAA
         float maxHeadRoom = 46.f; //exceeding this number results in strange wavefolding due to the polytanh bad fit beyond this point
         mixL = clamp(mixL, -maxHeadRoom, maxHeadRoom);
@@ -425,6 +447,10 @@ struct PressedDuck : Module {
         // Processing the outputs
         float outputL = mixL * 6.9f * masterVol;
         float outputR = mixR * 6.9f * masterVol;
+
+        volTotal =  fmax(outputR * decayRate, fabs(outputR)) ;
+        volTotalR = fmax(outputL * decayRate, fabs(outputL)) ;
+
 
         // Check output connections to implement conditional mono-to-stereo mirroring
         if (outputs[AUDIO_OUTPUT_L].isConnected() && !outputs[AUDIO_OUTPUT_R].isConnected()) {
@@ -508,17 +534,17 @@ struct PressedDuck : Module {
         }
 
         // Compute mute fade transition
-		if (transitionCount[6] > 0) {
-			float fadeStep = (muteState[6] ? -1.0f : 1.0f) / transitionSamples;
-			fadeLevel[6] += fadeStep;
-			if ((muteState[6] && fadeLevel[6] < 0.0f) || (!muteState[6] && fadeLevel[6] > 1.0f)) {
-				fadeLevel[6] = muteState[6] ? 0.0f : 1.0f;
-				transitionCount[6] = 0;  // End transition
-			}
-			transitionCount[6]--;
-		} else {
-			fadeLevel[6] = muteState[6] ? 0.0f : 1.0f;
-		}
+        if (transitionCount[6] > 0) {
+            float fadeStep = (muteState[6] ? -1.0f : 1.0f) / transitionSamples;
+            fadeLevel[6] += fadeStep;
+            if ((muteState[6] && fadeLevel[6] < 0.0f) || (!muteState[6] && fadeLevel[6] > 1.0f)) {
+                fadeLevel[6] = muteState[6] ? 0.0f : 1.0f;
+                transitionCount[6] = 0;  // End transition
+            }
+            transitionCount[6]--;
+        } else {
+            fadeLevel[6] = muteState[6] ? 0.0f : 1.0f;
+        }
 
         bassL *= fadeLevel[6];
         bassR *= fadeLevel[6];
@@ -561,10 +587,38 @@ struct PressedDuck : Module {
                 lights[MUTESIDE_LIGHT].setBrightness(1.0f);
             } else {
                 lights[MUTESIDE_LIGHT].setBrightness(0.0f);
-            }            
+            } 
+                       
+            // Update PRESS lights with segmented levels
+            updateSegmentedLights(PRESS_LIGHT1, pressTotal, 35.0f, 20);
+            // Update FEED lights with segmented levels
+            updateSegmentedLights(FEED_LIGHT1, distortTotal, 100.0f, 20);
+            // Update VOL lights with segmented levels
+            updateSegmentedLights(VOL_LIGHT1, volTotal, 10.0f, 20);
+            // Update VOL lights with segmented levels
+            updateSegmentedLights(VOL_LIGHT1R, volTotalR, 10.0f, 20);
+
             cycleCount = 0;
         }
+    } 
+    
+    void updateSegmentedLights(int startLightId, float totalValue, float maxValue, int numLights) {
+        float normalizedValue = totalValue / maxValue;
+        int fullLights = static_cast<int>(normalizedValue * numLights);
+        float fractionalBrightness = (normalizedValue * numLights) - fullLights;
+
+        for (int i = 0; i < numLights; i++) {
+            if (i < fullLights) {
+                lights[startLightId + i].setBrightness(1.0f); // Full brightness for fully covered segments
+            } else if (i == fullLights) {
+                lights[startLightId + i].setBrightness(fractionalBrightness); // Partial brightness for the last partially covered segment
+            } else {
+                float dimming = lights[startLightId + i].getBrightness(); 
+                lights[startLightId + i].setBrightness(dimming * 0.75f); 
+            }
+        }
     }    
+       
 };
 
 struct PressedDuckWidget : ModuleWidget {
@@ -604,14 +658,12 @@ struct PressedDuckWidget : ModuleWidget {
         yPos += 38+Spacing;
         addInput(createInputCentered<ThemedPJ301MPort>(Vec(xPos, yPos), module, PressedDuck::VCA_SIDECHAIN_INPUT ));
 
-        yPos += 1.25*Spacing;
         // Ducking amount knob
+        yPos += 1.25*Spacing;
         addParam(createParamCentered<RoundBlackKnob>(Vec(xPos, yPos), module, PressedDuck::DUCK_PARAM));
 
-        yPos = channelOffset.y + 4*Spacing + 92;
-
         // Ducking attenuator
-        yPos += Spacing -8;
+        yPos = channelOffset.y + 5*Spacing + 84;
         addParam(createParamCentered<Trimpot>(Vec(xPos, yPos), module, PressedDuck::DUCK_ATT));
 
         // Ducking CV input
@@ -660,13 +712,14 @@ struct PressedDuckWidget : ModuleWidget {
             
         // Global controls for saturation and bass processing (placing these at the end of channels)
         xPos += 1.75*sliderX; // Shift to the right of the last channel
-        yPos = channelOffset.y;
-
-        yPos += 0.5*Spacing;
+        yPos = channelOffset.y + 0.5*Spacing;
 
         // Saturation ceiling knob
         addParam(createParamCentered<RoundHugeBlackKnob>(Vec(xPos, yPos), module, PressedDuck::PRESS_PARAM));
 
+        // Add Ring of Lights
+        addLightsAroundKnob(module, xPos, yPos, PressedDuck::PRESS_LIGHT1, 20, 31.f);
+ 
         // Saturation ceiling attenuator
         yPos += 1.5*Spacing ;
         xPos -= .5*sliderX; // Shift to the right of the last channel
@@ -677,14 +730,16 @@ struct PressedDuckWidget : ModuleWidget {
         addInput(createInputCentered<ThemedPJ301MPort>(Vec(xPos, yPos), module, PressedDuck::PRESS_CV_INPUT));
 
         xPos -= .5*sliderX; // Shift to the right of the last channel
-
-        yPos += 2.3*Spacing;
+        yPos += 2.1*Spacing;
 
         // FEEDBACK
         addParam(createParamCentered<RoundLargeBlackKnob>(Vec(xPos, yPos), module, PressedDuck::FEEDBACK_PARAM));
 
+        // Add Ring of Lights
+        addLightsAroundKnob(module, xPos, yPos, PressedDuck::FEED_LIGHT1, 20, 23.f);
+
         // FEEDBACK attenuator
-        yPos += 1.2*Spacing;
+        yPos += 1.3*Spacing;
         xPos -= .5*sliderX; // Shift to the right of the last channel
         addParam(createParamCentered<Trimpot>(Vec(xPos, yPos), module, PressedDuck::FEEDBACK_ATT));
 
@@ -694,13 +749,16 @@ struct PressedDuckWidget : ModuleWidget {
         addInput(createInputCentered<ThemedPJ301MPort>(Vec(xPos, yPos), module, PressedDuck::FEEDBACK_CV));
         xPos -= .5*sliderX; // Shift to the right of the last channel
 
-        yPos = channelOffset.y + 4.4*Spacing + 85;
-
         // Master Volume
+        yPos = channelOffset.y + 4.3*Spacing + 85;
         addParam(createParamCentered<RoundLargeBlackKnob>(Vec(xPos, yPos), module, PressedDuck::MASTER_VOL));
 
+        // Add Ring of Lights for L/R channels
+        addLightsAroundKnob(module, xPos, yPos, PressedDuck::VOL_LIGHT1, 20, 22.5f);
+        addLightsAroundKnob(module, xPos, yPos, PressedDuck::VOL_LIGHT1R, 20, 26.5f);
+
         // Master Volume attenuator
-        yPos += 1.2*Spacing;
+        yPos += 1.3*Spacing;
         xPos -= .5*sliderX; // Shift to the right of the last channel
         addParam(createParamCentered<Trimpot>(Vec(xPos, yPos), module, PressedDuck::MASTER_VOL_ATT));
 
@@ -718,6 +776,25 @@ struct PressedDuckWidget : ModuleWidget {
         xPos += 1*sliderX; // Shift to the right of the last channel
         addOutput(createOutputCentered<ThemedPJ301MPort>(Vec(xPos, yPos), module, PressedDuck::AUDIO_OUTPUT_R));
 
+    }
+
+    void addLightsAroundKnob(Module* module, float knobX, float knobY, int firstLightId, int numLights, float radius) {
+        const float startAngle = M_PI*0.7f; // Start angle in radians (8 o'clock on the clock face)
+        const float endAngle = 2.0f*M_PI+M_PI*0.3f;   // End angle in radians (4 o'clock on the clock face)
+
+        for (int i = 0; i < numLights; i++) {
+            float fraction = (float)i / (numLights - 1); // Fraction that goes from 0 to 1
+            float angle = startAngle + fraction * (endAngle - startAngle);
+            float x = knobX + radius * cos(angle);
+            float y = knobY + radius * sin(angle);
+        
+            // Create and add the light
+            if (i< .5*numLights){
+                addChild(createLightCentered<TinyLight<YellowLight>>(Vec(x, y), module, firstLightId + i));
+            } else {
+                addChild(createLightCentered<TinyLight<RedLight>>(Vec(x, y), module, firstLightId + i));            
+            }
+        }
     }
     
     void appendContextMenu(Menu* menu) override {
@@ -747,9 +824,7 @@ struct PressedDuckWidget : ModuleWidget {
         filterItem->text = "Apply Filters";
         filterItem->PressedDuckModule = PressedDuckModule;
         menu->addChild(filterItem);
-
-    }    
-    
+    }        
 };
 
 Model* modelPressedDuck = createModel<PressedDuck, PressedDuckWidget>("PressedDuck");
