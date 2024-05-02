@@ -464,19 +464,20 @@ struct EnvelopeArrayWidget : ModuleWidget {
         addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(11.228, 28.738+2.5)), module, EnvelopeArray::TIME1_PARAM));
         addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(65.323, 28.738+2.5)), module, EnvelopeArray::TIME6_PARAM));
 
-        addParam(createParamCentered<Trimpot>(mm2px(Vec(29.337, 41.795+2)), module, EnvelopeArray::SLANT_ATTEN_PARAM));
-        addParam(createParamCentered<Trimpot>(mm2px(Vec(47.525, 41.795+2)), module, EnvelopeArray::CURVE_ATTEN_PARAM));
-        addParam(createParamCentered<Trimpot>(mm2px(Vec(11.228, 45.315+2)), module, EnvelopeArray::TIME1_ATTEN_PARAM));
-        addParam(createParamCentered<Trimpot>(mm2px(Vec(65.323, 45.315+2)), module, EnvelopeArray::TIME6_ATTEN_PARAM));
+        addParam(createParamCentered<Trimpot>(mm2px(Vec(29.337, 41.795)), module, EnvelopeArray::SLANT_ATTEN_PARAM));
+        addParam(createParamCentered<Trimpot>(mm2px(Vec(47.525, 41.795)), module, EnvelopeArray::CURVE_ATTEN_PARAM));
+        addParam(createParamCentered<Trimpot>(mm2px(Vec(11.228, 45.315)), module, EnvelopeArray::TIME1_ATTEN_PARAM));
+        addParam(createParamCentered<Trimpot>(mm2px(Vec(65.323, 45.315)), module, EnvelopeArray::TIME6_ATTEN_PARAM));
 
         /////////////////////
         //addParam(createParamCentered<Trimpot>(mm2px(Vec(38.277, 45)), module, EnvelopeArray::SECRET_PARAM));
         /////////////////////
 
-        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(29.337, 55.194)), module, EnvelopeArray::SLANT_INPUT));
-        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(47.525, 55.194)), module, EnvelopeArray::CURVE_INPUT));
-        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(11.228, 58.715)), module, EnvelopeArray::TIME1_INPUT));
-        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(65.323, 58.715)), module, EnvelopeArray::TIME6_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(29.337, 50.194)), module, EnvelopeArray::SLANT_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(47.525, 50.194)), module, EnvelopeArray::CURVE_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(11.228, 53.715)), module, EnvelopeArray::TIME1_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(65.323, 53.715)), module, EnvelopeArray::TIME6_INPUT));
+        
         addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(7.1   , 78.815)), module, EnvelopeArray::_1_INPUT));
         addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(19.459, 78.815)), module, EnvelopeArray::_2_INPUT));
         addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(31.818, 78.815)), module, EnvelopeArray::_3_INPUT));

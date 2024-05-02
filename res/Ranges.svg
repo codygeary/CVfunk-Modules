@@ -26,8 +26,8 @@
      inkscape:pageopacity="0.0"
      inkscape:pageshadow="2"
      inkscape:zoom="0.98994949"
-     inkscape:cx="224.75894"
-     inkscape:cy="200.51528"
+     inkscape:cx="93.439111"
+     inkscape:cy="295.46962"
      inkscape:document-units="mm"
      inkscape:current-layer="svg8"
      showgrid="false"
@@ -133,4 +133,16 @@
        d="m 27.138342,126.40096 h 6.62227"
        style="clip-rule:evenodd;fill:none;fill-rule:evenodd;stroke:#000000;stroke-width:0.227961px;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:1.5;stroke-opacity:1" />
   </g>
+  <path
+     d="M 10.032389,15.357015 V 37.187372"
+     style="clip-rule:evenodd;fill:none;fill-rule:evenodd;stroke:#000000;stroke-width:0.352778;stroke-linecap:square;stroke-linejoin:round;stroke-miterlimit:1.5;stroke-dasharray:none;stroke-opacity:1"
+     id="path66" />
+  <path
+     d="M 10.032389,54.378366 V 76.208723"
+     style="clip-rule:evenodd;fill:none;fill-rule:evenodd;stroke:#000000;stroke-width:0.352778;stroke-linecap:square;stroke-linejoin:round;stroke-miterlimit:1.5;stroke-dasharray:none;stroke-opacity:1"
+     id="path1" />
+  <path
+     d="m 10.032389,105.33546 v 10.52053"
+     style="clip-rule:evenodd;fill:none;fill-rule:evenodd;stroke:#000000;stroke-width:0.352778;stroke-linecap:square;stroke-linejoin:round;stroke-miterlimit:1.5;stroke-dasharray:none;stroke-opacity:1"
+     id="path2" />
 </svg>
