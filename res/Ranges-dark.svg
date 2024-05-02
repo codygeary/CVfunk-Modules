@@ -133,4 +133,16 @@
        d="m 26.811976,126.66688 h 6.62227"
        style="clip-rule:evenodd;fill:none;fill-rule:evenodd;stroke:#d08c59;stroke-width:0.227961px;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:1.5" />
   </g>
+  <path
+     d="M 10.032389,15.357015 V 37.187372"
+     style="clip-rule:evenodd;fill:none;fill-rule:evenodd;stroke:#b57d53;stroke-width:0.352778;stroke-linecap:square;stroke-linejoin:round;stroke-miterlimit:1.5;stroke-dasharray:none;stroke-opacity:1"
+     id="path66" />
+  <path
+     d="M 10.032389,54.378366 V 76.208723"
+     style="clip-rule:evenodd;fill:none;fill-rule:evenodd;stroke:#b57d53;stroke-width:0.352778;stroke-linecap:square;stroke-linejoin:round;stroke-miterlimit:1.5;stroke-dasharray:none;stroke-opacity:1"
+     id="path1" />
+  <path
+     d="m 10.032389,105.33546 v 10.52053"
+     style="clip-rule:evenodd;fill:none;fill-rule:evenodd;stroke:#b57d53;stroke-width:0.352778;stroke-linecap:square;stroke-linejoin:round;stroke-miterlimit:1.5;stroke-dasharray:none;stroke-opacity:1"
+     id="path2" />
 </svg>

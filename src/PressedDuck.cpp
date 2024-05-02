@@ -190,7 +190,7 @@ struct PressedDuck : Module {
     // Declare high-pass filter
     SecondOrderHPF hpfL, hpfR;
 
-    // Ror mute transition
+    // For mute transition
     float transitionTimeMs = 10000.f; // Transition time in milliseconds
     float transitionSamples; // Number of samples to complete the transition
     float fadeLevel[7] = {1.0f}; 
@@ -451,7 +451,6 @@ struct PressedDuck : Module {
         volTotal =  fmax(outputR * decayRate, fabs(outputR)) ;
         volTotalR = fmax(outputL * decayRate, fabs(outputL)) ;
 
-
         // Check output connections to implement conditional mono-to-stereo mirroring
         if (outputs[AUDIO_OUTPUT_L].isConnected() && !outputs[AUDIO_OUTPUT_R].isConnected()) {
             // Only left output is connected, copy to right output
@@ -645,7 +644,7 @@ struct PressedDuckWidget : ModuleWidget {
         float yPos = channelOffset.y;
         float xPos = channelOffset.x;
 
-         // Sidechain audio inputs
+        // Sidechain audio inputs
         addInput(createInputCentered<ThemedPJ301MPort>(Vec(xPos, yPos), module, PressedDuck::SIDECHAIN_INPUT_L ));
         yPos += Spacing;
         addInput(createInputCentered<ThemedPJ301MPort>(Vec(xPos, yPos), module, PressedDuck::SIDECHAIN_INPUT_R ));

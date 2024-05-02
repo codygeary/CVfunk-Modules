@@ -56,7 +56,7 @@ struct Steps : Module {
     };
 
     // Step_mixer constant
-     float step_mix=0.0;
+    float step_mix=0.0;
 
     // Schmitt trigger constants
     const float TRIGGER_THRESHOLD_HIGH = 1.0;
@@ -67,7 +67,6 @@ struct Steps : Module {
     // Declare previous states as member variables
     bool previousTriggerState = false;
     bool previousResetState = false;
-
 
     Steps() {
         config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
@@ -114,8 +113,7 @@ struct Steps : Module {
         range = abs(range);
         range = clamp(range, 0.0f, 10.0f); 
         step = clamp(step, -5.0f, 5.0f); 
-   
-    
+       
         float invertInput = inputs[INVERT_INPUT].getVoltage();
         float correction = 0.0;
         bool invert = invertInput > 0;
@@ -167,7 +165,7 @@ struct Steps : Module {
             }
         }
 
-         // Detect rising signal on TRIGGER_INPUT or manual trigger button press
+        // Detect rising signal on TRIGGER_INPUT or manual trigger button press
         bool manualTriggerPressed = params[TRIGGER_BUTTON_PARAM].getValue() > 0.0f;
         bool currentTriggerState = (inputs[TRIGGER_INPUT].isConnected() && inputs[TRIGGER_INPUT].getVoltage() > 1.0f) || manualTriggerPressed;
 
@@ -207,9 +205,6 @@ struct Steps : Module {
         // Update previous states at the end of the process cycle
         previousTriggerState = currentTriggerState;
         previousResetState = currentResetState;
-
-
-
 
         // Comparator Output and Lights
         if (comparatorOutput > 0) {
@@ -266,9 +261,9 @@ struct StepsWidget : ModuleWidget {
         addChild(createWidget<ThemedScrew>(Vec(RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
         addChild(createWidget<ThemedScrew>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 
-        addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(12.978, 49.183)), module, Steps::BIAS_PARAM));
-        addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(37.219, 49.183)), module, Steps::RANGE_PARAM));
-        addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(12.978, 78.965)), module, Steps::STEP_PARAM));
+        addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(12.978, 49.183)), module, Steps::BIAS_PARAM));
+        addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(37.219, 49.183)), module, Steps::RANGE_PARAM));
+        addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(12.978, 78.965)), module, Steps::STEP_PARAM));
 
         addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(7.3, 28.408)), module, Steps::COMPARATOR_INPUT));
         addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(19.545, 28.408)), module, Steps::BIAS_INPUT));
@@ -280,7 +275,6 @@ struct StepsWidget : ModuleWidget {
 
         addParam(createParamCentered<TL1105>(mm2px(Vec(19.545, 105.263)), module, Steps::TRIGGER_BUTTON_PARAM));
         addParam(createParamCentered<TL1105>(mm2px(Vec(32.159, 105.263)), module, Steps::RESET_BUTTON_PARAM));
-
 
         addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(44.445, 19.632)), module, Steps::COMPARATOR_UP_OUTPUT));
         addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(44.426, 28.485)), module, Steps::COMPARATOR_DN_OUTPUT));
@@ -302,6 +296,5 @@ struct StepsWidget : ModuleWidget {
         addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(40.923, 78.466)), module, Steps::OUT10_LIGHT));
     }
 };
-
 
 Model* modelSteps = createModel<Steps, StepsWidget>("Steps");

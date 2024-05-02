@@ -241,7 +241,7 @@ struct Ouros : Module {
             rate += inputs[RATE_INPUT].getVoltage(); 
         }    
         rate += fm; //add the FM to the computed rate
-        rate = clamp(rate, -3.0f, 3.0f); 
+        rate = clamp(rate, -4.0f, 4.0f); 
     
         rate = 261.625565 * pow(2.0, rate);
 
