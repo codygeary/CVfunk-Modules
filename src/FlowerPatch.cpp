@@ -69,7 +69,8 @@ struct FlowerPatch : Module {
 
     // FFT related
     dsp::RealFFT fft;  // Using RealFFT from the Rack DSP library
-    float fftOutput[BUFFER_SIZE];  // Output buffer for FFT results
+    float* fftOutput; // This will point to the aligned buffer
+ //   float fftOutput[BUFFER_SIZE];  // Output buffer for FFT results
     float intensityValues[72] = {};
  
     float flowerColorVar1[72]={0.0f};
@@ -97,7 +98,16 @@ struct FlowerPatch : Module {
         configParam(FFT_PARAM, -5.0, 5.0, 1.0, "FFT Intensity");
         configParam(FFT_ATT_PARAM, -1.0, 1.0, 0.0, "FFT Attenuvertor");
         configInput(FFT_INPUT, "FFT");
+        
+        // Allocate memory for FFT output
+        fftOutput = static_cast<float*>(pffft_aligned_malloc(BUFFER_SIZE * sizeof(float)));
+      
      }
+ 
+    ~FlowerPatch() {
+        // Free the aligned memory
+        pffft_aligned_free(fftOutput);
+    }
     
     void onSampleRateChange() override {
          sampleRate = APP->engine->getSampleRate();
@@ -151,16 +161,16 @@ struct FlowerPatch : Module {
 
     void computeIntensityValues() {
         float maxIntensity = 0.0f;
-        float freqResolution = sampleRate / BUFFER_SIZE;  
+        float freqResolution = sampleRate / BUFFER_SIZE;
 
-        for (size_t i = 0; i < 72; i++) { 
+        for (size_t i = 0; i < 72; i++) {
             float targetFreq = Scales[i / 12][i % 12];
 
             // Calculate bin with a tiny nudge to targetFreq and ensure it's non-negative
             int calculatedBin = static_cast<int>((targetFreq * 0.99f) / freqResolution);
             size_t bin = calculatedBin > 0 ? static_cast<size_t>(calculatedBin) : 0;
 
-            if (bin > 0 && bin < BUFFER_SIZE / 2) {  
+            if (bin > 0 && bin < BUFFER_SIZE / 2) {
                 float real = fftOutput[2 * bin + 2];
                 float imag = fftOutput[2 * bin + 3];
                 intensityValues[i] = std::sqrt(real * real + imag * imag);
@@ -174,12 +184,12 @@ struct FlowerPatch : Module {
         }
 
         // Normalize and apply power law scaling
-        for (size_t i = 0; i < 72; i++) {  
+        for (size_t i = 0; i < 72; i++) {
             intensityValues[i] /= std::max(maxIntensity, 0.001f);  // Avoid division by zero
             intensityValues[i] = std::pow(intensityValues[i], 3.0f);
         }
     }
-    
+        
     float getBufferedSample(size_t index) {
         index = (bufferIndex + index) % BUFFER_SIZE;
         return audioBuffer[index];
