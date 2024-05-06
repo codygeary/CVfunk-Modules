@@ -11,12 +11,12 @@
 using namespace rack;
 
 std::array<std::array<float, 12>, 6> Scales = {{
-    {{65.41, 69.3, 73.42, 77.78, 82.41, 87.31, 92.5, 98, 103.83, 110, 116.54, 123.47}},
-    {{130.81, 138.59, 146.83, 155.56, 164.81, 174.61, 185, 196, 207.65, 220, 233.08, 246.94}},
-    {{261.63, 277.18, 293.66, 311.13, 329.63, 349.23, 369.99, 392, 415.3, 440, 466.16, 493.88}},
-    {{523.25, 554.37, 587.33, 622.25, 659.26, 698.46, 739.99, 783.99, 830.61, 880, 932.33, 987.77}},
-    {{1046.5, 1108.73, 1174.66, 1244.51, 1318.51, 1396.91, 1479.98, 1567.98, 1661.22, 1760, 1864.66, 1975.53}},
-    {{2093, 2217.46, 2349.32, 2489.02, 2637.02, 2793.83, 2959.96, 3135.96, 3322.44, 3520, 3729.31, 3951.07}}
+    {{65.41f, 69.3f, 73.42f, 77.78f, 82.41f, 87.31f, 92.5f, 98.0f, 103.83f, 110.0f, 116.54f, 123.47f}},
+    {{130.81f, 138.59f, 146.83f, 155.56f, 164.81f, 174.61f, 185.0f, 196.0f, 207.65f, 220.0f, 233.08f, 246.94f}},
+    {{261.63f, 277.18f, 293.66f, 311.13f, 329.63f, 349.23f, 369.99f, 392.0f, 415.3f, 440.0f, 466.16f, 493.88f}},
+    {{523.25f, 554.37f, 587.33f, 622.25f, 659.26f, 698.46f, 739.99f, 783.99f, 830.61f, 880.0f, 932.33f, 987.77f}},
+    {{1046.5f, 1108.73f, 1174.66f, 1244.51f, 1318.51f, 1396.91f, 1479.98f, 1567.98f, 1661.22f, 1760.0f, 1864.66f, 1975.53f}},
+    {{2093.0f, 2217.46f, 2349.32f, 2489.02f, 2637.02f, 2793.83f, 2959.96f, 3135.96f, 3322.44f, 3520.0f, 3729.31f, 3951.07f}}
 }};
 
 std::array<std::array<std::string, 12>, 6> Names = {{
@@ -61,7 +61,7 @@ struct FlowerPatch : Module {
     float audioBuffer[BUFFER_SIZE] = {};
     int bufferIndex = 0;
     int phaseOffset = 0; 
-    float sampleRate = 44100.f;
+    float sampleRate = 44100.f; //will update in process
  
     bool isBufferFilling = false;
     int zeroCrossIndex = -1;
@@ -130,18 +130,15 @@ struct FlowerPatch : Module {
 
         FFTknob = params[FFT_PARAM].getValue()*0.2f; //scale knob to +-1
 
-		if(inputs[FFT_INPUT].isConnected()){
-			FFTknob = clamp(FFTknob + 0.1f * params[FFT_ATT_PARAM].getValue() * inputs[FFT_INPUT].getVoltage(), -1.0f, 1.1f);
-		}
-
-
-        
+        if(inputs[FFT_INPUT].isConnected()){
+            FFTknob = clamp(FFTknob + 0.1f * params[FFT_ATT_PARAM].getValue() * inputs[FFT_INPUT].getVoltage(), -1.0f, 1.1f);
+        }
+       
         float flowerVal = params[FLOWER_PARAM].getValue(); 
-		if(inputs[FLOWER_INPUT].isConnected()){
-			flowerVal = clamp(flowerVal +  params[FLOWER_ATT_PARAM].getValue() * inputs[FLOWER_INPUT].getVoltage(), -5.0f, 5.0f);
-		}
-     
-               
+        if(inputs[FLOWER_INPUT].isConnected()){
+            flowerVal = clamp(flowerVal +  params[FLOWER_ATT_PARAM].getValue() * inputs[FLOWER_INPUT].getVoltage(), -5.0f, 5.0f);
+        }
+                   
         audioBuffer[bufferIndex] = ( audioBuffer[bufferIndex]-0.11f*flowerVal )/2.f;
         bufferIndex = (bufferIndex + 1) % BUFFER_SIZE;
 
@@ -152,84 +149,82 @@ struct FlowerPatch : Module {
         }             
     }
 
-void computeIntensityValues() {
-    float maxIntensity = 0.0f;
-    float freqResolution = sampleRate / BUFFER_SIZE;
+    void computeIntensityValues() {
+        float maxIntensity = 0.0f;
+        float freqResolution = sampleRate / BUFFER_SIZE;  
 
-    for (int i = 0; i < 72; i++) {
-        float targetFreq = Scales[i / 12][i % 12];
+        for (size_t i = 0; i < 72; i++) { 
+            float targetFreq = Scales[i / 12][i % 12];
 
-	// Calculate bin with a tiny nudge to targetFreq
-	int calculatedBin = static_cast<int>((targetFreq * 0.99f) / freqResolution);
+            // Calculate bin with a tiny nudge to targetFreq and ensure it's non-negative
+            int calculatedBin = static_cast<int>((targetFreq * 0.99f) / freqResolution);
+            size_t bin = calculatedBin > 0 ? static_cast<size_t>(calculatedBin) : 0;
 
-	// Ensure bin is never negative and compare properly with size_t
-	size_t bin = calculatedBin > 0 ? static_cast<size_t>(calculatedBin) : 0;
+            if (bin > 0 && bin < BUFFER_SIZE / 2) {  
+                float real = fftOutput[2 * bin + 2];
+                float imag = fftOutput[2 * bin + 3];
+                intensityValues[i] = std::sqrt(real * real + imag * imag);
 
-        if ( bin > 0 && bin < BUFFER_SIZE / 2) {
-            float real = fftOutput[2 * bin + 2];  // Correct index in FFT output
-            float imag = fftOutput[2 * bin + 3];
-            intensityValues[i] = std::sqrt(real * real + imag * imag);
-
-            if (intensityValues[i] > maxIntensity) {
-                maxIntensity = intensityValues[i];
+                if (intensityValues[i] > maxIntensity) {
+                    maxIntensity = intensityValues[i];
+                }
+            } else {
+                intensityValues[i] = 0.0f;  // Handle out of range frequencies
             }
-        } else {
-            intensityValues[i] = 0.0f;  // Handling out of range frequencies
+        }
+
+        // Normalize and apply power law scaling
+        for (size_t i = 0; i < 72; i++) {  
+            intensityValues[i] /= std::max(maxIntensity, 0.001f);  // Avoid division by zero
+            intensityValues[i] = std::pow(intensityValues[i], 3.0f);
         }
     }
-
-    // Normalize and apply power law scaling
-    for (int i = 0; i < 72; i++) {
-        intensityValues[i] /= fmax(maxIntensity, 0.001f);
-        intensityValues[i] = pow(intensityValues[i], 3.0f);
-    }
-}
     
     float getBufferedSample(size_t index) {
         index = (bufferIndex + index) % BUFFER_SIZE;
         return audioBuffer[index];
     }
     
-	void updatePhaseOffset() {
-		int maxIndex = 0;
+    void updatePhaseOffset() {
+        int maxIndex = 0;
         maxVal = 0;
-		// Find max peak in the first half of the buffer
-		for (int i = 0; i < 4096; i++) { 
-			if ((audioBuffer[i]) > maxVal) {
-				maxVal = (audioBuffer[i]);
-				maxIndex = i;
-			}
-		}
+        // Find max peak in the first half of the buffer
+        for (int i = 0; i < 4096; i++) { 
+            if ((audioBuffer[i]) > maxVal) {
+                maxVal = (audioBuffer[i]);
+                maxIndex = i;
+            }
+        }
 
-		// Initialize zeroCrossIndex to -1 indicating not found
-		int zeroCrossIndex = -1;
+        // Initialize zeroCrossIndex to -1 indicating not found
+        int zeroCrossIndex = -1;
 
-		// Try to find zero-crossing before the maximum positive peak
-		for (int i = maxIndex; i > 0; i--) {
-			if (audioBuffer[i] >= 0 && audioBuffer[i - 1] < 0) {
-				zeroCrossIndex = i;
-				break;
-			}
-		}
+        // Try to find zero-crossing before the maximum positive peak
+        for (int i = maxIndex; i > 0; i--) {
+            if (audioBuffer[i] >= 0 && audioBuffer[i - 1] < 0) {
+                zeroCrossIndex = i;
+                break;
+            }
+        }
 
-		// If zero-crossing is not found before the peak, search after the peak
-		if (zeroCrossIndex == -1) {
-			for (int i = maxIndex; i < 4096 - 1; i++) {
-				if (audioBuffer[i] >= 0 && audioBuffer[i + 1] < 0) {
-					zeroCrossIndex = i + 1;
-					break;
-				}
-			}
-		}
+        // If zero-crossing is not found before the peak, search after the peak
+        if (zeroCrossIndex == -1) {
+            for (int i = maxIndex; i < 4096 - 1; i++) {
+                if (audioBuffer[i] >= 0 && audioBuffer[i + 1] < 0) {
+                    zeroCrossIndex = i + 1;
+                    break;
+                }
+            }
+        }
 
-		// If still not found, set to the start of the buffer
-		if (zeroCrossIndex == -1) {
-			zeroCrossIndex = 0;
-		}
+        // If still not found, set to the start of the buffer
+        if (zeroCrossIndex == -1) {
+            zeroCrossIndex = 0;
+        }
 
-		// Set the phaseOffset to the found zero-crossing index
-		phaseOffset = zeroCrossIndex;
-	}   
+        // Set the phaseOffset to the found zero-crossing index
+        phaseOffset = zeroCrossIndex;
+    }   
 };
 
 NVGcolor colorFromMagnitude(FlowerPatch* module, float magnitude) {
@@ -238,14 +233,14 @@ NVGcolor colorFromMagnitude(FlowerPatch* module, float magnitude) {
     float hue1 = (module->params[FlowerPatch::HUE_PARAM].getValue() + 5.0f) / 10.0f; // Map -5 to 5 to 0 to 1
     if(module->inputs[FlowerPatch::HUE_INPUT].isConnected()){
         hue1 = clamp(hue1 + 0.1f * module->params[FlowerPatch::HUE_ATT_PARAM].getValue() * module->inputs[FlowerPatch::HUE_INPUT].getVoltage(), -0.1f, 1.1f);
-	}
+    }
 
     float fillKnob = (module->params[FlowerPatch::FILL_PARAM].getValue() + 4.9f)/ 9.9f; // Map -5 to 5 to -.01 to 1 - then scale non-linearly    
     if(module->inputs[FlowerPatch::FILL_INPUT].isConnected()){
         fillKnob = clamp(fillKnob + 0.1f * module->params[FlowerPatch::FILL_ATT_PARAM].getValue() * module->inputs[FlowerPatch::FILL_INPUT].getVoltage(), -0.1f, 1.1f);
-	}
-	
-	fillKnob = pow(fillKnob , 0.001f); //extreme non-linear scaling for the fill, so it has at least a little knob range
+    }
+    
+    fillKnob = pow(fillKnob , 0.001f); //extreme non-linear scaling for the fill, so it has at least a little knob range
 
     float hue2 = hue1 + 0.15f; // Define second hue point
 
@@ -289,7 +284,7 @@ struct FlowerDisplay : TransparentWidget {
             updateCounter = 0;
             module->updatePhaseOffset();
         }
-		int phaseOffset = module->phaseOffset; // Use the updated phase offset
+        int phaseOffset = module->phaseOffset; // Use the updated phase offset
 
         for (size_t scale = 0; scale < 6; scale++) {
             for (size_t note = 0; note < 12; note++) {
@@ -297,31 +292,31 @@ struct FlowerDisplay : TransparentWidget {
                 float centerY = padding + spaceY * scale + spaceY / 2;
                 float maxRadius = std::min(spaceX, spaceY) * 0.6f;
                 float freq = Scales[scale][note];
-			    int flowerIndex = (scale*12)+note;
-			    
-			    float drawSkip = 0; //for skipping the drawing of some dots to save CPU
+                int flowerIndex = (scale*12)+note;
+                
+                float drawSkip = 0; //for skipping the drawing of some dots to save CPU
 
                 // Draw waveform based on phase
-				size_t lastSample = static_cast<size_t>(2 * (module->sampleRate / freq));
+                size_t lastSample = static_cast<size_t>(2 * (module->sampleRate / freq));
                 for (size_t i = 0; i < lastSample; i++) {
                     float sample = module->getBufferedSample( (i+phaseOffset)%lastSample );
                     float angle = twoPi * (i / (module->sampleRate/freq) );
                     float radius = maxRadius * (0.5f + 0.5f * sample*(0.5f/(fmax(module->maxVal,0.15f))) );
 
-					float FFTintensity = 0.f;
-					float FFTknob = module->FFTknob;
-					if (FFTknob >0){
-						FFTintensity = (1.f-module->FFTknob) + module->FFTknob * module->intensityValues[flowerIndex];    
-					} else {
-						FFTintensity = (1.f+module->FFTknob) - module->FFTknob * (1-module->intensityValues[flowerIndex]);    
-					}
+                    float FFTintensity = 0.f;
+                    float FFTknob = module->FFTknob;
+                    if (FFTknob >0){
+                        FFTintensity = (1.f-module->FFTknob) + module->FFTknob * module->intensityValues[flowerIndex];    
+                    } else {
+                        FFTintensity = (1.f+module->FFTknob) - module->FFTknob * (1-module->intensityValues[flowerIndex]);    
+                    }
 
                     float posX = centerX + 1.1f * radius * fast_sin(angle+M_PI_2) * FFTintensity;
                     float posY = centerY + 1.1f * radius * fast_sin(angle) * FFTintensity;
                                        
                     bool drawDots = false;
-					NVGcolor color = colorFromMagnitude(module, module->intensityValues[flowerIndex]);
-					drawSkip++;
+                    NVGcolor color = colorFromMagnitude(module, module->intensityValues[flowerIndex]);
+                    drawSkip++;
                     if(lastSample >= 1920){
                         if(drawSkip > 3){
                             drawSkip = 0; 
@@ -348,35 +343,35 @@ struct FlowerDisplay : TransparentWidget {
         }
     }
 
-	double fast_sin(double x) {  //intriguing fast_sin approximation I found on the web in a random place
-		int k;
-		double y;
-		double z;
+    double fast_sin(double x) {  //intriguing fast_sin approximation I found on the web in a random place
+        int k;
+        double y;
+        double z;
 
-		z = x;
-		z *= 0.3183098861837907;
-		z += 6755399441055744.0;
-		k = *((int *) &z);
-		z = k;
-		z *= 3.1415926535897932;
-		x -= z;
-		y = x;
-		y *= x;
-		z = 0.0073524681968701;
-		z *= y;
-		z -= 0.1652891139701474;
-		z *= y;
-		z += 0.9996919862959676;
-		x *= z;
-		k &= 1;
-		k += k;
-		z = k;
-		z *= x;
-		x -= z;
-		
-		return x;
-	}    
-	
+        z = x;
+        z *= 0.3183098861837907;
+        z += 6755399441055744.0;
+        k = *((int *) &z);
+        z = k;
+        z *= 3.1415926535897932;
+        x -= z;
+        y = x;
+        y *= x;
+        z = 0.0073524681968701;
+        z *= y;
+        z -= 0.1652891139701474;
+        z *= y;
+        z += 0.9996919862959676;
+        x *= z;
+        k &= 1;
+        k += k;
+        z = k;
+        z *= x;
+        x -= z;
+        
+        return x;
+    }    
+    
 };
 
 struct FlowerPatchWidget : ModuleWidget {
