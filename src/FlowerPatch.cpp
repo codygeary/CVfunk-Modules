@@ -317,8 +317,8 @@ struct FlowerDisplay : TransparentWidget {
                         FFTintensity = (1.f+module->FFTknob) - module->FFTknob * (1-module->intensityValues[flowerIndex]);    
                     }
 
-                    float posX = centerX + 1.1f * radius * fast_sin(angle+M_PI_2) * FFTintensity;
-                    float posY = centerY + 1.1f * radius * fast_sin(angle) * FFTintensity;
+                    float posX = centerX + 1.1f * radius * sin(angle+M_PI_2) * FFTintensity;
+                    float posY = centerY + 1.1f * radius * sin(angle) * FFTintensity;
                                        
                     bool drawDots = false;
                     NVGcolor color = colorFromMagnitude(module, module->intensityValues[flowerIndex]);
@@ -347,37 +347,7 @@ struct FlowerDisplay : TransparentWidget {
                 }                 
             }
         }
-    }
-
-    double fast_sin(double x) {  //intriguing fast_sin approximation I found on the web in a random place
-        int k;
-        double y;
-        double z;
-
-        z = x;
-        z *= 0.3183098861837907;
-        z += 6755399441055744.0;
-        k = *((int *) &z);
-        z = k;
-        z *= 3.1415926535897932;
-        x -= z;
-        y = x;
-        y *= x;
-        z = 0.0073524681968701;
-        z *= y;
-        z -= 0.1652891139701474;
-        z *= y;
-        z += 0.9996919862959676;
-        x *= z;
-        k &= 1;
-        k += k;
-        z = k;
-        z *= x;
-        x -= z;
-        
-        return x;
-    }    
-    
+    }   
 };
 
 struct FlowerPatchWidget : ModuleWidget {
