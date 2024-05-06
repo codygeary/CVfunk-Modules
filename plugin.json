@@ -101,7 +101,8 @@
       "tags": [
         "Oscillator"
       ]
-    },  {
+    },
+  {
       "slug": "PressedDuck",
       "name": "Pressed Duck",
       "description": "A stereo six-channel dynamic compressing mixer with side-chain ducking, tanh saturation and antiderivative antialiasing.",
@@ -112,6 +113,14 @@
         "Distortion",
         "Panning",
         "Voltage-controlled Amplifier"
+      ]
+    },
+  {
+      "slug": "FlowerPatch",
+      "name": "Flower Patch",
+      "description": "A 12-tone based visualizer.",
+      "tags": [
+        "Visual"
       ]
     },
 	{

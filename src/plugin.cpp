@@ -20,6 +20,7 @@ void init(Plugin* p) {
 	p->addModel(modelMagnets);
 	p->addModel(modelOuros);
 	p->addModel(modelPressedDuck);
+	p->addModel(modelFlowerPatch);
 
 
 	// Any other plugin initialization may go here.

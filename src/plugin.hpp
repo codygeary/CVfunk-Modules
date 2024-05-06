@@ -20,3 +20,4 @@ extern Model* modelStrings;
 extern Model* modelMagnets;
 extern Model* modelOuros;
 extern Model* modelPressedDuck;
+extern Model* modelFlowerPatch;
