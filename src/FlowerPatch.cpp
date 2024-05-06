@@ -232,18 +232,24 @@ NVGcolor colorFromMagnitude(FlowerPatch* module, float magnitude) {
  
     float hue1 = (module->params[FlowerPatch::HUE_PARAM].getValue() + 5.0f) / 10.0f; // Map -5 to 5 to 0 to 1
     if(module->inputs[FlowerPatch::HUE_INPUT].isConnected()){
-        hue1 = clamp(hue1 + 0.1f * module->params[FlowerPatch::HUE_ATT_PARAM].getValue() * module->inputs[FlowerPatch::HUE_INPUT].getVoltage(), -0.1f, 1.1f);
+        hue1 = hue1 + 0.1f * module->params[FlowerPatch::HUE_ATT_PARAM].getValue() * module->inputs[FlowerPatch::HUE_INPUT].getVoltage();
     }
 
-    float fillKnob = (module->params[FlowerPatch::FILL_PARAM].getValue() + 4.9f)/ 9.9f; // Map -5 to 5 to -.01 to 1 - then scale non-linearly    
+    float fillKnob = (module->params[FlowerPatch::FILL_PARAM].getValue())/ 5.0f; // Map -5 to 5 to 0 to 1    
     if(module->inputs[FlowerPatch::FILL_INPUT].isConnected()){
-        fillKnob = clamp(fillKnob + 0.1f * module->params[FlowerPatch::FILL_ATT_PARAM].getValue() * module->inputs[FlowerPatch::FILL_INPUT].getVoltage(), -0.1f, 1.1f);
+        fillKnob = clamp(fillKnob + 0.1f * module->params[FlowerPatch::FILL_ATT_PARAM].getValue() * module->inputs[FlowerPatch::FILL_INPUT].getVoltage(), -1.0f, 1.0f);
     }
     
-    fillKnob = pow(fillKnob , 0.001f); //extreme non-linear scaling for the fill, so it has at least a little knob range
-
-    float hue2 = hue1 + 0.15f; // Define second hue point
-
+    hue1 = fmod(hue1, 1.0f); //wrap the hue
+    
+    float hue2 = fmod(hue1 + 0.15f,1.0f); // Define second hue point
+    
+    if (fillKnob<0.0f){
+        hue1 = hue1 - fillKnob*0.15f;
+    }
+    
+    fillKnob = pow (fabs(fillKnob), 0.001f);
+    
     // Set configurable transition points
     float lowPoint = 1.0f-fillKnob; // Lower transition point for hue changes
     float highPoint = 1.0f-fillKnob/2; // Upper transition point for hue changes
