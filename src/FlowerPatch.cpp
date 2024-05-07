@@ -70,15 +70,24 @@ struct FlowerPatch : Module {
     // FFT related
     dsp::RealFFT fft;  // Using RealFFT from the Rack DSP library
     float* fftOutput; // This will point to the aligned buffer
- //   float fftOutput[BUFFER_SIZE];  // Output buffer for FFT results
     float intensityValues[72] = {};
  
     float flowerColorVar1[72]={0.0f};
     float flowerColorVar2[72]={0.0f};
     float hue=0.f;
     float FFTknob = 0.0f;
+    float flowerVal = 0.0f;
+    bool inputConnected = false;
 
     FlowerPatch() : Module(), fft(BUFFER_SIZE) {
+
+        // FFT memory allocation
+        fftOutput = static_cast<float*>(pffft_aligned_malloc(BUFFER_SIZE * sizeof(float)));
+        if (!fftOutput) {
+            // Handle allocation failure
+            throw std::runtime_error("Failed to allocate memory for fftOutput");
+        }
+
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
         configInput(LEFT_AUDIO_INPUT, "Left Audio Input");
         configInput(RIGHT_AUDIO_INPUT, "Right Audio Input");
@@ -99,14 +108,12 @@ struct FlowerPatch : Module {
         configParam(FFT_ATT_PARAM, -1.0, 1.0, 0.0, "FFT Attenuvertor");
         configInput(FFT_INPUT, "FFT");
         
-        // Allocate memory for FFT output
-        fftOutput = static_cast<float*>(pffft_aligned_malloc(BUFFER_SIZE * sizeof(float)));
-      
      }
  
     ~FlowerPatch() {
         // Free the aligned memory
         pffft_aligned_free(fftOutput);
+        fftOutput = nullptr;
     }
     
     void onSampleRateChange() override {
@@ -118,12 +125,15 @@ struct FlowerPatch : Module {
         float left = 0.0f, right = 0.0f;
         bool leftConnected = inputs[LEFT_AUDIO_INPUT].isConnected();
         bool rightConnected = inputs[RIGHT_AUDIO_INPUT].isConnected();
+        inputConnected = false;
 
         if (leftConnected) {
             left = inputs[LEFT_AUDIO_INPUT].getVoltage();
+            inputConnected = true;
         }
         if (rightConnected) {
             right = inputs[RIGHT_AUDIO_INPUT].getVoltage();
+            inputConnected = true;
         }
 
         // Handle mono or stereo inputs
@@ -144,7 +154,7 @@ struct FlowerPatch : Module {
             FFTknob = clamp(FFTknob + 0.1f * params[FFT_ATT_PARAM].getValue() * inputs[FFT_INPUT].getVoltage(), -1.0f, 1.1f);
         }
        
-        float flowerVal = params[FLOWER_PARAM].getValue(); 
+        flowerVal = params[FLOWER_PARAM].getValue(); 
         if(inputs[FLOWER_INPUT].isConnected()){
             flowerVal = clamp(flowerVal +  params[FLOWER_ATT_PARAM].getValue() * inputs[FLOWER_INPUT].getVoltage(), -5.0f, 5.0f);
         }
@@ -170,13 +180,22 @@ struct FlowerPatch : Module {
             int calculatedBin = static_cast<int>((targetFreq * 0.99f) / freqResolution);
             size_t bin = calculatedBin > 0 ? static_cast<size_t>(calculatedBin) : 0;
 
-            if (bin > 0 && bin < BUFFER_SIZE / 2) {
-                float real = fftOutput[2 * bin + 2];
-                float imag = fftOutput[2 * bin + 3];
-                intensityValues[i] = std::sqrt(real * real + imag * imag);
+            // Protect against out-of-bounds access
+            if (bin > 0 && bin < (BUFFER_SIZE / 2)) {  // Adjusted boundary check
+                // Ensure we are not exceeding the buffer size
+                size_t indexReal = 2 * bin;  // Index for real part
+                size_t indexImag = 2 * bin + 1;  // Index for imaginary part
 
-                if (intensityValues[i] > maxIntensity) {
-                    maxIntensity = intensityValues[i];
+                if (indexReal + 1 < BUFFER_SIZE) { // Check if imaginary part is also within bounds
+                    float real = fftOutput[indexReal];
+                    float imag = fftOutput[indexImag];
+                    intensityValues[i] = std::sqrt(real * real + imag * imag);
+
+                    if (intensityValues[i] > maxIntensity) {
+                        maxIntensity = intensityValues[i];
+                    }
+                } else {
+                    intensityValues[i] = 0.0f;  // Out of range frequencies set to zero
                 }
             } else {
                 intensityValues[i] = 0.0f;  // Handle out of range frequencies
@@ -189,6 +208,7 @@ struct FlowerPatch : Module {
             intensityValues[i] = std::pow(intensityValues[i], 3.0f);
         }
     }
+
         
     float getBufferedSample(size_t index) {
         index = (bufferIndex + index) % BUFFER_SIZE;
@@ -199,7 +219,7 @@ struct FlowerPatch : Module {
         int maxIndex = 0;
         maxVal = 0;
         // Find max peak in the first half of the buffer
-        for (int i = 0; i < 4096; i++) { 
+        for (int i = 0; i < 2048; i++) { 
             if ((audioBuffer[i]) > maxVal) {
                 maxVal = (audioBuffer[i]);
                 maxIndex = i;
@@ -219,7 +239,7 @@ struct FlowerPatch : Module {
 
         // If zero-crossing is not found before the peak, search after the peak
         if (zeroCrossIndex == -1) {
-            for (int i = maxIndex; i < 4096 - 1; i++) {
+            for (int i = maxIndex; i < 2048 - 1; i++) {
                 if (audioBuffer[i] >= 0 && audioBuffer[i + 1] < 0) {
                     zeroCrossIndex = i + 1;
                     break;
@@ -255,15 +275,18 @@ NVGcolor colorFromMagnitude(FlowerPatch* module, float magnitude) {
     float hue2 = fmod(hue1 + 0.15f,1.0f); // Define second hue point
     
     if (fillKnob<0.0f){
-        hue1 = hue1 - fillKnob*0.15f;
+        hue1 = fmod(hue1 - fillKnob*0.15f, 1.0f);
+    }
+     
+    // Set configurable transition points
+    float adjFillKnob = pow (fabs(fillKnob), 0.001f); //adjusted Fill to compensate for the steep spikes of FFT output
+    float lowPoint = clamp(1.0f-adjFillKnob, 0.000000001f, 1.0f); // Avoid div by zero later - Low point for transition
+    float highPoint = clamp(1.0f-adjFillKnob/2, 0.00000001f, 1.0f); // Upper transition point for hue changes
+
+    if (fillKnob < -.99f){
+        return nvgHSLA(hue2, 1.0f, 0.75f, 255);   
     }
     
-    fillKnob = pow (fabs(fillKnob), 0.001f);
-    
-    // Set configurable transition points
-    float lowPoint = 1.0f-fillKnob; // Lower transition point for hue changes
-    float highPoint = 1.0f-fillKnob/2; // Upper transition point for hue changes
-
     if (magnitude < lowPoint) {
         // Transition from White (0% saturation, 100% lightness) to hue1
         float blend = magnitude / lowPoint;
@@ -276,6 +299,7 @@ NVGcolor colorFromMagnitude(FlowerPatch* module, float magnitude) {
         // Keep at hue2 for any magnitude above highPoint
         return nvgHSLA(hue2, 1.0f, 0.75f, 255);
     }
+      
 }
 
 struct FlowerDisplay : TransparentWidget {
@@ -286,11 +310,11 @@ struct FlowerDisplay : TransparentWidget {
 
     void draw(const DrawArgs& args) override {
         if (!module) return;
+        if (!module->inputConnected) return;
                 
         const float padding = 20.0f;
         const float totalWidth = box.size.x - 2 * padding;
         const float totalHeight = box.size.y - 2 * padding;
-
         const float spaceX = totalWidth / 12;
         const float spaceY = totalHeight / 6;
         const float twoPi = 2 * M_PI ;
@@ -326,34 +350,39 @@ struct FlowerDisplay : TransparentWidget {
                     } else {
                         FFTintensity = (1.f+module->FFTknob) - module->FFTknob * (1-module->intensityValues[flowerIndex]);    
                     }
+                    
+                    float offset = 1.1f;
+                    float flowerVal = module->flowerVal;
+                    if ( flowerVal > 1.5f){
+                        offset += .25f * (flowerVal-1.5f);
+                    }
 
-                    float posX = centerX + 1.1f * radius * sin(angle+M_PI_2) * FFTintensity;
-                    float posY = centerY + 1.1f * radius * sin(angle) * FFTintensity;
+                    float posX = centerX + offset * radius * sin(angle+M_PI_2) * FFTintensity;
+                    float posY = centerY + offset * radius * sin(angle) * FFTintensity;
                                        
                     bool drawDots = false;
                     NVGcolor color = colorFromMagnitude(module, module->intensityValues[flowerIndex]);
+
+                    // Calculate the threshold for skipping drawing based on the number of samples.
+                    int skipThreshold = lastSample / 512;  
+
+                    // Increment the drawSkip counter.
                     drawSkip++;
-                    if(lastSample >= 1920){
-                        if(drawSkip > 3){
-                            drawSkip = 0; 
-                            drawDots = true;
-                        }
-                    } else if (lastSample >= 640){
-                        if(drawSkip > 2){
-                            drawSkip = 0;
-                            drawDots = true;
-                        }
-                    }  else {
-                       drawSkip = 0;
-                       drawDots = true;
+
+                    // Reset drawSkip and set drawDots to true when it exceeds the threshold.
+                    if (drawSkip > skipThreshold) {
+                        drawSkip = 0;
+                        drawDots = true;
                     }
 
-                    if (drawDots){
+                    if (drawDots) {  // Don't draw every sample, and 'dots' are now squares
                         nvgBeginPath(args.vg);
-                        nvgCircle(args.vg, posX, posY, .2f*(scale/2+1)); // Small dots for clarity
-                        nvgFillColor(args.vg, color);  // Use calculated color for each dot
+                        float size = 0.10f * (scale + 3);  // Calculating the size of the square
+                        nvgRect(args.vg, posX - size / 2, posY - size / 2, size, size);  // Draw square centered at posX, posY
+                        nvgFillColor(args.vg, color);
                         nvgFill(args.vg);
                     }
+                    
                 }                 
             }
         }
