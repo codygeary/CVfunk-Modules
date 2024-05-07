@@ -28,6 +28,13 @@ std::array<std::array<std::string, 12>, 6> Names = {{
     {"C7", "C#7/Db7", "D7", "D#7/Eb7", "E7", "F7", "F#7/Gb7", "G7", "G#7/Ab7", "A7", "A#7/Bb7", "B7"}
 }};
 
+#include <cstddef> // for std::size_t
+
+bool isAligned(void* ptr, std::size_t alignment) {
+    return reinterpret_cast<uintptr_t>(ptr) % alignment == 0;
+}
+
+
 struct FlowerPatch : Module {
     enum ParamIds {
         HUE_PARAM,
@@ -81,11 +88,9 @@ struct FlowerPatch : Module {
 
     FlowerPatch() : Module(), fft(BUFFER_SIZE) {
 
-        // FFT memory allocation
         fftOutput = static_cast<float*>(pffft_aligned_malloc(BUFFER_SIZE * sizeof(float)));
-        if (!fftOutput) {
-            // Handle allocation failure
-            throw std::runtime_error("Failed to allocate memory for fftOutput");
+        if (!fftOutput || !isAligned(fftOutput, 16)) {
+            throw std::runtime_error("FFT output memory allocation failed or is not aligned");
         }
 
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
@@ -125,49 +130,38 @@ struct FlowerPatch : Module {
         float left = 0.0f, right = 0.0f;
         bool leftConnected = inputs[LEFT_AUDIO_INPUT].isConnected();
         bool rightConnected = inputs[RIGHT_AUDIO_INPUT].isConnected();
-        inputConnected = false;
 
-        if (leftConnected) {
-            left = inputs[LEFT_AUDIO_INPUT].getVoltage();
-            inputConnected = true;
-        }
-        if (rightConnected) {
-            right = inputs[RIGHT_AUDIO_INPUT].getVoltage();
-            inputConnected = true;
-        }
+        if (leftConnected || rightConnected) {
+            inputConnected = true;  // Ensure we track connection status
+            left = leftConnected ? inputs[LEFT_AUDIO_INPUT].getVoltage() : 0.0f;
+            right = rightConnected ? inputs[RIGHT_AUDIO_INPUT].getVoltage() : 0.0f;
 
-        // Handle mono or stereo inputs
-        if (leftConnected && rightConnected) {
-            // Average both channels if both are connected
-            audioBuffer[bufferIndex] = (left + right) * 0.05f; // 0.1 * 0.5 to keep the same scaling as before
-        } else if (leftConnected) {
-            audioBuffer[bufferIndex] = left * 0.1f;
-        } else if (rightConnected) {
-            audioBuffer[bufferIndex] = right * 0.1f;
-        } else {
-            audioBuffer[bufferIndex] = 0.0f;
-        }
+            // Handle mono or stereo inputs
+            float mixedSignal = (left + right) * (leftConnected && rightConnected ? 0.05f : 0.1f);
 
-        FFTknob = params[FFT_PARAM].getValue()*0.2f; //scale knob to +-1
-
-        if(inputs[FFT_INPUT].isConnected()){
-            FFTknob = clamp(FFTknob + 0.1f * params[FFT_ATT_PARAM].getValue() * inputs[FFT_INPUT].getVoltage(), -1.0f, 1.1f);
-        }
-       
-        flowerVal = params[FLOWER_PARAM].getValue(); 
-        if(inputs[FLOWER_INPUT].isConnected()){
-            flowerVal = clamp(flowerVal +  params[FLOWER_ATT_PARAM].getValue() * inputs[FLOWER_INPUT].getVoltage(), -5.0f, 5.0f);
-        }
+            flowerVal = params[FLOWER_PARAM].getValue(); 
+            if(inputs[FLOWER_INPUT].isConnected()){
+                flowerVal = clamp(flowerVal +  params[FLOWER_ATT_PARAM].getValue() * inputs[FLOWER_INPUT].getVoltage(), -5.0f, 5.0f);
+            }
                    
-        audioBuffer[bufferIndex] = ( audioBuffer[bufferIndex]-0.11f*flowerVal )/2.f;
-        bufferIndex = (bufferIndex + 1) % BUFFER_SIZE;
+            audioBuffer[bufferIndex++] = ( mixedSignal - 0.11f * flowerVal) / 2.f;
+            bufferIndex %= BUFFER_SIZE;  // Ensure we loop around correctly
 
-        // Trigger FFT processing
-        if (bufferIndex == 0){
-            fft.rfft(audioBuffer, fftOutput);
-            computeIntensityValues();
-        }             
+            // Update FFT knob based on parameter and possible external modulation
+            FFTknob = params[FFT_PARAM].getValue() * 0.2f; // Scale knob to +-1
+            if (inputs[FFT_INPUT].isConnected()) {
+                FFTknob = clamp(FFTknob + 0.1f * params[FFT_ATT_PARAM].getValue() * inputs[FFT_INPUT].getVoltage(), -1.0f, 1.1f);
+            }
+
+            // Conditions to trigger FFT processing
+            if (bufferIndex == 0 && inputConnected && isAligned(fftOutput, 16)) {
+                fft.rfft(audioBuffer, fftOutput);
+                computeIntensityValues();
+            }
+        }
     }
+
+
 
     void computeIntensityValues() {
         float maxIntensity = 0.0f;
@@ -310,7 +304,7 @@ struct FlowerDisplay : TransparentWidget {
 
     void draw(const DrawArgs& args) override {
         if (!module) return;
-        if (!module->inputConnected) return;
+        if (!(module->inputConnected)) return;
                 
         const float padding = 20.0f;
         const float totalWidth = box.size.x - 2 * padding;
@@ -351,7 +345,7 @@ struct FlowerDisplay : TransparentWidget {
                         FFTintensity = (1.f+module->FFTknob) - module->FFTknob * (1-module->intensityValues[flowerIndex]);    
                     }
                     
-                    float offset = 1.1f;
+                    float offset = 1.0f;
                     float flowerVal = module->flowerVal;
                     if ( flowerVal > 1.5f){
                         offset += .25f * (flowerVal-1.5f);
