@@ -65,7 +65,8 @@ struct FlowerPatch : Module {
 
     // Audio buffer for visualization
     static constexpr size_t BUFFER_SIZE = 4096;
-    float audioBuffer[BUFFER_SIZE] = {};
+    float* audioBuffer;  
+
     int bufferIndex = 0;
     int phaseOffset = 0; 
     float sampleRate = 44100.f; //will update in process
@@ -88,9 +89,10 @@ struct FlowerPatch : Module {
 
     FlowerPatch() : Module(), fft(BUFFER_SIZE) {
 
+        audioBuffer = static_cast<float*>(pffft_aligned_malloc(BUFFER_SIZE * sizeof(float)));
         fftOutput = static_cast<float*>(pffft_aligned_malloc(BUFFER_SIZE * sizeof(float)));
-        if (!fftOutput || !isAligned(fftOutput, 16)) {
-            throw std::runtime_error("FFT output memory allocation failed or is not aligned");
+        if (!audioBuffer || !fftOutput || !isAligned(audioBuffer, 16) || !isAligned(fftOutput, 16)) {
+            throw std::runtime_error("Memory allocation failed or is not aligned");
         }
 
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
@@ -117,8 +119,10 @@ struct FlowerPatch : Module {
  
     ~FlowerPatch() {
         // Free the aligned memory
+        pffft_aligned_free(audioBuffer);
         pffft_aligned_free(fftOutput);
         fftOutput = nullptr;
+        audioBuffer = nullptr;
     }
     
     void onSampleRateChange() override {
@@ -153,15 +157,13 @@ struct FlowerPatch : Module {
                 FFTknob = clamp(FFTknob + 0.1f * params[FFT_ATT_PARAM].getValue() * inputs[FFT_INPUT].getVoltage(), -1.0f, 1.1f);
             }
 
-            // Conditions to trigger FFT processing
-            if (bufferIndex == 0 && inputConnected && isAligned(fftOutput, 16)) {
+            // Check alignment before triggering FFT processing
+            if (bufferIndex == 0 && inputConnected && isAligned(audioBuffer, 16) && isAligned(fftOutput, 16)) {
                 fft.rfft(audioBuffer, fftOutput);
                 computeIntensityValues();
             }
         }
     }
-
-
 
     void computeIntensityValues() {
         float maxIntensity = 0.0f;
