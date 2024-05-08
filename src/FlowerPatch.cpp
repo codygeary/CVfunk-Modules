@@ -29,11 +29,9 @@ std::array<std::array<std::string, 12>, 6> Names = {{
 }};
 
 #include <cstddef> // for std::size_t
-
 bool isAligned(void* ptr, std::size_t alignment) {
     return reinterpret_cast<uintptr_t>(ptr) % alignment == 0;
 }
-
 
 struct FlowerPatch : Module {
     enum ParamIds {
@@ -63,11 +61,18 @@ struct FlowerPatch : Module {
         NUM_LIGHTS
     };
 
-    // Audio buffer for visualization
     static constexpr size_t BUFFER_SIZE = 4096;
-    float* audioBuffer;  
+
+    // Wave buffer for visualization
+    float waveBuffer[BUFFER_SIZE] = {0.0f}; //to store the waveform shape 
+    
+    // FFT related buffers
+    dsp::RealFFT fft;  // Using RealFFT from the Rack DSP library
+    float* fftOutput; // This will point to the aligned buffer
+    float* audioBuffer;  //dynamic for FFT analysis
 
     int bufferIndex = 0;
+    int waveIndex = 0;
     int phaseOffset = 0; 
     float sampleRate = 44100.f; //will update in process
  
@@ -75,11 +80,7 @@ struct FlowerPatch : Module {
     int zeroCrossIndex = -1;
     float maxVal = 0.f;  // For normalizing the waveform display
 
-    // FFT related
-    dsp::RealFFT fft;  // Using RealFFT from the Rack DSP library
-    float* fftOutput; // This will point to the aligned buffer
     float intensityValues[72] = {};
- 
     float flowerColorVar1[72]={0.0f};
     float flowerColorVar2[72]={0.0f};
     float hue=0.f;
@@ -89,8 +90,10 @@ struct FlowerPatch : Module {
 
     FlowerPatch() : Module(), fft(BUFFER_SIZE) {
 
+        //special aligned memory allocation for FFT using pretty-fast-FFT-aligned-malloc
         audioBuffer = static_cast<float*>(pffft_aligned_malloc(BUFFER_SIZE * sizeof(float)));
-        fftOutput = static_cast<float*>(pffft_aligned_malloc(BUFFER_SIZE * sizeof(float)));
+        fftOutput   = static_cast<float*>(pffft_aligned_malloc(BUFFER_SIZE * sizeof(float)));
+        
         if (!audioBuffer || !fftOutput || !isAligned(audioBuffer, 16) || !isAligned(fftOutput, 16)) {
             throw std::runtime_error("Memory allocation failed or is not aligned");
         }
@@ -121,7 +124,7 @@ struct FlowerPatch : Module {
         // Free the aligned memory
         pffft_aligned_free(audioBuffer);
         pffft_aligned_free(fftOutput);
-        fftOutput = nullptr;
+        fftOutput = nullptr; //set back to nullptr as good practice
         audioBuffer = nullptr;
     }
     
@@ -147,9 +150,13 @@ struct FlowerPatch : Module {
             if(inputs[FLOWER_INPUT].isConnected()){
                 flowerVal = clamp(flowerVal +  params[FLOWER_ATT_PARAM].getValue() * inputs[FLOWER_INPUT].getVoltage(), -5.0f, 5.0f);
             }
-                   
-            audioBuffer[bufferIndex++] = ( mixedSignal - 0.11f * flowerVal) / 2.f;
+            
+            bufferIndex++;
             bufferIndex %= BUFFER_SIZE;  // Ensure we loop around correctly
+
+            audioBuffer[bufferIndex] = mixedSignal ;            
+
+            waveBuffer[bufferIndex] = ( mixedSignal - 0.11f * flowerVal) / 2.f;
 
             // Update FFT knob based on parameter and possible external modulation
             FFTknob = params[FFT_PARAM].getValue() * 0.2f; // Scale knob to +-1
@@ -204,43 +211,20 @@ struct FlowerPatch : Module {
             intensityValues[i] = std::pow(intensityValues[i], 3.0f);
         }
     }
-
-        
-    float getBufferedSample(size_t index) {
-        index = (bufferIndex + index) % BUFFER_SIZE;
-        return audioBuffer[index];
-    }
     
     void updatePhaseOffset() {
         int maxIndex = 0;
         maxVal = 0;
-        // Find max peak in the first half of the buffer
-        for (int i = 0; i < 2048; i++) { 
-            if ((audioBuffer[i]) > maxVal) {
-                maxVal = (audioBuffer[i]);
-                maxIndex = i;
+        zeroCrossIndex = -1;  //-1 indicates not found
+
+        // Find max peak in the buffer
+        for (int i = 1; i < 4096/2; i++) { 
+            if ((waveBuffer[i]) > maxVal) {
+                maxVal = (waveBuffer[i]);
             }
-        }
-
-        // Initialize zeroCrossIndex to -1 indicating not found
-        int zeroCrossIndex = -1;
-
-        // Try to find zero-crossing before the maximum positive peak
-        for (int i = maxIndex; i > 0; i--) {
-            if (audioBuffer[i] >= 0 && audioBuffer[i - 1] < 0) {
+            if (audioBuffer[i] >= 0 && audioBuffer[i - 1] < 0 && zeroCrossIndex == -1) {
                 zeroCrossIndex = i;
-                break;
-            }
-        }
-
-        // If zero-crossing is not found before the peak, search after the peak
-        if (zeroCrossIndex == -1) {
-            for (int i = maxIndex; i < 2048 - 1; i++) {
-                if (audioBuffer[i] >= 0 && audioBuffer[i + 1] < 0) {
-                    zeroCrossIndex = i + 1;
-                    break;
-                }
-            }
+            }           
         }
 
         // If still not found, set to the start of the buffer
@@ -301,9 +285,6 @@ NVGcolor colorFromMagnitude(FlowerPatch* module, float magnitude) {
 struct FlowerDisplay : TransparentWidget {
     FlowerPatch* module;
 
-    int updateCounter = 0;  // Counter to track update intervals
-    int updateRate = 1;  // Number of frames to wait between updates
-
     void draw(const DrawArgs& args) override {
         if (!module) return;
         if (!(module->inputConnected)) return;
@@ -315,11 +296,7 @@ struct FlowerDisplay : TransparentWidget {
         const float spaceY = totalHeight / 6;
         const float twoPi = 2 * M_PI ;
  
-        // Update the phase offset at a controlled rate to minimize CPU load
-        if (++updateCounter >= updateRate) {
-            updateCounter = 0;
-            module->updatePhaseOffset();
-        }
+		module->updatePhaseOffset();	    
         int phaseOffset = module->phaseOffset; // Use the updated phase offset
 
         for (size_t scale = 0; scale < 6; scale++) {
@@ -333,9 +310,9 @@ struct FlowerDisplay : TransparentWidget {
                 float drawSkip = 0; //for skipping the drawing of some dots to save CPU
 
                 // Draw waveform based on phase
-                size_t lastSample = static_cast<size_t>(2 * (module->sampleRate / freq));
+                size_t lastSample = static_cast<size_t>(2*(module->sampleRate / freq));
                 for (size_t i = 0; i < lastSample; i++) {
-                    float sample = module->getBufferedSample( (i+phaseOffset)%lastSample );
+                    float sample = module->waveBuffer[ (i+phaseOffset)%lastSample ];
                     float angle = twoPi * (i / (module->sampleRate/freq) );
                     float radius = maxRadius * (0.5f + 0.5f * sample*(0.5f/(fmax(module->maxVal,0.15f))) );
 
@@ -370,7 +347,7 @@ struct FlowerDisplay : TransparentWidget {
                         drawSkip = 0;
                         drawDots = true;
                     }
-
+                    
                     if (drawDots) {  // Don't draw every sample, and 'dots' are now squares
                         nvgBeginPath(args.vg);
                         float size = 0.10f * (scale + 3);  // Calculating the size of the square
