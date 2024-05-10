@@ -188,68 +188,48 @@ struct WaveformDisplay : TransparentWidget {
 
     WaveformDisplay(NVGcolor color) : waveformColor(color) {}
 
-
     void drawWaveform(const DrawArgs& args) {
         if (!module) return;
 
         const auto& buffer = module->envelopeBuffers[channelId];
-        float range = (module->params[Signals::RANGE_PARAM].getValue())/(MAX_TIME/module->currentTimeSetting);
+        float range = module->params[Signals::RANGE_PARAM].getValue() / (MAX_TIME / module->currentTimeSetting);
 
-        //Adjust the Time Range if switched
-                if (module->params[Signals::RANGE_BUTTON_PARAM].getValue()>0.5) {
-                    range *= 0.89; //wonky fix, at the slow scale the sample divisions isn't working perfectly right
-                } 
+        // Adjust the Time Range if the range button is toggled
+        if (module->params[Signals::RANGE_BUTTON_PARAM].getValue() > 0.5) {
+            range *= 0.89; // Scale adjustment due to precision issues at slow scale
+        } 
 
-        // Use a fixed number of samples to display
         int displaySamples = 1024;
-
         std::vector<Vec> points;
 
-        // Calculate the y-coordinate of the first sample
-        float firstSampleY;
+        float firstSampleY = box.size.y;
         if (module->inputs[Signals::ENV1_INPUT + channelId].isConnected() && !buffer.empty()) {
-            firstSampleY = box.size.y * (1.0f - (buffer.front() / 15.0f)); // Divisor sets Y scaling
-        } else {
-            firstSampleY = box.size.y; // If input is not connected, set to bottom of the box
+            firstSampleY = box.size.y * (1.0f - (buffer.front() / 15.0f));
         }
 
-        // Add a line segment from (0, box.size.y) to the first sample
-        points.push_back(Vec(0, box.size.y)); // Start from the origin (bottom left)
-        points.push_back(Vec(0, firstSampleY)); // Line to the first sample's y-coordinate
+        points.push_back(Vec(0, box.size.y));
+        points.push_back(Vec(0, firstSampleY));
 
         for (int i = 0; i < displaySamples; ++i) {
-            // Calculate the index in the buffer considering the range
-            int bufferIndex = int(i * ((buffer.size()-1)*range+1) / (displaySamples - 1));
-
-            float x = (static_cast<float>(i) / (displaySamples - 1)) * box.size.x; // Map to x-coordinate
-            float y; // Initialize y-coordinate
-
-            // Check if the corresponding input is connected
+            int bufferIndex = int(i * ((buffer.size() - 1) * range + 1) / (displaySamples - 1));
+            float x = (static_cast<float>(i) / (displaySamples - 1)) * box.size.x;
+            float y = box.size.y;
             if (module->inputs[Signals::ENV1_INPUT + channelId].isConnected()) {
-                y = box.size.y * (1.0f - (buffer[bufferIndex] / 15.0f)); // Divisor sets Y scaling
-            } else {
-                y = box.size.y; // Set y to 0 (at the bottom of the box) if input is not connected
+                y = box.size.y * (1.0f - (buffer[bufferIndex] / 15.0f));
             }
-
             points.push_back(Vec(x, y));
         }
 
         nvgBeginPath(args.vg);
-        nvgStrokeWidth(args.vg, range + 1.5); 
+        nvgStrokeWidth(args.vg, range + 1.5);
         nvgStrokeColor(args.vg, waveformColor);
 
-        //This codeblock makes the left edge of trigger-synced decay envelopes look solid
         if (module->retriggerEnabled) {
-            // When retriggering is enabled, start from the origin
-            nvgMoveTo(args.vg, 0, box.size.y); // Move to the origin (bottom left corner)
+            nvgMoveTo(args.vg, 0, box.size.y);
         } else {
-            // When retriggering is disabled, start from the first actual data point
-            if (!points.empty()) {
-                nvgMoveTo(args.vg, points[0].x, points[0].y); // Move to the first data point
-            }
+            nvgMoveTo(args.vg, points[0].x, points[0].y);
         }
 
-        // Draw line segments through all points
         for (size_t i = 1; i < points.size(); ++i) {
             nvgLineTo(args.vg, points[i].x, points[i].y);
         }
@@ -257,10 +237,18 @@ struct WaveformDisplay : TransparentWidget {
         nvgStroke(args.vg);
     }
 
+    void drawLayer(const DrawArgs& args, int layer) override {
+        if (layer == 1) {
+            drawWaveform(args);
+        }
+        TransparentWidget::drawLayer(args, layer);
+    }
+
     void draw(const DrawArgs& args) override {
-        drawWaveform(args);
+        //Only drawing in the self-illuminating layer
     }
 };
+
 
 
 struct SignalsWidget : ModuleWidget {

@@ -286,63 +286,74 @@ struct FlowerDisplay : TransparentWidget {
     FlowerPatch* module;
 
     void draw(const DrawArgs& args) override {
+        // Handle any non-illuminating drawing here if necessary
+    }
+
+    void drawLayer(const DrawArgs& args, int layer) override {
         if (!module || !module->inputConnected) return;
-                
-        const float padding = 20.0f;
-        const float totalWidth = box.size.x - 2.0f * padding;
-        const float totalHeight = box.size.y - 2.0f * padding;
-        const float spaceX = totalWidth / 12.0f;
-        const float spaceY = totalHeight / 6.0f;
-        const float twoPi = 2.0f * M_PI;
 
-        module->updatePhaseOffset();
-        
-        for (size_t scale = 0; scale < 6; scale++) {
-            for (size_t note = 0; note < 12; note++) {
-                float centerX = padding + spaceX * note + spaceX / 2.0f;
-                float centerY = padding + spaceY * scale + spaceY / 2.0f;
-                float maxRadius = std::min(spaceX, spaceY) * 0.6f;
-                float freq = Scales[scale][note];
-                int lastSample = static_cast<int>(2 * (module->sampleRate / freq));
-                int flowerIndex = scale * 12 + note;
+        if (layer == 1) {  // Only draw on the self-illuminating layer
+            const float padding = 20.0f;
+            const float totalWidth = box.size.x - 2.0f * padding;
+            const float totalHeight = box.size.y - 2.0f * padding;
+            const float spaceX = totalWidth / 12.0f;
+            const float spaceY = totalHeight / 6.0f;
+            const float twoPi = 2.0f * M_PI;
 
-                nvgBeginPath(args.vg); // Begin the path for the line strip
+            module->updatePhaseOffset();
 
-                for (int i = 0; i < lastSample; i++) {
-                    float sample = module->waveBuffer[(i + module->phaseOffset) % lastSample];
-                    float angle = twoPi * (i / (module->sampleRate / freq));
-                    if (i == lastSample - 1) {
-                        angle = twoPi;  // Ensure the last sample wraps correctly back to the start
-                    }
-                    float radius = maxRadius * (0.5f + 0.5f * sample * (0.5f / fmax(module->maxVal, 0.15f)));
+			for (size_t scale = 0; scale < 6; scale++) {
+				for (size_t note = 0; note < 12; note++) {
+					float centerX = padding + spaceX * note + spaceX / 2.0f;
+					float centerY = padding + spaceY * scale + spaceY / 2.0f;
+					float maxRadius = std::min(spaceX, spaceY) * 0.6f;
+					float freq = Scales[scale][note];
+					int lastSample = static_cast<int>(2 * (module->sampleRate / freq));
+					int flowerIndex = scale * 12 + note;
 
-                    // Calculate FFT intensity based on FFT knob and intensity values
-                    float FFTintensity = (module->FFTknob > 0) ? 
-                        (1.f - module->FFTknob) + module->FFTknob * clamp(module->intensityValues[flowerIndex], 0.f, 1.f) :
-                        (1.f + module->FFTknob) - module->FFTknob * (1 - clamp(module->intensityValues[flowerIndex], 0.f, 1.f));
-    
-                    // Apply FFT intensity to radius
-                    radius *= FFTintensity;
+					nvgBeginPath(args.vg); // Begin the path for the line strip
+					bool isFirstSegment = true;  // Flag to skip drawing the line at the wrapping point
 
-                    radius = std::min(radius, maxRadius);  // Ensuring radius does not exceed maxRadius
-                    float posX = centerX + radius * cos(angle); // Using cosine for X
-                    float posY = centerY + radius * sin(angle); // Using sine for Y
+					for (int i = 0; i < lastSample; i++) {
+						int bufferIndex = (i + module->phaseOffset) % lastSample;
+						float sample = module->waveBuffer[bufferIndex];
+						float angle = twoPi * (i / (module->sampleRate / freq));
+						float radius = maxRadius * (0.5f + 0.5f * sample * (0.5f / fmax(module->maxVal, 0.15f)));
 
-                    if (i == 0) nvgMoveTo(args.vg, posX, posY);
-                    else nvgLineTo(args.vg, posX, posY);
-                }
+						float FFTintensity = (module->FFTknob > 0) ? 
+							(1.f - module->FFTknob) + module->FFTknob * clamp(module->intensityValues[flowerIndex], 0.f, 1.f) :
+							(1.f + module->FFTknob) - module->FFTknob * (1 - clamp(module->intensityValues[flowerIndex], 0.f, 1.f));
+	
+						radius *= FFTintensity;
+						radius = std::min(radius, maxRadius);  // Ensuring radius does not exceed maxRadius
 
-                NVGcolor color = colorFromMagnitude(module, module->intensityValues[flowerIndex]);
-                nvgStrokeColor(args.vg, color);
-                
-                float size = 0.10f * (scale + 3.0f);  // Calculating the size of the square
-               
-                nvgStrokeWidth(args.vg, size);
-                nvgStroke(args.vg); // Draw the line strip
-            }
+						float posX = centerX + radius * cos(angle); // Using cosine for X
+						float posY = centerY + radius * sin(angle); // Using sine for Y
+
+						if (isFirstSegment || bufferIndex != 0) {  // Skip drawing if it's the wrap-around segment
+							if (i == 0) nvgMoveTo(args.vg, posX, posY);
+							else nvgLineTo(args.vg, posX, posY);
+						} else {
+							nvgMoveTo(args.vg, posX, posY);  // Move to position without drawing a line
+						}
+
+						isFirstSegment = false;  // Update flag after the first iteration
+					}
+
+					NVGcolor color = colorFromMagnitude(module, module->intensityValues[flowerIndex]);
+					nvgStrokeColor(args.vg, color);
+					float size = 0.10f * (scale + 3.0f);  // Calculating the size of the square
+					nvgStrokeWidth(args.vg, size);
+					nvgStroke(args.vg); // Draw the line strip
+				}
+			}
         }
+
+        // Call the superclass's method to handle other layers or default behaviors
+        Widget::drawLayer(args, layer);
     }
 };
+
 
 
 struct FlowerPatchWidget : ModuleWidget {

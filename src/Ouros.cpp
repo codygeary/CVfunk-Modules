@@ -439,73 +439,57 @@ struct Ouros : Module {
 struct PolarXYDisplay : TransparentWidget {
     Ouros* module;
     float centerX, centerY;
+    float xScale = 2 * M_PI / 1023; 
+    float radiusScale; 
 
-    Vec previousL = Vec(0.0f, 0.0f);
-    Vec previousR = Vec(0.0f, 0.0f);
-     
+    static constexpr float twoPi = 2.0f * M_PI; // Precomputed constant for 2*pi
+
     void draw(const DrawArgs& args) override {
+        // Draw non-illuminating elements if any
+    }
+
+    void drawLayer(const DrawArgs& args, int layer) override {
         if (!module) return;
 
-        // Coordinates for the circle's center
-        centerX = box.size.x / 2.0f;
-        centerY = box.size.y / 2.0f;
+        if (layer == 1) {
+            centerX = box.size.x / 2.0f;
+            centerY = box.size.y / 2.0f;
+            radiusScale = centerY / 5; // Calculate based on current center Y
 
-        float xScale = 2 * M_PI / 1023; // Scale to fit the circular path
-        float radiusScale = centerY / 5; 
+            drawWaveform(args, module->waveBuffers[0], nvgRGBAf(1, 0.4, 0, 0.8));
+            drawWaveform(args, module->waveBuffers[1], nvgRGBAf(0, 0.4, 1, 0.8));
+        }
 
-        // Draw waveform from waveBuffers[0]
+        TransparentWidget::drawLayer(args, layer);
+    }
+
+    void drawWaveform(const DrawArgs& args, const CircularBuffer<float, 1024>& waveBuffer, NVGcolor color) {
         nvgBeginPath(args.vg);
         for (size_t i = 0; i < 1024; i++) {
-            float theta = i * xScale; // Angle based on index
-            float radius = module->waveBuffers[0][i] * radiusScale + centerY; // Adjust radius based on sample value
+            float theta = i * xScale; // Compute angle based on index
+            float radius = waveBuffer[i] * radiusScale + centerY; // Adjust radius based on sample value
             Vec pos = polarToCartesian(theta, radius);
 
             if (i == 0) nvgMoveTo(args.vg, pos.x, pos.y);
             else nvgLineTo(args.vg, pos.x, pos.y);
         }
-
-        nvgStrokeColor(args.vg, nvgRGBAf(1, .4, 0, 0.8)); // Drawing color for waveform 1
-        nvgStrokeWidth(args.vg, 1.0);
-        nvgStroke(args.vg);
-
-        // Draw waveform from waveBuffers[1]
-        nvgBeginPath(args.vg);
-        for (size_t i = 0; i < 1024; i++) {
-            float theta = i * xScale; // Angle based on index
-            float radius = module->waveBuffers[1][i] * radiusScale + centerY; // Adjust radius based on sample value
-            Vec pos = polarToCartesian(theta, radius);
-
-            if (i == 0) nvgMoveTo(args.vg, pos.x, pos.y);
-            else nvgLineTo(args.vg, pos.x, pos.y);
-        }
-
-        nvgStrokeColor(args.vg, nvgRGBAf(0, .4, 1, 0.8)); // Drawing color for waveform 2
+        nvgStrokeColor(args.vg, color); // Set the color for the waveform
         nvgStrokeWidth(args.vg, 1.0);
         nvgStroke(args.vg);
     }
 
     Vec polarToCartesian(float theta, float radius) {
-	
-		// Wrap theta between -pi and pi
-		theta = fmod(theta + M_PI, twoPi);
-		if (theta < 0) theta += twoPi;
-		theta -= M_PI;
-        
+        // Normalize theta to be between -pi and pi
+        theta = fmod(theta + M_PI, twoPi);
+        if (theta < 0) theta += twoPi;
+        theta -= M_PI;
+
         float x = centerX + radius * cos(theta);
         float y = centerY + radius * sin(theta);
         return Vec(x, y);
     }
-
-    void drawLine(const DrawArgs& args, Vec fromPos, Vec toPos, NVGcolor color) {
-        nvgStrokeColor(args.vg, color);
-        nvgBeginPath(args.vg);
-        nvgMoveTo(args.vg, fromPos.x, fromPos.y);
-        nvgLineTo(args.vg, toPos.x, toPos.y);
-        nvgStrokeWidth(args.vg, 1.5);
-        nvgStroke(args.vg);
-    }
-            
 };
+
 
 struct OurosWidget : ModuleWidget {
     OurosWidget(Ouros* module) {
