@@ -261,7 +261,7 @@ NVGcolor colorFromMagnitude(FlowerPatch* module, float magnitude) {
     // Set configurable transition points
     float adjFillKnob = pow (fabs(fillKnob), 0.001f); //adjusted Fill to compensate for the steep spikes of FFT output
     float lowPoint = clamp(1.0f-adjFillKnob, 0.000000001f, 1.0f); // Avoid div by zero later - Low point for transition
-    float highPoint = clamp(1.0f-adjFillKnob/2, 0.00000001f, 1.0f); // Upper transition point for hue changes
+    float highPoint = clamp(1.0f-adjFillKnob/2.0f, 0.00000001f, 1.0f); // Upper transition point for hue changes
 
     if (fillKnob < -.99f){
         return nvgHSLA(hue2, 1.0f, 0.75f, 255);   
@@ -286,81 +286,64 @@ struct FlowerDisplay : TransparentWidget {
     FlowerPatch* module;
 
     void draw(const DrawArgs& args) override {
-        if (!module) return;
-        if (!(module->inputConnected)) return;
+        if (!module || !module->inputConnected) return;
                 
         const float padding = 20.0f;
-        const float totalWidth = box.size.x - 2 * padding;
-        const float totalHeight = box.size.y - 2 * padding;
-        const float spaceX = totalWidth / 12;
-        const float spaceY = totalHeight / 6;
-        const float twoPi = 2 * M_PI ;
- 
-		module->updatePhaseOffset();	    
-        int phaseOffset = module->phaseOffset; // Use the updated phase offset
+        const float totalWidth = box.size.x - 2.0f * padding;
+        const float totalHeight = box.size.y - 2.0f * padding;
+        const float spaceX = totalWidth / 12.0f;
+        const float spaceY = totalHeight / 6.0f;
+        const float twoPi = 2.0f * M_PI;
 
+        module->updatePhaseOffset();
+        
         for (size_t scale = 0; scale < 6; scale++) {
             for (size_t note = 0; note < 12; note++) {
-                float centerX = padding + spaceX * note + spaceX / 2;
-                float centerY = padding + spaceY * scale + spaceY / 2;
+                float centerX = padding + spaceX * note + spaceX / 2.0f;
+                float centerY = padding + spaceY * scale + spaceY / 2.0f;
                 float maxRadius = std::min(spaceX, spaceY) * 0.6f;
                 float freq = Scales[scale][note];
-                int flowerIndex = (scale*12)+note;
+                int lastSample = static_cast<int>(2 * (module->sampleRate / freq));
+                int flowerIndex = scale * 12 + note;
+
+                nvgBeginPath(args.vg); // Begin the path for the line strip
+
+                for (int i = 0; i < lastSample; i++) {
+                    float sample = module->waveBuffer[(i + module->phaseOffset) % lastSample];
+                    float angle = twoPi * (i / (module->sampleRate / freq));
+                    if (i == lastSample - 1) {
+                        angle = twoPi;  // Ensure the last sample wraps correctly back to the start
+                    }
+                    float radius = maxRadius * (0.5f + 0.5f * sample * (0.5f / fmax(module->maxVal, 0.15f)));
+
+                    // Calculate FFT intensity based on FFT knob and intensity values
+                    float FFTintensity = (module->FFTknob > 0) ? 
+                        (1.f - module->FFTknob) + module->FFTknob * clamp(module->intensityValues[flowerIndex], 0.f, 1.f) :
+                        (1.f + module->FFTknob) - module->FFTknob * (1 - clamp(module->intensityValues[flowerIndex], 0.f, 1.f));
+    
+                    // Apply FFT intensity to radius
+                    radius *= FFTintensity;
+
+                    radius = std::min(radius, maxRadius);  // Ensuring radius does not exceed maxRadius
+                    float posX = centerX + radius * cos(angle); // Using cosine for X
+                    float posY = centerY + radius * sin(angle); // Using sine for Y
+
+                    if (i == 0) nvgMoveTo(args.vg, posX, posY);
+                    else nvgLineTo(args.vg, posX, posY);
+                }
+
+                NVGcolor color = colorFromMagnitude(module, module->intensityValues[flowerIndex]);
+                nvgStrokeColor(args.vg, color);
                 
-                float drawSkip = 0; //for skipping the drawing of some dots to save CPU
-
-                // Draw waveform based on phase
-                size_t lastSample = static_cast<size_t>(2*(module->sampleRate / freq));
-                for (size_t i = 0; i < lastSample; i++) {
-                    float sample = module->waveBuffer[ (i+phaseOffset)%lastSample ];
-                    float angle = twoPi * (i / (module->sampleRate/freq) );
-                    float radius = maxRadius * (0.5f + 0.5f * sample*(0.5f/(fmax(module->maxVal,0.15f))) );
-
-                    float FFTintensity = 0.f;
-                    float FFTknob = module->FFTknob;
-                    if (FFTknob >0){
-                        FFTintensity = (1.f-module->FFTknob) + module->FFTknob * module->intensityValues[flowerIndex];    
-                    } else {
-                        FFTintensity = (1.f+module->FFTknob) - module->FFTknob * (1-module->intensityValues[flowerIndex]);    
-                    }
-                    
-                    float offset = 1.0f;
-                    float flowerVal = module->flowerVal;
-                    if ( flowerVal > 1.5f){
-                        offset += .25f * (flowerVal-1.5f);
-                    }
-
-                    float posX = centerX + offset * radius * sin(angle+M_PI_2) * FFTintensity;
-                    float posY = centerY + offset * radius * sin(angle) * FFTintensity;
-                                       
-                    bool drawDots = false;
-                    NVGcolor color = colorFromMagnitude(module, module->intensityValues[flowerIndex]);
-
-                    // Calculate the threshold for skipping drawing based on the number of samples.
-                    int skipThreshold = lastSample / 512;  
-
-                    // Increment the drawSkip counter.
-                    drawSkip++;
-
-                    // Reset drawSkip and set drawDots to true when it exceeds the threshold.
-                    if (drawSkip > skipThreshold) {
-                        drawSkip = 0;
-                        drawDots = true;
-                    }
-                    
-                    if (drawDots) {  // Don't draw every sample, and 'dots' are now squares
-                        nvgBeginPath(args.vg);
-                        float size = 0.10f * (scale + 3);  // Calculating the size of the square
-                        nvgRect(args.vg, posX - size / 2, posY - size / 2, size, size);  // Draw square centered at posX, posY
-                        nvgFillColor(args.vg, color);
-                        nvgFill(args.vg);
-                    }
-                    
-                }                 
+                float size = 0.10f * (scale + 3.0f);  // Calculating the size of the square
+               
+                nvgStrokeWidth(args.vg, size);
+                nvgStroke(args.vg); // Draw the line strip
             }
         }
-    }   
+    }
 };
+
 
 struct FlowerPatchWidget : ModuleWidget {
     FlowerPatchWidget(FlowerPatch* module) {
