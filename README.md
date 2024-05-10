@@ -43,4 +43,7 @@ A stereo phase injection oscillator with a unique polar display. Generate unique
 ### Pressed Duck
 A stereo 6 channel side-chain ducking mixer with compression, saturation, and feedback distortion.
 
+### Flower Patch
+A 12-tone scale polar visualizer for audio signals using FFT processing.
+
 See the [User's Manual](/img/CV_funk_Manual.pdf) for more information.
