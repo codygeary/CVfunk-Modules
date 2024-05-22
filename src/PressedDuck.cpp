@@ -332,10 +332,14 @@ struct PressedDuck : Module {
                 inputR[i] = inputL[i];
             } 
 
-            bool inputActive = false; 
-            if ( isConnectedR || isConnectedL ) {
+            bool inputActive = isConnectedL || isConnectedR;
+            if (inputActive) {
                 inputCount += 1.0f;
-                inputActive = true;
+            } else {
+                // Reset envelopes if inputs are not connected
+                filteredEnvelopeL[i] = 0.0f;
+                filteredEnvelopeR[i] = 0.0f;
+                filteredEnvelope[i] = 0.0f;
             }
 
             // Mute logic
@@ -438,19 +442,19 @@ struct PressedDuck : Module {
 
         // Side processing and envelope calculation
 
-		// Initially check connection and set initial input values
-		bool isSideConnectedL = inputs[SIDECHAIN_INPUT_L].isConnected();
-		bool isSideConnectedR = inputs[SIDECHAIN_INPUT_R].isConnected();
-		float sideL = isSideConnectedL ? inputs[SIDECHAIN_INPUT_L].getVoltage() : 0.0f;
-		float sideR = isSideConnectedR ? inputs[SIDECHAIN_INPUT_R].getVoltage() : 0.0f;
+        // Initially check connection and set initial input values
+        bool isSideConnectedL = inputs[SIDECHAIN_INPUT_L].isConnected();
+        bool isSideConnectedR = inputs[SIDECHAIN_INPUT_R].isConnected();
+        float sideL = isSideConnectedL ? inputs[SIDECHAIN_INPUT_L].getVoltage() : 0.0f;
+        float sideR = isSideConnectedR ? inputs[SIDECHAIN_INPUT_R].getVoltage() : 0.0f;
 
-		// Handle mono to stereo routing
-		if (!isSideConnectedL && isSideConnectedR) {
-			sideL = sideR;
-		}
-		if (!isSideConnectedR && isSideConnectedL) {
-			sideR = sideL;
-		} 
+        // Handle mono to stereo routing
+        if (!isSideConnectedL && isSideConnectedR) {
+            sideL = sideR;
+        }
+        if (!isSideConnectedR && isSideConnectedL) {
+            sideR = sideL;
+        } 
         processSide(sideL, sideR, decayRate, mixL, mixR);
 
         float feedbackSetting = params[FEEDBACK_PARAM].getValue();
@@ -559,8 +563,10 @@ struct PressedDuck : Module {
     void processSide(float &sideL, float &sideR, float decayRate, float &mixL, float &mixR) {
         // Apply VCA control if connected
         if (inputs[VCA_SIDECHAIN_INPUT].isConnected()) {
-            sideL *= clamp(inputs[VCA_SIDECHAIN_INPUT].getVoltage() / 10.f, 0.f, 2.f);
-            sideR *= clamp(inputs[VCA_SIDECHAIN_INPUT].getVoltage() / 10.f, 0.f, 2.f);
+            float vcaVoltage = inputs[VCA_SIDECHAIN_INPUT].getVoltage() / 10.f;
+            float vcaLevel = clamp(vcaVoltage, 0.f, 2.f);
+            sideL *= vcaLevel;
+            sideR *= vcaLevel;
         }
 
         // Apply volume control from the parameters
@@ -568,17 +574,17 @@ struct PressedDuck : Module {
         sideL *= sideVol;
         sideR *= sideVol;
 
+        // Handle muting with fade transition
         if (params[MUTESIDE_PARAM].getValue() > 0.5f) {
-                if (!muteLatch[6]) {
-                    muteLatch[6] = true;
-                    muteState[6] = !muteState[6];
-                    transitionCount[6] = transitionSamples;  // Reset the transition count
-                }
-            } else {
-                muteLatch[6] = false;
+            if (!muteLatch[6]) {
+                muteLatch[6] = true;
+                muteState[6] = !muteState[6];
+                transitionCount[6] = transitionSamples;  // Reset the transition count
+            }
+        } else {
+            muteLatch[6] = false;
         }
 
-        // Compute mute fade transition
         if (transitionCount[6] > 0) {
             float fadeStep = (muteState[6] ? -1.0f : 1.0f) / transitionSamples;
             fadeLevel[6] += fadeStep;
@@ -594,29 +600,43 @@ struct PressedDuck : Module {
         sideL *= fadeLevel[6];
         sideR *= fadeLevel[6];
 
-        // Calculate the envelope for the side signals
-        sidePeakL = fmax(sidePeakL * decayRate, fabs(sideL));
-        sidePeakR = fmax(sidePeakR * decayRate, fabs(sideR));
-        filteredSideEnvelopeL = alpha * sidePeakL + (1 - alpha) * filteredSideEnvelopeL;
-        filteredSideEnvelopeR = alpha * sidePeakR + (1 - alpha) * filteredSideEnvelopeR;
+        // Check sidechain connection
+        bool isSideConnectedL = inputs[SIDECHAIN_INPUT_L].isConnected();
+        bool isSideConnectedR = inputs[SIDECHAIN_INPUT_R].isConnected();
 
-        // Apply the envelope to the side signals
-        sideL *= filteredSideEnvelopeL;
-        sideR *= filteredSideEnvelopeR;
+        if (!isSideConnectedL && !isSideConnectedR) {
+            // Reset envelope if sidechain inputs are not connected
+            sidePeakL = 0.0f;
+            sidePeakR = 0.0f;
+            filteredSideEnvelopeL = 0.0f;
+            filteredSideEnvelopeR = 0.0f;
+            sideEnvelope = 0.0f;
+        } else {
+            // Calculate the envelope for the side signals
+            sidePeakL = fmax(sidePeakL * decayRate, fabs(sideL));
+            sidePeakR = fmax(sidePeakR * decayRate, fabs(sideR));
+            filteredSideEnvelopeL = alpha * sidePeakL + (1 - alpha) * filteredSideEnvelopeL;
+            filteredSideEnvelopeR = alpha * sidePeakR + (1 - alpha) * filteredSideEnvelopeR;
 
-        // Calculate ducking based on the side envelope
-        float duckAmount = params[DUCK_PARAM].getValue();
-        if (inputs[DUCK_CV].isConnected()) {
-            duckAmount += clamp(inputs[DUCK_CV].getVoltage() / 5.0f, 0.f, 1.f) * params[DUCK_ATT].getValue();
+            // Apply the envelope to the side signals
+            sideL *= filteredSideEnvelopeL;
+            sideR *= filteredSideEnvelopeR;
+
+            // Calculate ducking based on the side envelope
+            float duckAmount = params[DUCK_PARAM].getValue();
+            if (inputs[DUCK_CV].isConnected()) {
+                duckAmount += clamp(inputs[DUCK_CV].getVoltage() / 5.0f, 0.f, 1.f) * params[DUCK_ATT].getValue();
+            }
+            float duckingFactorL = fmax(0.0f, 1.f - duckAmount * (filteredSideEnvelopeL / 5.0f));
+            float duckingFactorR = fmax(0.0f, 1.f - duckAmount * (filteredSideEnvelopeR / 5.0f));
+            sideEnvelope = (filteredSideEnvelopeL + filteredSideEnvelopeR) / 2.0f;
+
+            // Apply ducking to the main mix and add the processed side signals
+            mixL = (mixL * duckingFactorL) + sideL;
+            mixR = (mixR * duckingFactorR) + sideR;
         }
-        float duckingFactorL = fmax(0.0f, 1.f - duckAmount * (filteredSideEnvelopeL / 5.0f));
-        float duckingFactorR = fmax(0.0f, 1.f - duckAmount * (filteredSideEnvelopeR / 5.0f));
-        sideEnvelope = (filteredSideEnvelopeL+filteredSideEnvelopeR)/2.0f;
-
-        // Apply ducking to the main mix and add the processed side signals
-        mixL = (mixL * duckingFactorL) + sideL;
-        mixR = (mixR * duckingFactorR) + sideR;
-    }    
+    }
+   
 
     void updateLights() {
         if (++cycleCount >= 2000) {

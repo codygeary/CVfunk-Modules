@@ -23,7 +23,7 @@ private:
 public:
     CircularBuffer() {
         // Initialize buffer to zero
-		for (size_t i = 0; i < Size; ++i) buffer[i] = T{};
+        for (size_t i = 0; i < Size; ++i) buffer[i] = T{};
     }
 
     void push(T value) {
@@ -48,9 +48,9 @@ static const float twoPi = 2.0f * M_PI;
 
 struct Ouros : Module {
 
-	static inline float linearInterpolation(float a, float b, float fraction) {
-		return a + fraction * (b - a);
-	}
+    static inline float linearInterpolation(float a, float b, float fraction) {
+        return a + fraction * (b - a);
+    }
 
     enum ParamIds {
         RATE_KNOB,
@@ -361,14 +361,14 @@ struct Ouros : Module {
             
             targetPhase += place[i];
         
-			if (i == 2) {
-				targetPhase = place[i];
-			}
+            if (i == 2) {
+                targetPhase = place[i];
+            }
 
-			targetPhase = fmod(targetPhase, 1.0f);
+            targetPhase = fmod(targetPhase, 1.0f);
 
-			float phaseDiff = targetPhase - oscPhase[i];
-			phaseDiff -= roundf(phaseDiff);  // Ensures phaseDiff is in the range -0.5 to 0.5
+            float phaseDiff = targetPhase - oscPhase[i];
+            phaseDiff -= roundf(phaseDiff);  // Ensures phaseDiff is in the range -0.5 to 0.5
 
             //Phase returns to the correct spot, rate determined by PhaseGate
             oscPhase[i] += phaseDiff*( 0.05f )  ;

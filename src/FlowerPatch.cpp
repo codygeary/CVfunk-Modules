@@ -1,3 +1,15 @@
+////////////////////////////////////////////////////////////
+//
+//   Flower Patch
+//
+//   written by Cody Geary
+//   Copyright 2024, MIT License
+//
+//   12-tone scale waveform visualizer with FFT 
+//
+////////////////////////////////////////////////////////////
+
+
 #include "rack.hpp"
 #include "plugin.hpp"
 #include "dsp/digital.hpp"
@@ -19,14 +31,14 @@ std::array<std::array<float, 12>, 6> Scales = {{
     {{2093.0f, 2217.46f, 2349.32f, 2489.02f, 2637.02f, 2793.83f, 2959.96f, 3135.96f, 3322.44f, 3520.0f, 3729.31f, 3951.07f}}
 }};
 
-std::array<std::array<std::string, 12>, 6> Names = {{
-    {"C2", "C#2/Db2", "D2", "D#2/Eb2", "E2", "F2", "F#2/Gb2", "G2", "G#2/Ab2", "A2", "A#2/Bb2", "B2"},
-    {"C3", "C#3/Db3", "D3", "D#3/Eb3", "E3", "F3", "F#3/Gb3", "G3", "G#3/Ab3", "A3", "A#3/Bb3", "B3"},
-    {"C4", "C#4/Db4", "D4", "D#4/Eb4", "E4", "F4", "F#4/Gb4", "G4", "G#4/Ab4", "A4", "A#4/Bb4", "B4"},
-    {"C5", "C#5/Db5", "D5", "D#5/Eb5", "E5", "F5", "F#5/Gb5", "G5", "G#5/Ab5", "A5", "A#5/Bb5", "B5"},
-    {"C6", "C#6/Db6", "D6", "D#6/Eb6", "E6", "F6", "F#6/Gb6", "G6", "G#6/Ab6", "A6", "A#6/Bb6", "B6"},
-    {"C7", "C#7/Db7", "D7", "D#7/Eb7", "E7", "F7", "F#7/Gb7", "G7", "G#7/Ab7", "A7", "A#7/Bb7", "B7"}
-}};
+// std::array<std::array<std::string, 12>, 6> Names = {{
+//     {"C2", "C#2/Db2", "D2", "D#2/Eb2", "E2", "F2", "F#2/Gb2", "G2", "G#2/Ab2", "A2", "A#2/Bb2", "B2"},
+//     {"C3", "C#3/Db3", "D3", "D#3/Eb3", "E3", "F3", "F#3/Gb3", "G3", "G#3/Ab3", "A3", "A#3/Bb3", "B3"},
+//     {"C4", "C#4/Db4", "D4", "D#4/Eb4", "E4", "F4", "F#4/Gb4", "G4", "G#4/Ab4", "A4", "A#4/Bb4", "B4"},
+//     {"C5", "C#5/Db5", "D5", "D#5/Eb5", "E5", "F5", "F#5/Gb5", "G5", "G#5/Ab5", "A5", "A#5/Bb5", "B5"},
+//     {"C6", "C#6/Db6", "D6", "D#6/Eb6", "E6", "F6", "F#6/Gb6", "G6", "G#6/Ab6", "A6", "A#6/Bb6", "B6"},
+//     {"C7", "C#7/Db7", "D7", "D#7/Eb7", "E7", "F7", "F#7/Gb7", "G7", "G#7/Ab7", "A7", "A#7/Bb7", "B7"}
+// }};
 
 #include <cstddef> // for std::size_t
 bool isAligned(void* ptr, std::size_t alignment) {
@@ -213,7 +225,6 @@ struct FlowerPatch : Module {
     }
     
     void updatePhaseOffset() {
-        int maxIndex = 0;
         maxVal = 0;
         zeroCrossIndex = -1;  //-1 indicates not found
 
@@ -302,51 +313,51 @@ struct FlowerDisplay : TransparentWidget {
 
             module->updatePhaseOffset();
 
-			for (size_t scale = 0; scale < 6; scale++) {
-				for (size_t note = 0; note < 12; note++) {
-					float centerX = padding + spaceX * note + spaceX / 2.0f;
-					float centerY = padding + spaceY * scale + spaceY / 2.0f;
-					float maxRadius = std::min(spaceX, spaceY) * 0.6f;
-					float freq = Scales[scale][note];
-					int lastSample = static_cast<int>(2 * (module->sampleRate / freq));
-					int flowerIndex = scale * 12 + note;
+            for (size_t scale = 0; scale < 6; scale++) {
+                for (size_t note = 0; note < 12; note++) {
+                    float centerX = padding + spaceX * note + spaceX / 2.0f;
+                    float centerY = padding + spaceY * scale + spaceY / 2.0f;
+                    float maxRadius = std::min(spaceX, spaceY) * 0.6f;
+                    float freq = Scales[scale][note];
+                    int lastSample = static_cast<int>(2 * (module->sampleRate / freq));
+                    int flowerIndex = scale * 12 + note;
 
-					nvgBeginPath(args.vg); // Begin the path for the line strip
-					bool isFirstSegment = true;  // Flag to skip drawing the line at the wrapping point
+                    nvgBeginPath(args.vg); // Begin the path for the line strip
+                    bool isFirstSegment = true;  // Flag to skip drawing the line at the wrapping point
 
-					for (int i = 0; i < lastSample; i++) {
-						int bufferIndex = (i + module->phaseOffset) % lastSample;
-						float sample = module->waveBuffer[bufferIndex];
-						float angle = twoPi * (i / (module->sampleRate / freq));
-						float radius = maxRadius * (0.5f + 0.5f * sample * (0.5f / fmax(module->maxVal, 0.15f)));
+                    for (int i = 0; i < lastSample; i++) {
+                        int bufferIndex = (i + module->phaseOffset) % lastSample;
+                        float sample = module->waveBuffer[bufferIndex];
+                        float angle = twoPi * (i / (module->sampleRate / freq));
+                        float radius = maxRadius * (0.5f + 0.5f * sample * (0.5f / fmax(module->maxVal, 0.15f)));
 
-						float FFTintensity = (module->FFTknob > 0) ? 
-							(1.f - module->FFTknob) + module->FFTknob * clamp(module->intensityValues[flowerIndex], 0.f, 1.f) :
-							(1.f + module->FFTknob) - module->FFTknob * (1 - clamp(module->intensityValues[flowerIndex], 0.f, 1.f));
-	
-						radius *= FFTintensity;
-						radius = std::min(radius, maxRadius);  // Ensuring radius does not exceed maxRadius
+                        float FFTintensity = (module->FFTknob > 0) ? 
+                            (1.f - module->FFTknob) + module->FFTknob * clamp(module->intensityValues[flowerIndex], 0.f, 1.f) :
+                            (1.f + module->FFTknob) - module->FFTknob * (1 - clamp(module->intensityValues[flowerIndex], 0.f, 1.f));
+    
+                        radius *= FFTintensity;
+                        radius = std::min(radius, maxRadius);  // Ensuring radius does not exceed maxRadius
 
-						float posX = centerX + radius * cos(angle); // Using cosine for X
-						float posY = centerY + radius * sin(angle); // Using sine for Y
+                        float posX = centerX + radius * cos(angle); // Using cosine for X
+                        float posY = centerY + radius * sin(angle); // Using sine for Y
 
-						if (isFirstSegment || bufferIndex != 0) {  // Skip drawing if it's the wrap-around segment
-							if (i == 0) nvgMoveTo(args.vg, posX, posY);
-							else nvgLineTo(args.vg, posX, posY);
-						} else {
-							nvgMoveTo(args.vg, posX, posY);  // Move to position without drawing a line
-						}
+                        if (isFirstSegment || bufferIndex != 0) {  // Skip drawing if it's the wrap-around segment
+                            if (i == 0) nvgMoveTo(args.vg, posX, posY);
+                            else nvgLineTo(args.vg, posX, posY);
+                        } else {
+                            nvgMoveTo(args.vg, posX, posY);  // Move to position without drawing a line
+                        }
 
-						isFirstSegment = false;  // Update flag after the first iteration
-					}
+                        isFirstSegment = false;  // Update flag after the first iteration
+                    }
 
-					NVGcolor color = colorFromMagnitude(module, module->intensityValues[flowerIndex]);
-					nvgStrokeColor(args.vg, color);
-					float size = 0.10f * (scale + 3.0f);  // Calculating the size of the square
-					nvgStrokeWidth(args.vg, size);
-					nvgStroke(args.vg); // Draw the line strip
-				}
-			}
+                    NVGcolor color = colorFromMagnitude(module, module->intensityValues[flowerIndex]);
+                    nvgStrokeColor(args.vg, color);
+                    float size = 0.10f * (scale + 3.0f);  // Calculating the size of the square
+                    nvgStrokeWidth(args.vg, size);
+                    nvgStroke(args.vg); // Draw the line strip
+                }
+            }
         }
 
         // Call the superclass's method to handle other layers or default behaviors
