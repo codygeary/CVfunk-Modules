@@ -72,7 +72,6 @@ jobs:
 
   build-mac:
     name: mac
-    needs: modify-plugin-version
     runs-on: macos-latest
     strategy:
       fail-fast: false
@@ -91,6 +90,7 @@ jobs:
         run: |
           pushd $HOME
           wget -O Rack-SDK.zip https://vcvrack.com/downloads/Rack-SDK-${{ env.rack-sdk-version }}-mac-x64%2barm64.zip
+          unzip Rack-SDK.zip
       - name: Build plugin
         run: |
           CROSS_COMPILE_TARGET_x64=x86_64-apple-darwin
