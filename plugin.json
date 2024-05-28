@@ -131,6 +131,15 @@
         "Random",
         "Low-frequency oscillator"
       ]
+    },
+	{
+      "slug": "Syncro",
+      "name": "Syncro",
+      "description": "Eight channel clock ratio generator.",
+      "tags": [
+        "Clock",
+        "Clock Modulator"
+      ]
     }
   ]
 }

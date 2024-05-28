@@ -21,3 +21,4 @@ extern Model* modelMagnets;
 extern Model* modelOuros;
 extern Model* modelPressedDuck;
 extern Model* modelFlowerPatch;
+extern Model* modelSyncro;
