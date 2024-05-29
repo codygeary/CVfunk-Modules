@@ -175,10 +175,10 @@ struct Syncro : Module {
         float rotate = params[ROTATE_KNOB].getValue() + (inputs[ROTATE_INPUT].isConnected() ? 0.2f * inputs[ROTATE_INPUT].getVoltage() * params[ROTATE_ATT].getValue() : 0.0f);
         int clockRotate = static_cast<int>(round(fmod(-8.0f * rotate, 8.0f)));
  
-		if (SyncInterval <= 0) {
-			SyncInterval = 1.0; // Default to a non-zero value to avoid division by zero
-		}
-		bpm = 60.f / SyncInterval; 
+        if (SyncInterval <= 0) {
+            SyncInterval = 1.0; // Default to a non-zero value to avoid division by zero
+        }
+        bpm = 60.f / SyncInterval; 
 
         float deltaTime = args.sampleTime;
         float actualTime = deltaTime;
@@ -232,7 +232,7 @@ struct Syncro : Module {
                 SyncTimer.reset(); // Reset the timer for the next trigger interval measurement
                 firstClockPulse = false;
             }
-			bpm = (SyncInterval > 0) ? (60.f / SyncInterval) : 120.f; // Use default 120 BPM if SyncInterval is zero
+            bpm = (SyncInterval > 0) ? (60.f / SyncInterval) : 120.f; // Use default 120 BPM if SyncInterval is zero
 
         } else {
             // Calculate phase increment
@@ -272,7 +272,7 @@ struct Syncro : Module {
 
                 if (i < 1) {  // Master clock reset point
                     masterClockCycle++;
-					// Rotate phases
+                    // Rotate phases
                     for (int k = 1; k < 9; k++) {
                         int newIndex = (k + clockRotate) % 8;
                         if (newIndex < 0) {
@@ -301,10 +301,10 @@ struct Syncro : Module {
 
                             multiply[j] = round(params[MULTIPLY_KNOB_1 + index].getValue()) + (fill[j-1] ? fillGlobal : 0);
                             divide[j] = round(params[DIVIDE_KNOB_1 + index].getValue());
-							if (divide[j] <= 0) {
-								divide[j] = 1.0f; // Now safe to use divide[j] for divisions
-							}
-							ratio[j] = multiply[j] / divide[j]; 
+                            if (divide[j] <= 0) {
+                                divide[j] = 1.0f; // Now safe to use divide[j] for divisions
+                            }
+                            ratio[j] = multiply[j] / divide[j]; 
 
                             if (fill[j] || ratio[j] != multiply[j] / divide[j]) {
                                 resyncFlag[j] = true;
@@ -313,12 +313,12 @@ struct Syncro : Module {
                     }
                 }
 
-				// Apply swing as a global adjustment to the phase increment
-				if (bpm <= 0) bpm = 1.0f;  // Ensure bpm is positive and non-zero
-				if (ratio[i] <= 0) ratio[i] = 1.0f;  // Ensure ratio is positive and non-zero
+                // Apply swing as a global adjustment to the phase increment
+                if (bpm <= 0) bpm = 1.0f;  // Ensure bpm is positive and non-zero
+                if (ratio[i] <= 0) ratio[i] = 1.0f;  // Ensure ratio is positive and non-zero
 
-				float phaseDenominator = 60.0f / (bpm * ratio[i]);
-				phases[i] = ClockTimer[i].time / phaseDenominator;  
+                float phaseDenominator = 60.0f / (bpm * ratio[i]);
+                phases[i] = ClockTimer[i].time / phaseDenominator;  
 
                 // Determine the output state based on pulse width
                 bool highState = phases[i] < width;
@@ -336,9 +336,9 @@ struct Syncro : Module {
                 }
             }
 
-			if (deltaTime <= 0) {
-				deltaTime = 1.0f / 48000.0f;  // Assume a default sample rate if deltaTime is zero to avoid division by zero
-			}
+            if (deltaTime <= 0) {
+                deltaTime = 1.0f / 48000.0f;  // Assume a default sample rate if deltaTime is zero to avoid division by zero
+            }
 
             displayUpdateCounter++;
             if (displayUpdateCounter >= (1.0f / deltaTime / 30.0f)) { // Update 30 times per second
@@ -392,34 +392,34 @@ struct Syncro : Module {
         }
     }
 
-	int gcd(int a, int b) {
-		while (b != 0) {
-			int t = b;
-			b = a % b;
-			a = t;
-		}
-		return a; 
-	}
+    int gcd(int a, int b) {
+        while (b != 0) {
+            int t = b;
+            b = a % b;
+            a = t;
+        }
+        return a; 
+    }
 
-	int lcm(int a, int b) {
-		if (a == 0 || b == 0) {
-			return 0; 
-		}
-		int gcd_value = gcd(a, b);
-		return (gcd_value != 0) ? (a / gcd_value) * b : 0;
-	}
+    int lcm(int a, int b) {
+        if (a == 0 || b == 0) {
+            return 0; 
+        }
+        int gcd_value = gcd(a, b);
+        return (gcd_value != 0) ? (a / gcd_value) * b : 0;
+    }
 
-	void simplifyRatio(int& numerator, int& denominator) {
-		if (denominator == 0) {
-			numerator = 0; 
-			return;
-		}
-		int g = gcd(numerator, denominator);
-		if (g != 0) { 
-			numerator /= g;
-			denominator /= g;
-		}
-	}
+    void simplifyRatio(int& numerator, int& denominator) {
+        if (denominator == 0) {
+            numerator = 0; 
+            return;
+        }
+        int g = gcd(numerator, denominator);
+        if (g != 0) { 
+            numerator /= g;
+            denominator /= g;
+        }
+    }
             
 };
 
