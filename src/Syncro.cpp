@@ -347,9 +347,8 @@ struct Syncro : Module {
             }
 
             if (swingDisplay) {
-                float swingValue = params[SWING_KNOB].getValue();
                 std::stringstream swingStream;
-                swingStream << std::fixed << std::setprecision(1) << swingValue << "%";
+                swingStream << std::fixed << std::setprecision(1) << swing << "%";
                 swingDisplay->text = swingStream.str();
             }
 
