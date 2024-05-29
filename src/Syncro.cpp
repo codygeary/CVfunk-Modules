@@ -110,23 +110,23 @@ struct Syncro : Module {
         configParam(CLOCK_ATT, -1.f, 1.f, 0.0f, "Clock Attenuvertor");
         configParam(SWING_KNOB, -99.0f, 99.0f, 0.0f, "Swing", " %");
         configParam(SWING_ATT, -1.f, 1.f, 0.0f, "Swing Attenuvertor");
-        configParam(MULTIPLY_KNOB_1, 1.0f, 128.0f, 1.0f, "Multiply 1");
-        configParam(MULTIPLY_KNOB_2, 1.0f, 128.0f, 1.0f, "Multiply 2");
-        configParam(MULTIPLY_KNOB_3, 1.0f, 128.0f, 1.0f, "Multiply 3");
-        configParam(MULTIPLY_KNOB_4, 1.0f, 128.0f, 1.0f, "Multiply 4");
-        configParam(MULTIPLY_KNOB_5, 1.0f, 128.0f, 1.0f, "Multiply 5");
-        configParam(MULTIPLY_KNOB_6, 1.0f, 128.0f, 1.0f, "Multiply 6");
-        configParam(MULTIPLY_KNOB_7, 1.0f, 128.0f, 1.0f, "Multiply 7");
-        configParam(MULTIPLY_KNOB_8, 1.0f, 128.0f, 1.0f, "Multiply 8");
-        configParam(DIVIDE_KNOB_1, 1.0f, 128.0f, 1.0f, "Divide 1");
-        configParam(DIVIDE_KNOB_2, 1.0f, 128.0f, 1.0f, "Divide 2");
-        configParam(DIVIDE_KNOB_3, 1.0f, 128.0f, 1.0f, "Divide 3");
-        configParam(DIVIDE_KNOB_4, 1.0f, 128.0f, 1.0f, "Divide 4");
-        configParam(DIVIDE_KNOB_5, 1.0f, 128.0f, 1.0f, "Divide 5");
-        configParam(DIVIDE_KNOB_6, 1.0f, 128.0f, 1.0f, "Divide 6");
-        configParam(DIVIDE_KNOB_7, 1.0f, 128.0f, 1.0f, "Divide 7");
-        configParam(DIVIDE_KNOB_8, 1.0f, 128.0f, 1.0f, "Divide 8");
-        configParam(FILL_KNOB, 0.0f, 8.0f, 0.0f, "Fill");
+        configParam(MULTIPLY_KNOB_1, 1.0f, 256.0f, 1.0f, "Multiply 1");
+        configParam(MULTIPLY_KNOB_2, 1.0f, 256.0f, 1.0f, "Multiply 2");
+        configParam(MULTIPLY_KNOB_3, 1.0f, 256.0f, 1.0f, "Multiply 3");
+        configParam(MULTIPLY_KNOB_4, 1.0f, 256.0f, 1.0f, "Multiply 4");
+        configParam(MULTIPLY_KNOB_5, 1.0f, 256.0f, 1.0f, "Multiply 5");
+        configParam(MULTIPLY_KNOB_6, 1.0f, 256.0f, 1.0f, "Multiply 6");
+        configParam(MULTIPLY_KNOB_7, 1.0f, 256.0f, 1.0f, "Multiply 7");
+        configParam(MULTIPLY_KNOB_8, 1.0f, 256.0f, 1.0f, "Multiply 8");
+        configParam(DIVIDE_KNOB_1, 1.0f, 256.0f, 1.0f, "Divide 1");
+        configParam(DIVIDE_KNOB_2, 1.0f, 256.0f, 2.0f, "Divide 2");
+        configParam(DIVIDE_KNOB_3, 1.0f, 256.0f, 4.0f, "Divide 3");
+        configParam(DIVIDE_KNOB_4, 1.0f, 256.0f, 8.0f, "Divide 4");
+        configParam(DIVIDE_KNOB_5, 1.0f, 256.0f, 16.0f, "Divide 5");
+        configParam(DIVIDE_KNOB_6, 1.0f, 256.0f, 32.0f, "Divide 6");
+        configParam(DIVIDE_KNOB_7, 1.0f, 256.0f, 64.0f, "Divide 7");
+        configParam(DIVIDE_KNOB_8, 1.0f, 256.0f, 128.0f, "Divide 8");
+        configParam(FILL_KNOB, 0.0f, 8.0f, 3.0f, "Fill");
         configParam(FILL_ATT, -1.0f, 1.0f, 0.0f, "Fill Attenuvertor");
         configParam(WIDTH_KNOB, 0.0f, 1.0f, 0.5f, "Gate Width");
         configParam(WIDTH_ATT, -1.0f, 1.0f, 0.0f, "Gate Width Attenuvertor");
@@ -174,6 +174,11 @@ struct Syncro : Module {
         width = clamp(width, 0.01f, 0.99f);
         float rotate = params[ROTATE_KNOB].getValue() + (inputs[ROTATE_INPUT].isConnected() ? 0.2f * inputs[ROTATE_INPUT].getVoltage() * params[ROTATE_ATT].getValue() : 0.0f);
         int clockRotate = static_cast<int>(round(fmod(-8.0f * rotate, 8.0f)));
+ 
+		if (SyncInterval <= 0) {
+			SyncInterval = 1.0; // Default to a non-zero value to avoid division by zero
+		}
+		bpm = 60.f / SyncInterval; 
 
         float deltaTime = args.sampleTime;
         float actualTime = deltaTime;
@@ -227,11 +232,8 @@ struct Syncro : Module {
                 SyncTimer.reset(); // Reset the timer for the next trigger interval measurement
                 firstClockPulse = false;
             }
-            if (SyncInterval > 0) {
-                bpm = 60.f / SyncInterval;
-            } else {
-                bpm = 120.f;  // div by zero protection, default to 120bpm
-            }
+			bpm = (SyncInterval > 0) ? (60.f / SyncInterval) : 120.f; // Use default 120 BPM if SyncInterval is zero
+
         } else {
             // Calculate phase increment
             bpm = params[CLOCK_KNOB].getValue() + (inputs[CLOCK_INPUT].isConnected() ? 10.f * inputs[CLOCK_INPUT].getVoltage() * params[CLOCK_ATT].getValue() : 0.0f);
@@ -270,7 +272,7 @@ struct Syncro : Module {
 
                 if (i < 1) {  // Master clock reset point
                     masterClockCycle++;
-                        // Rotate the phases without resetting the individual clock timers
+					// Rotate phases
                     for (int k = 1; k < 9; k++) {
                         int newIndex = (k + clockRotate) % 8;
                         if (newIndex < 0) {
@@ -299,7 +301,10 @@ struct Syncro : Module {
 
                             multiply[j] = round(params[MULTIPLY_KNOB_1 + index].getValue()) + (fill[j-1] ? fillGlobal : 0);
                             divide[j] = round(params[DIVIDE_KNOB_1 + index].getValue());
-                            ratio[j] = (divide[j] != 0) ? (multiply[j] / divide[j]) : 1.0f;
+							if (divide[j] <= 0) {
+								divide[j] = 1.0f; // Now safe to use divide[j] for divisions
+							}
+							ratio[j] = multiply[j] / divide[j]; 
 
                             if (fill[j] || ratio[j] != multiply[j] / divide[j]) {
                                 resyncFlag[j] = true;
@@ -308,9 +313,12 @@ struct Syncro : Module {
                     }
                 }
 
-                // Apply swing as a global adjustment to the phase increment
-                float phaseDenominator = 60.0f / (bpm * ratio[i]);
-                phases[i] = (phaseDenominator != 0) ? (ClockTimer[i].time / phaseDenominator) : 0.0f;
+				// Apply swing as a global adjustment to the phase increment
+				if (bpm <= 0) bpm = 1.0f;  // Ensure bpm is positive and non-zero
+				if (ratio[i] <= 0) ratio[i] = 1.0f;  // Ensure ratio is positive and non-zero
+
+				float phaseDenominator = 60.0f / (bpm * ratio[i]);
+				phases[i] = ClockTimer[i].time / phaseDenominator;  
 
                 // Determine the output state based on pulse width
                 bool highState = phases[i] < width;
@@ -327,6 +335,10 @@ struct Syncro : Module {
                     lights[CLOCK_LIGHT + 2 * i + 1].setBrightness(0.0f);
                 }
             }
+
+			if (deltaTime <= 0) {
+				deltaTime = 1.0f / 48000.0f;  // Assume a default sample rate if deltaTime is zero to avoid division by zero
+			}
 
             displayUpdateCounter++;
             if (displayUpdateCounter >= (1.0f / deltaTime / 30.0f)) { // Update 30 times per second
@@ -380,24 +392,34 @@ struct Syncro : Module {
         }
     }
 
-    int gcd(int a, int b) {
-        while (b != 0) {
-            int t = b;
-            b = a % b;
-            a = t;
-        }
-        return a;
-    }
+	int gcd(int a, int b) {
+		while (b != 0) {
+			int t = b;
+			b = a % b;
+			a = t;
+		}
+		return a; 
+	}
 
-    int lcm(int a, int b) {
-        return a * (b / gcd(a, b));
-    }
+	int lcm(int a, int b) {
+		if (a == 0 || b == 0) {
+			return 0; 
+		}
+		int gcd_value = gcd(a, b);
+		return (gcd_value != 0) ? (a / gcd_value) * b : 0;
+	}
 
-    void simplifyRatio(int& numerator, int& denominator) {
-        int g = gcd(numerator, denominator);
-        numerator /= g;
-        denominator /= g;
-    }
+	void simplifyRatio(int& numerator, int& denominator) {
+		if (denominator == 0) {
+			numerator = 0; 
+			return;
+		}
+		int g = gcd(numerator, denominator);
+		if (g != 0) { 
+			numerator /= g;
+			denominator /= g;
+		}
+	}
             
 };
 
