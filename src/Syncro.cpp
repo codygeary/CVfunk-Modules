@@ -74,10 +74,8 @@ struct Syncro : Module {
     DigitalDisplay* bpmDisplay = nullptr;
     DigitalDisplay* swingDisplay = nullptr;
     DigitalDisplay* ratioDisplays[8] = {nullptr};
-
     Light fillLights[8];
     Light gateStateLights[18];
-
     dsp::Timer SyncTimer;
     dsp::Timer SwingTimer;
     float SwingPhase = 0.0f;
@@ -86,7 +84,6 @@ struct Syncro : Module {
     dsp::SchmittTrigger resetTrigger;
     dsp::SchmittTrigger onOffTrigger;
     dsp::SchmittTrigger onOffButtonTrigger;
-    
     bool sequenceRunning = true;
     float lastClockTime = -1.0f;
     float warpedTime = 1.0f;
@@ -110,25 +107,6 @@ struct Syncro : Module {
 
     Syncro() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
-
-          bpmDisplay = nullptr;
-          swingDisplay = nullptr;
-          for (int i = 0; i < 8; ++i) {
-               ratioDisplays[i] = nullptr;
-          }
-
-          // Initialize other necessary variables
-          for (int i = 0; i < 9; ++i) {
-               multiply[i] = 1.0f;
-               divide[i] = 1.0f;
-               ratio[i] = 1.0f;
-               disp_multiply[i] = 1.0f;
-               disp_divide[i] = 1.0f;
-               resyncFlag[i] = false;
-               phases[i] = 0.0f;
-               tempPhases[i] = 0.0f;
-               fill[i] = false;
-          }
     
         // Configure parameters
         configParam(CLOCK_KNOB, 0.01f, 360.0f, 120.0f, "Clock Rate", " BPM");
@@ -181,229 +159,226 @@ struct Syncro : Module {
         configOutput(CLOCK_OUTPUT_8, "Clock 8");
         configOutput(INV_CLOCK_OUTPUT_8, "Inverted Clock 8");
 
-          // Initialize fill LEDs
-          for (int i = 0; i < 8; i++) {
-               configLight(FILL_LIGHT_1 + i, "Fill Light " + std::to_string(i + 1));
-          }
+        // Initialize fill LEDs
+        for (int i = 0; i < 8; i++) {
+            configLight(FILL_LIGHT_1 + i, "Fill Light " + std::to_string(i + 1));
+        }
 
-          // Initialize gate state lights
-          for (int i = 0; i < 18; i++) {
-               configLight(CLOCK_LIGHT + i, "Gate State Light " + std::to_string(i + 1));
-          }
-     }
+        // Initialize gate state lights
+        for (int i = 0; i < 18; i++) {
+            configLight(CLOCK_LIGHT + i, "Gate State Light " + std::to_string(i + 1));
+        }
+    }
 
-     void process(const ProcessArgs &args) override {
-          float swing = params[SWING_KNOB].getValue() + (inputs[SWING_INPUT].isConnected() ? 10.f * inputs[SWING_INPUT].getVoltage() * params[SWING_ATT].getValue() : 0.0f);
-          swing = clamp(swing, -99.f, 99.f);
+    void process(const ProcessArgs &args) override {
+        float swing = params[SWING_KNOB].getValue() + (inputs[SWING_INPUT].isConnected() ? 10.f * inputs[SWING_INPUT].getVoltage() * params[SWING_ATT].getValue() : 0.0f);
+        swing = clamp(swing, -99.f, 99.f);
+        float width = params[WIDTH_KNOB].getValue() + (inputs[WIDTH_INPUT].isConnected() ? 0.1f * inputs[WIDTH_INPUT].getVoltage() * params[WIDTH_ATT].getValue() : 0.0f);
+        width = clamp(width, 0.01f, 0.99f);
+        float rotate = params[ROTATE_KNOB].getValue() + (inputs[ROTATE_INPUT].isConnected() ? 0.2f * inputs[ROTATE_INPUT].getVoltage() * params[ROTATE_ATT].getValue() : 0.0f);
+        int clockRotate = static_cast<int>(round(fmod(-8.0f * rotate, 8.0f)));
 
-          float width = params[WIDTH_KNOB].getValue() + (inputs[WIDTH_INPUT].isConnected() ? 0.1f * inputs[WIDTH_INPUT].getVoltage() * params[WIDTH_ATT].getValue() : 0.0f);
-          width = clamp(width, 0.01f, 0.99f);
+        float deltaTime = args.sampleTime;
+        float actualTime = deltaTime;
+        bool isExtClock = inputs[EXT_CLOCK_INPUT].isConnected();
 
-          float rotate = params[ROTATE_KNOB].getValue() + (inputs[ROTATE_INPUT].isConnected() ? 0.2f * inputs[ROTATE_INPUT].getVoltage() * params[ROTATE_ATT].getValue() : 0.0f);
-          int clockRotate = static_cast<int>(round(fmod(-8.0f * rotate, 8.0f)));
+        SwingPhase = SwingTimer.time / (120.f / bpm);
+        if (SwingPhase >= 1.0f) {
+            SwingTimer.reset();
+        }
 
-          float deltaTime = args.sampleTime;
-          float actualTime = deltaTime;
-          bool isExtClock = inputs[EXT_CLOCK_INPUT].isConnected();
+        deltaTime *= 1.0f + (swing / 100.0f) * sinf(2.0f * M_PI * SwingPhase);
 
-          SwingPhase = SwingTimer.time / (120.f / bpm);
-          if (SwingPhase >= 1.0f) {
-               SwingTimer.reset();
-          }
+        // Check for on/off input or on/off button
+        bool onOffCondition = false;
+        if (inputs[ON_OFF_INPUT].isConnected()) {
+            onOffCondition = onOffTrigger.process(inputs[ON_OFF_INPUT].getVoltage()) || onOffButtonTrigger.process(params[ON_OFF_BUTTON].getValue() > 0.1f);
+        } else {
+            onOffCondition = onOffButtonTrigger.process(params[ON_OFF_BUTTON].getValue());
+        }
 
-          deltaTime *= 1.0f + (swing / 100.0f * sinf(2.0f * M_PI * SwingPhase));
+        if (onOffCondition) {
+            sequenceRunning = !sequenceRunning; // Toggle sequenceRunning
+        }
 
-          // Check for on/off input or on/off button
-          bool onOffCondition = false;
-          if (inputs[ON_OFF_INPUT].isConnected()) {
-               onOffCondition = onOffTrigger.process(inputs[ON_OFF_INPUT].getVoltage()) || onOffButtonTrigger.process(params[ON_OFF_BUTTON].getValue() > 0.1f);
-          } else {
-               onOffCondition = onOffButtonTrigger.process(params[ON_OFF_BUTTON].getValue());
-          }
+        lights[ON_OFF_LIGHT].setBrightness(sequenceRunning ? 1.0f : 0.0f);
 
-          if (onOffCondition) {
-               sequenceRunning = !sequenceRunning; // Toggle sequenceRunning
-          }
+        if (!sequenceRunning) {
+            deltaTime = 0.f;
+            for (int i = 0; i < 9; i++) {
+                ClockTimer[i].reset();
+            }
+        }
 
-          lights[ON_OFF_LIGHT].setBrightness(sequenceRunning ? 1.0f : 0.0f);
+        // Process timers
+        SyncTimer.process(actualTime);
+        SwingTimer.process(deltaTime);
 
-          if (!sequenceRunning) {
-               deltaTime = 0.f;
-               for (int i = 0; i < 9; i++) {
-                    ClockTimer[i].reset();
-               }
-          }
+        // Update fill state
+        for (int i = 1; i < 9; i++) {
+            fill[i-1] = (params[FILL_BUTTON_1 + i - 1].getValue() > 0.1f) || (inputs[FILL_INPUT_1 + i - 1].getVoltage() > 0.1f);
+        }
 
-          // Process timers
-          SyncTimer.process(actualTime);
-          SwingTimer.process(deltaTime);
+        // Process clock sync input
+        if (isExtClock) {
+            float SyncInputVoltage = inputs[EXT_CLOCK_INPUT].getVoltage();
 
-          // Update fill state
-          for (int i = 1; i < 9; i++) {
-               fill[i-1] = (params[FILL_BUTTON_1 + i - 1].getValue() > 0.1f) || (inputs[FILL_INPUT_1 + i - 1].getVoltage() > 0.1f);
-          }
+            if (SyncTrigger.process(SyncInputVoltage)) {
+                if (!firstClockPulse) {
+                     SyncInterval = SyncTimer.time; // Get the accumulated time since the last reset
+                }
+                SyncTimer.reset(); // Reset the timer for the next trigger interval measurement
+                firstClockPulse = false;
+            }
+            if (SyncInterval > 0) {
+                bpm = 60.f / SyncInterval;
+            } else {
+                bpm = 120.f;  // div by zero protection, default to 120bpm
+            }
+        } else {
+            // Calculate phase increment
+            bpm = params[CLOCK_KNOB].getValue() + (inputs[CLOCK_INPUT].isConnected() ? 10.f * inputs[CLOCK_INPUT].getVoltage() * params[CLOCK_ATT].getValue() : 0.0f);
+        }
+        bpm = clamp(bpm, 0.01f, 460.f);
 
-          // Process clock sync input
-          if (isExtClock) {
-               float SyncInputVoltage = inputs[EXT_CLOCK_INPUT].getVoltage();
+        // Check for reset input or reset button
+        bool resetCondition = (inputs[RESET_INPUT].isConnected() && resetTrigger.process(inputs[RESET_INPUT].getVoltage())) || (params[RESET_BUTTON].getValue() > 0.1f);
 
-               if (SyncTrigger.process(SyncInputVoltage)) {
-                    if (!firstClockPulse) {
-                         SyncInterval = SyncTimer.time; // Get the accumulated time since the last reset
+        if (resetCondition) {
+            for (int i = 0; i < 9; i++) {
+                ClockTimer[i].reset();
+                outputs[CLOCK_OUTPUT + 2 * i].setVoltage(0.f);
+                outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage(0.f);
+                lights[CLOCK_LIGHT + 2 * i].setBrightness(0.0f);
+                lights[CLOCK_LIGHT + 2 * i + 1].setBrightness(0.0f);
+            }
+        }
+
+        fillGlobal = static_cast<int>(round(params[FILL_KNOB].getValue() + (inputs[FILL_INPUT].isConnected() ? inputs[FILL_INPUT].getVoltage() * params[FILL_ATT].getValue() : 0.0f)));
+
+        // Calculate the LCM for each clock
+        int lcmWithMaster[9];
+        for (int i = 1; i < 9; ++i) {
+            int num = static_cast<int>(round(multiply[i]));
+            int denom = static_cast<int>(round(divide[i]));
+            simplifyRatio(num, denom);
+            lcmWithMaster[i] = lcm(denom, 1); // Master clock is 1:1
+        }
+
+		for (int i = 0; i < 9; i++) {
+			ClockTimer[i].process(deltaTime);
+
+			if (ClockTimer[i].time >= (60.0f / (bpm * ratio[i]))) {
+				ClockTimer[i].reset();
+
+				if (i < 1) {  // Master clock reset point
+					masterClockCycle++;
+                        // Rotate the phases without resetting the individual clock timers
+					for (int k = 1; k < 9; k++) {
+                        int newIndex = (k + clockRotate) % 8;
+                        if (newIndex < 0) {
+                            newIndex += 8; // Adjust for negative values to wrap around correctly
+                        }
+                            tempPhases[newIndex + 1] = phases[k];
+                        }
+                        for (int k = 1; k < 9; k++) {
+                            phases[k] = tempPhases[k];
+                        }
+
+                        for (int j = 1; j < 9; j++) {
+                            if (masterClockCycle % lcmWithMaster[j] == 0) {
+                               ClockTimer[j].reset();
+                            }
+
+                            if (resyncFlag[j]) {
+                               ClockTimer[j].reset();
+                               resyncFlag[j] = false;
+                            }
+
+                            int index = (clockRotate + j - 1) % 8;
+                            if (index < 0) {
+                               index += 8; // Adjust for negative values to wrap around correctly
+                            }
+
+                            multiply[j] = round(params[MULTIPLY_KNOB_1 + index].getValue()) + (fill[j-1] ? fillGlobal : 0);
+                            divide[j] = round(params[DIVIDE_KNOB_1 + index].getValue());
+                            ratio[j] = (divide[j] != 0) ? (multiply[j] / divide[j]) : 1.0f;
+
+                            if (fill[j] || ratio[j] != multiply[j] / divide[j]) {
+                                resyncFlag[j] = true;
+                            }
+                        }
                     }
-                    SyncTimer.reset(); // Reset the timer for the next trigger interval measurement
-                    firstClockPulse = false;
-               }
-               if (SyncInterval > 0) {
-                    bpm = 60.f / SyncInterval;
-               } else {
-                    bpm = 120.f;  // div by zero protection, default to 120bpm
-               }
-          } else {
-               // Calculate phase increment
-               bpm = params[CLOCK_KNOB].getValue() + (inputs[CLOCK_INPUT].isConnected() ? 10.f * inputs[CLOCK_INPUT].getVoltage() * params[CLOCK_ATT].getValue() : 0.0f);
-          }
-          bpm = clamp(bpm, 0.01f, 460.f);
+                }
 
-          // Check for reset input or reset button
-          bool resetCondition = (inputs[RESET_INPUT].isConnected() && resetTrigger.process(inputs[RESET_INPUT].getVoltage())) || (params[RESET_BUTTON].getValue() > 0.1f);
+                // Apply swing as a global adjustment to the phase increment
+                float phaseDenominator = 60.0f / (bpm * ratio[i]);
+                phases[i] = (phaseDenominator != 0) ? (ClockTimer[i].time / phaseDenominator) : 0.0f;
 
-          if (resetCondition) {
-               for (int i = 0; i < 9; i++) {
-                    ClockTimer[i].reset();
-                    outputs[CLOCK_OUTPUT + 2 * i].setVoltage(0.f);
-                    outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage(0.f);
-                    lights[CLOCK_LIGHT + 2 * i].setBrightness(0.0f);
-                    lights[CLOCK_LIGHT + 2 * i + 1].setBrightness(0.0f);
-               }
-          }
+                // Determine the output state based on pulse width
+                bool highState = phases[i] < width;
 
-          fillGlobal = static_cast<int>(round(params[FILL_KNOB].getValue() + (inputs[FILL_INPUT].isConnected() ? inputs[FILL_INPUT].getVoltage() * params[FILL_ATT].getValue() : 0.0f)));
-
-          // Calculate the LCM for each clock
-          int lcmWithMaster[9];
-          for (int i = 1; i < 9; ++i) {
-               int num = static_cast<int>(round(multiply[i]));
-               int denom = static_cast<int>(round(divide[i]));
-               simplifyRatio(num, denom);
-               lcmWithMaster[i] = lcm(denom, 1); // Master clock is 1:1
-          }
-
-          for (int i = 0; i < 9; i++) {
-               ClockTimer[i].process(deltaTime);
-
-               if (ClockTimer[i].time >= (60.0f / (bpm * ratio[i]))) {
-                    ClockTimer[i].reset();
-
-                    if (i < 1) {  // Master clock reset point
-                         masterClockCycle++;
-                         // Rotate the phases without resetting the individual clock timers
-                         for (int k = 1; k < 9; k++) {
-                              int newIndex = (k + clockRotate) % 8;
-                              if (newIndex < 0) {
-                                   newIndex += 8; // Adjust for negative values to wrap around correctly
-                              }
-                              tempPhases[newIndex + 1] = phases[k];
-                         }
-                         for (int k = 1; k < 9; k++) {
-                              phases[k] = tempPhases[k];
-                         }
-
-                         for (int j = 1; j < 9; j++) {
-                              if (masterClockCycle % lcmWithMaster[j] == 0) {
-                                   ClockTimer[j].reset();
-                              }
-
-                              if (resyncFlag[j]) {
-                                   ClockTimer[j].reset();
-                                   resyncFlag[j] = false;
-                              }
-
-                              int index = (clockRotate + j - 1) % 8;
-                              if (index < 0) {
-                                   index += 8; // Adjust for negative values to wrap around correctly
-                              }
-
-                              multiply[j] = round(params[MULTIPLY_KNOB_1 + index].getValue()) + (fill[j-1] ? fillGlobal : 0);
-                              divide[j] = round(params[DIVIDE_KNOB_1 + index].getValue());
-                              ratio[j] = (divide[j] != 0) ? (multiply[j] / divide[j]) : 1.0f;
-
-                              if (fill[j] || ratio[j] != multiply[j] / divide[j]) {
-                                   resyncFlag[j] = true;
-                              }
-                         }
-                    }
-               }
-
-               // Apply swing as a global adjustment to the phase increment
-               float phaseDenominator = 60.0f / (bpm * ratio[i]);
-               phases[i] = (phaseDenominator != 0) ? (ClockTimer[i].time / phaseDenominator) : 0.0f;
-
-               // Determine the output state based on pulse width
-               bool highState = phases[i] < width;
-
-               if (sequenceRunning) {
+                if (sequenceRunning) {
                     outputs[CLOCK_OUTPUT + 2 * i].setVoltage(highState ? 5.0f : 0.0f);
                     outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage(highState ? 0.0f : 5.0f);
                     lights[CLOCK_LIGHT + 2 * i].setBrightness(highState ? 1.0f : 0.0f);
                     lights[CLOCK_LIGHT + 2 * i + 1].setBrightness(highState ? 0.0f : 1.0f);
-               } else {
+                } else {
                     outputs[CLOCK_OUTPUT + 2 * i].setVoltage(0.f);
                     outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage(0.f);
                     lights[CLOCK_LIGHT + 2 * i].setBrightness(0.0f);
                     lights[CLOCK_LIGHT + 2 * i + 1].setBrightness(0.0f);
-               }
-          }
+                }
+            }
 
-          displayUpdateCounter++;
-          if (displayUpdateCounter >= (1.0f / deltaTime / 30.0f)) { // Update 30 times per second
-               displayUpdateCounter = 0;
-               // Update BPM and Swing displays
-               if (bpmDisplay) {
+            displayUpdateCounter++;
+            if (displayUpdateCounter >= (1.0f / deltaTime / 30.0f)) { // Update 30 times per second
+                displayUpdateCounter = 0;
+                // Update BPM and Swing displays
+                if (bpmDisplay) {
                     std::stringstream bpmStream;
                     bpmStream << std::fixed << std::setprecision(1) << bpm;
                     bpmDisplay->text = bpmStream.str();
-               }
+                }
 
-               if (swingDisplay) {
+                if (swingDisplay) {
                     std::stringstream swingStream;
                     swingStream << std::fixed << std::setprecision(1) << swing << "%";
                     swingDisplay->text = swingStream.str();
-               }
+                }
 
-               // Update ratio displays
-               for (int i = 1; i < 9; i++) {
+                // Update ratio displays
+                for (int i = 1; i < 9; i++) {
                     int index = (clockRotate + i - 1) % 8;
                     if (index < 0) {
-                         index += 8; // Adjust for negative values to wrap around correctly
+                        index += 8; // Adjust for negative values to wrap around correctly
                     }
 
                     disp_multiply[i] = round(params[MULTIPLY_KNOB_1 + index].getValue()) + (fill[i-1] ? fillGlobal : 0);
                     disp_divide[i] = round(params[DIVIDE_KNOB_1 + index].getValue());
                     if (ratioDisplays[i-1]) {
-                         std::string text = std::to_string(static_cast<int>(disp_multiply[i])) + ":" + std::to_string(static_cast<int>(disp_divide[i]));
-                         if (index == 0) { // Check if the current index corresponds to the rotated position
-                              text = "▸" + text;
-                         }
-                         ratioDisplays[i-1]->text = text;
+                        std::string text = std::to_string(static_cast<int>(disp_multiply[i])) + ":" + std::to_string(static_cast<int>(disp_divide[i]));
+                        if (index == 0) { // Check if the current index corresponds to the rotated position
+                            text = "▸" + text;
+                        }
+                        ratioDisplays[i-1]->text = text;
                     }
-               }
+                }
 
-               for (int i = 0; i < 8; i++) {
+                for (int i = 0; i < 8; i++) {
                     if (i < fillGlobal) {
-                         lights[FILL_LIGHT_1 + i].setBrightness(1.0f);
+                        lights[FILL_LIGHT_1 + i].setBrightness(1.0f);
                     } else {
-                         lights[FILL_LIGHT_1 + i].setBrightness(0.0f);
+                        lights[FILL_LIGHT_1 + i].setBrightness(0.0f);
                     }
-                    if (fill[i]) {
-                         lights[FILL_INDICATE_1 + i].setBrightness(1.0f);
-                    } else {
-                         lights[FILL_INDICATE_1 + i].setBrightness(0.0f);
-                    }
-               }
-          }
-     }
-
+                if (fill[i]) {
+                    lights[FILL_INDICATE_1 + i].setBrightness(1.0f);
+                } else {
+                    lights[FILL_INDICATE_1 + i].setBrightness(0.0f);
+                }
+            }
+        }
+    }
 
     int gcd(int a, int b) {
         while (b != 0) {
@@ -493,30 +468,32 @@ struct SyncroWidget : ModuleWidget {
             addOutput(createOutputCentered<ThemedPJ301MPort>(Vec(368,35 + i * 38), module, Syncro::CLOCK_OUTPUT + 2*i + 1));
         }
 
-        // Add DigitalDisplays for BPM and Swing
         if (module) {
-            module->bpmDisplay = new DigitalDisplay();
-            addDigitalDisplay(module->bpmDisplay, Vec(27, 28)); 
+            // BPM Display Initialization
+            module->bpmDisplay = createDigitalDisplay(Vec(27, 28), "120.0");
+            addChild(module->bpmDisplay);
 
-            module->swingDisplay = new DigitalDisplay();
-            addDigitalDisplay(module->swingDisplay, Vec(90, 28));
+            // Swing Display Initialization
+            module->swingDisplay = createDigitalDisplay(Vec(90, 28), "0.0%");
+            addChild(module->swingDisplay);
 
-            // Add ratio displays
+            // Ratio Displays Initialization
             for (int i = 0; i < 8; i++) {
-                module->ratioDisplays[i] = new DigitalDisplay();
-                addDigitalDisplay(module->ratioDisplays[i], Vec(210, 65 + i * 38));
+                module->ratioDisplays[i] = createDigitalDisplay(Vec(210, 65 + i * 38), "1:1");
+                addChild(module->ratioDisplays[i]);
             }
-        }       
+        }
     }
 
-    void addDigitalDisplay(DigitalDisplay* display, Vec position) {
-        display->fontPath = asset::plugin(pluginInstance, "res/fonts/DejaVuSansMono.ttf");
+    DigitalDisplay* createDigitalDisplay(Vec position, std::string initialValue) {
+        DigitalDisplay* display = new DigitalDisplay();
         display->box.pos = position;
         display->box.size = Vec(50, 18);
-        display->text = "0"; // Default text
+        display->text = initialValue;
         display->fgColor = nvgRGB(208, 140, 89); // Gold color text
+        display->fontPath = asset::plugin(pluginInstance, "res/fonts/DejaVuSansMono.ttf");
         display->setFontSize(14.0f);
-        addChild(display);
+        return display;
     }
 };
 
