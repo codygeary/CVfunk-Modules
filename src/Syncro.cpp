@@ -1,3 +1,14 @@
+////////////////////////////////////////////////////////////
+//
+//   Syncro
+//
+//   written by Cody Geary
+//   Copyright 2024, MIT License
+//
+//   Clock ratio generator with 8 channels
+//
+////////////////////////////////////////////////////////////
+
 #include "rack.hpp"
 #include "plugin.hpp"
 #include "digital_display.hpp" // Include the DigitalDisplay header
@@ -56,7 +67,7 @@ struct Syncro : Module {
         FILL_LIGHT_5, FILL_LIGHT_6, FILL_LIGHT_7, FILL_LIGHT_8,      
         FILL_INDICATE_1, FILL_INDICATE_2, FILL_INDICATE_3, FILL_INDICATE_4, 
         FILL_INDICATE_5, FILL_INDICATE_6, FILL_INDICATE_7, FILL_INDICATE_8,  
-        ON_OFF_LIGHT, RESET_LIGHT,    
+        ON_OFF_LIGHT,    
         NUM_LIGHTS
     };
 
@@ -70,39 +81,41 @@ struct Syncro : Module {
     dsp::Timer SyncTimer;
     dsp::Timer SwingTimer;
     float SwingPhase = 0.0f;
-	dsp::Timer ClockTimer[9];  // Array to store timers for each clock
+    dsp::Timer ClockTimer[9];  // Array to store timers for each clock
     dsp::SchmittTrigger SyncTrigger;
-	dsp::SchmittTrigger resetTrigger;
-	dsp::SchmittTrigger onOffTrigger;
-	dsp::SchmittTrigger onOffButtonTrigger;
-
-	
-	bool sequenceRunning = true;
-
+    dsp::SchmittTrigger resetTrigger;
+    dsp::SchmittTrigger onOffTrigger;
+    dsp::SchmittTrigger onOffButtonTrigger;
+    
+    bool sequenceRunning = true;
     float lastClockTime = -1.0f;
     float warpedTime = 1.0f;
     float bpm = 120.0f;
     int displayUpdateCounter = 0;
     float phase = 0.0f;
-	float multiply[9] = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f}; 
-	float divide[9] = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f};   
-	float ratio[9] = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f};   
-	float disp_multiply[9] = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f}; 
-	float disp_divide[9] = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f};   
-	bool resyncFlag[9] = {false};
+    float multiply[9] = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f}; 
+    float divide[9] = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f};   
+    float ratio[9] = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f};   
+    float disp_multiply[9] = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f}; 
+    float disp_divide[9] = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f};   
+    bool resyncFlag[9] = {false};
     bool firstClockPulse = true;
     float SyncInterval = 0.0f;
     float clockRate = 120.0f;
-	float phases[9] = {0.0f};  // Array to store phases for each clock
-	bool fill[9] = {false}; // Array to track the fill state for each channel
+    float phases[9] = {0.0f};  // Array to store phases for each clock
+    float tempPhases[9] = {0.0f};
+    bool fill[9] = {false}; // Array to track the fill state for each channel
     int fillGlobal = 0;
+    int masterClockCycle = 0;
 
     Syncro() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
 
         // Configure parameters
-        configParam(CLOCK_KNOB, 0.1f, 360.0f, 120.0f, "Clock Rate", " BPM");
+        configParam(CLOCK_KNOB, 0.01f, 360.0f, 120.0f, "Clock Rate", " BPM");
+        configParam(CLOCK_ATT, -1.f, 1.f, 0.0f, "Clock Attenuvertor");
         configParam(SWING_KNOB, -99.0f, 99.0f, 0.0f, "Swing", " %");
+        configParam(SWING_ATT, -1.f, 1.f, 0.0f, "Swing Attenuvertor");
         configParam(MULTIPLY_KNOB_1, 1.0f, 128.0f, 1.0f, "Multiply 1");
         configParam(MULTIPLY_KNOB_2, 1.0f, 128.0f, 1.0f, "Multiply 2");
         configParam(MULTIPLY_KNOB_3, 1.0f, 128.0f, 1.0f, "Multiply 3");
@@ -120,8 +133,11 @@ struct Syncro : Module {
         configParam(DIVIDE_KNOB_7, 1.0f, 128.0f, 1.0f, "Divide 7");
         configParam(DIVIDE_KNOB_8, 1.0f, 128.0f, 1.0f, "Divide 8");
         configParam(FILL_KNOB, 0.0f, 8.0f, 0.0f, "Fill");
+        configParam(FILL_ATT, -1.0f, 1.0f, 0.0f, "Fill Attenuvertor");
         configParam(WIDTH_KNOB, 0.0f, 1.0f, 0.5f, "Gate Width");
+        configParam(WIDTH_ATT, -1.0f, 1.0f, 0.0f, "Gate Width Attenuvertor");
         configParam(ROTATE_KNOB, -1.0f, 1.0f, 0.0f, "Rotate");
+        configParam(ROTATE_ATT, -1.0f, 1.0f, 0.0f, "Rotate Atenuvertor");
 
         // Configure inputs and outputs
         configInput(EXT_CLOCK_INPUT, "External Clock");
@@ -170,7 +186,7 @@ struct Syncro : Module {
         float actualTime = deltaTime;
         bool isExtClock = inputs[EXT_CLOCK_INPUT].isConnected();
   
-  		SwingPhase = SwingTimer.time/(120.f/bpm) ;      
+        SwingPhase = SwingTimer.time/(120.f/bpm) ;      
         if (SwingPhase >= 1.0f){
            SwingTimer.reset();
         }
@@ -202,12 +218,9 @@ struct Syncro : Module {
         SyncTimer.process(actualTime);
         SwingTimer.process(deltaTime);
 
-		// Update fill state
-		for (int i = 1; i < 9; i++) {
-			fill[i-1] = (params[FILL_BUTTON_1 + i - 1].getValue() > 0.1f) || (inputs[FILL_INPUT_1 + i - 1].getVoltage() > 0.1f);
-		}
-
-        if (inputs[RESET_INPUT].isConnected()){
+        // Update fill state
+        for (int i = 1; i < 9; i++) {
+            fill[i-1] = (params[FILL_BUTTON_1 + i - 1].getValue() > 0.1f) || (inputs[FILL_INPUT_1 + i - 1].getVoltage() > 0.1f);
         }
         
         // Process clock sync input
@@ -228,79 +241,101 @@ struct Syncro : Module {
             }                       
         } else {
             // Calculate phase increment
-            bpm = params[CLOCK_KNOB].getValue() + (inputs[CLOCK_INPUT].isConnected() ? inputs[CLOCK_INPUT].getVoltage() * params[CLOCK_ATT].getValue() : 0.0f);
+            bpm = params[CLOCK_KNOB].getValue() + (inputs[CLOCK_INPUT].isConnected() ? 10.f * inputs[CLOCK_INPUT].getVoltage() * params[CLOCK_ATT].getValue() : 0.0f);
         }
- 
-		// Check for reset input or reset button
-		bool resetCondition = false;
-		bool lightOn = false;
-		if (inputs[RESET_INPUT].isConnected()){
-		   resetCondition = resetTrigger.process(inputs[RESET_INPUT].getVoltage()) || params[RESET_BUTTON].getValue() > 0.1f;
-	       lightOn = inputs[RESET_INPUT].getVoltage() > 0.001f || params[RESET_BUTTON].getValue() > 0.1f ;
-	    } else {
-		   resetCondition = params[RESET_BUTTON].getValue() > 0.1f;	    
-	       lightOn = params[RESET_BUTTON].getValue() > 0.1f ;
-	    }
-		
-		if (resetCondition) {
-			for (int i = 0; i < 9; i++) {
-				ClockTimer[i].reset();
-			}			
-		}
-		
-		lights[RESET_LIGHT].setBrightness(lightOn ? 1.0f : 0.0f);		    
+        bpm = clamp(bpm, 0.01f, 460.f);
 
-		fillGlobal = static_cast<int>(round(params[FILL_KNOB].getValue() + (inputs[FILL_INPUT].isConnected() ? inputs[FILL_INPUT].getVoltage() * params[FILL_ATT].getValue() : 0.0f)));               
+        // Check for reset input or reset button
+        bool resetCondition = (inputs[RESET_INPUT].isConnected() && resetTrigger.process(inputs[RESET_INPUT].getVoltage())) || (params[RESET_BUTTON].getValue() > 0.1f);
 
-		for (int i = 0; i < 9; i++) {
-			ClockTimer[i].process(deltaTime);
-			
-			if (ClockTimer[i].time >= (60.0f / (bpm * ratio[i]))) {
-				ClockTimer[i].reset();
-				if (i < 1) {
-					for (int j = 1; j < 9; j++) {
-						if (resyncFlag[j]) {
-							ClockTimer[j].reset();
-							resyncFlag[j] = false;
-						}
+        if (resetCondition) {
+            for (int i = 0; i < 9; i++) {
+                ClockTimer[i].reset();
+                outputs[CLOCK_OUTPUT + 2 * i].setVoltage(0.f);
+                outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage(0.f);
+                lights[CLOCK_LIGHT + 2 * i].setBrightness(0.0f);
+                lights[CLOCK_LIGHT + 2 * i + 1].setBrightness(0.0f);
+            }
+        }
+        
+        fillGlobal = static_cast<int>(round(params[FILL_KNOB].getValue() + (inputs[FILL_INPUT].isConnected() ? inputs[FILL_INPUT].getVoltage() * params[FILL_ATT].getValue() : 0.0f)));               
 
-						int index = (clockRotate + j - 1) % 8;
-						if (index < 0) {
-							index += 8; // Adjust for negative values to wrap around correctly
-						}
+        // Calculate the LCM for each clock
+        int lcmWithMaster[9];
+        for (int i = 1; i < 9; ++i) {
+            int num = static_cast<int>(round(multiply[i]));
+            int denom = static_cast<int>(round(divide[i]));
+            simplifyRatio(num, denom);
+            lcmWithMaster[i] = lcm(denom, 1); // Master clock is 1:1
+        }
 
-						multiply[j] = round(params[MULTIPLY_KNOB_1 + index].getValue()) + (fill[index] ? fillGlobal : 0);
-						divide[j] = round(params[DIVIDE_KNOB_1 + index].getValue());
-						if (fill[index]) {
-							resyncFlag[j] = true;
-						}
-					}
-				}
-			}
 
-			if (i > 0) {
-				ratio[i] = multiply[i] / divide[i];
-			}
-			// Apply swing as a global adjustment to the phase increment
-			phases[i] = ClockTimer[i].time/(60.0f / ( bpm * ratio[i] ));
+        for (int i = 0; i < 9; i++) {
+            ClockTimer[i].process(deltaTime);
 
-			// Determine the output state based on pulse width
-			bool highState = phases[i] < width;
-						
-            if(sequenceRunning){
+            if (ClockTimer[i].time >= (60.0f / (bpm * ratio[i]))) {
+                ClockTimer[i].reset();
+
+                if (i < 1) {  // Master clock reset point
+                    masterClockCycle++;
+                    // Rotate the phases without resetting the individual clock timers
+                    for (int k = 1; k < 9; k++) {
+                        int newIndex = (k + clockRotate) % 8;
+                        if (newIndex < 0) {
+                            newIndex += 8; // Adjust for negative values to wrap around correctly
+                        }
+                        tempPhases[newIndex + 1] = phases[k];
+                    }
+                    for (int k = 1; k < 9; k++) {
+                        phases[k] = tempPhases[k];
+                    }
+
+                    for (int j = 1; j < 9; j++) {
+
+                        if (masterClockCycle % lcmWithMaster[j] == 0) {
+                            ClockTimer[j].reset();
+                        }
+
+                        if (resyncFlag[j]) {
+                            ClockTimer[j].reset();
+                            resyncFlag[j] = false;
+                        }
+
+                        int index = (clockRotate + j - 1) % 8;
+                        if (index < 0) {
+                            index += 8; // Adjust for negative values to wrap around correctly
+                        }
+
+                        multiply[j] = round(params[MULTIPLY_KNOB_1 + index].getValue()) + (fill[j-1] ? fillGlobal : 0);
+                        divide[j] = round(params[DIVIDE_KNOB_1 + index].getValue());
+                        ratio[j] = multiply[j] / divide[j];
+
+                        if (fill[j] || ratio[j] != multiply[j] / divide[j]) {
+                            resyncFlag[j] = true;
+                        }
+                    }
+                }
+            }
+
+            // Apply swing as a global adjustment to the phase increment
+            phases[i] = ClockTimer[i].time / (60.0f / (bpm * ratio[i]));
+
+            // Determine the output state based on pulse width
+            bool highState = phases[i] < width;
+
+            if (sequenceRunning) {
                 outputs[CLOCK_OUTPUT + 2 * i].setVoltage(highState ? 5.0f : 0.0f);
                 outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage(highState ? 0.0f : 5.0f);
                 lights[CLOCK_LIGHT + 2 * i].setBrightness(highState ? 1.0f : 0.0f);
                 lights[CLOCK_LIGHT + 2 * i + 1].setBrightness(highState ? 0.0f : 1.0f);
-            } else{
+            } else {
                 outputs[CLOCK_OUTPUT + 2 * i].setVoltage(0.f);
                 outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage(0.f);
-                lights[CLOCK_LIGHT + 2 * i].setBrightness( 0.0f);
+                lights[CLOCK_LIGHT + 2 * i].setBrightness(0.0f);
                 lights[CLOCK_LIGHT + 2 * i + 1].setBrightness(0.0f);
             }
-
-		}		 
-                                 
+        }
+                                
         displayUpdateCounter++;
         if (displayUpdateCounter >= (1.0f / deltaTime / 30.0f)) { // Update 30 times per second
             displayUpdateCounter = 0;
@@ -318,24 +353,23 @@ struct Syncro : Module {
                 swingDisplay->text = swingStream.str();
             }
 
-			// Update ratio displays
-			for (int i = 1; i < 9; i++) {
-				int index = (clockRotate + i - 1) % 8;
-				if (index < 0) {
-					index += 8; // Adjust for negative values to wrap around correctly
-				}
-				index += 1; // Convert from 0-based to 1-based index
+            // Update ratio displays
+            for (int i = 1; i < 9; i++) {
+                int index = (clockRotate + i - 1) % 8;
+                if (index < 0) {
+                    index += 8; // Adjust for negative values to wrap around correctly
+                }
 
-				disp_multiply[i] = round(params[MULTIPLY_KNOB_1 + index - 1].getValue()) + (fill[index - 1] ? fillGlobal : 0);
-				disp_divide[i] = round(params[DIVIDE_KNOB_1 + index - 1].getValue());
-				if (ratioDisplays[i-1]) {
-					std::string text = std::to_string(static_cast<int>(disp_multiply[i])) + ":" + std::to_string(static_cast<int>(disp_divide[i]));
-					if (index == 1) { // Check if the current index corresponds to the rotated position
-						text = "• " + text;
-					}
-					ratioDisplays[i-1]->text = text;
-				}
-			}
+                disp_multiply[i] = round(params[MULTIPLY_KNOB_1 + index ].getValue()) + (fill[i-1] ? fillGlobal : 0);
+                disp_divide[i] = round(params[DIVIDE_KNOB_1 + index ].getValue());
+                if (ratioDisplays[i-1]) {
+                    std::string text = std::to_string(static_cast<int>(disp_multiply[i])) + ":" + std::to_string(static_cast<int>(disp_divide[i]));
+                    if (index == 0) { // Check if the current index corresponds to the rotated position
+                        text = "▸" + text;
+                    }
+                    ratioDisplays[i-1]->text = text;
+                }
+            }
 
             for (int i = 0; i < 8; i++){
                 if (i < fillGlobal){
@@ -351,20 +385,40 @@ struct Syncro : Module {
             }            
         }
     }
+
+    int gcd(int a, int b) {
+        while (b != 0) {
+            int t = b;
+            b = a % b;
+            a = t;
+        }
+        return a;
+    }
+
+    int lcm(int a, int b) {
+        return a * (b / gcd(a, b));
+    }
+
+    void simplifyRatio(int& numerator, int& denominator) {
+        int g = gcd(numerator, denominator);
+        numerator /= g;
+        denominator /= g;
+    }
+        
 };
 
 struct SyncroWidget : ModuleWidget {
     SyncroWidget(Syncro* module) {
         setModule(module);
         setPanel(createPanel(
-            asset::plugin(pluginInstance, "res/Syncro-dark.svg"),
+            asset::plugin(pluginInstance, "res/Syncro.svg"),
             asset::plugin(pluginInstance, "res/Syncro-dark.svg")
         ));
 
-        addChild(createWidget<ThemedScrew>(Vec(RACK_GRID_WIDTH, 0)));
-        addChild(createWidget<ThemedScrew>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, 0)));
-        addChild(createWidget<ThemedScrew>(Vec(RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
-        addChild(createWidget<ThemedScrew>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
+        addChild(createWidget<ThemedScrew>(Vec(0, 0)));
+        addChild(createWidget<ThemedScrew>(Vec(box.size.x - 1 * RACK_GRID_WIDTH, 0)));
+        addChild(createWidget<ThemedScrew>(Vec(0, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
+        addChild(createWidget<ThemedScrew>(Vec(box.size.x - 1 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 
         addParam(createParamCentered<RoundBlackKnob>  (Vec(55,     80), module, Syncro::CLOCK_KNOB));
         addParam(createParamCentered<Trimpot>         (Vec(81.25,  80), module, Syncro::CLOCK_ATT));
@@ -372,7 +426,7 @@ struct SyncroWidget : ModuleWidget {
 
         // Add fill LEDs
         for (int i = 0; i < 8; i++) {
-            addChild(createLight<SmallLight<YellowLight>>(Vec(42 + i * 10, 120 ), module, Syncro::FILL_LIGHT_1 + i));
+            addChild(createLight<SmallLight<RedLight>>(Vec(42 + i * 10, 120 ), module, Syncro::FILL_LIGHT_1 + i));
         }
 
         addParam(createParamCentered<RoundBlackKnob>  (Vec(55,     145), module, Syncro::FILL_KNOB));
@@ -394,21 +448,19 @@ struct SyncroWidget : ModuleWidget {
         addInput(createInputCentered<ThemedPJ301MPort>    (Vec(30,330), module, Syncro::EXT_CLOCK_INPUT));
 
         addParam(createParamCentered<TL1105>              (Vec(80,305), module, Syncro::ON_OFF_BUTTON));
-		addChild(createLightCentered<MediumLight<YellowLight>>(Vec(80,305), module, Syncro::ON_OFF_LIGHT ));
+        addChild(createLightCentered<MediumLight<YellowLight>>(Vec(80,305), module, Syncro::ON_OFF_LIGHT ));
         addInput(createInputCentered<ThemedPJ301MPort>    (Vec(80,330), module, Syncro::ON_OFF_INPUT));
 
         addParam(createParamCentered<TL1105>              (Vec(130,305), module, Syncro::RESET_BUTTON));
-		addChild(createLightCentered<MediumLight<YellowLight>>(Vec(130,305), module, Syncro::RESET_LIGHT ));
         addInput(createInputCentered<ThemedPJ301MPort>    (Vec(130,330), module, Syncro::RESET_INPUT));
-
 
         for (int i = 0; i < 8; i++) {
             // Add Multiply and Divide Knobs
             addParam(createParamCentered<Trimpot>             (Vec( 165, 35 + 38 + i * 38 ), module, Syncro::MULTIPLY_KNOB_1 + i));
-            addParam(createParamCentered<Trimpot>             (Vec( 195, 35 + 38 + i * 38 ), module, Syncro::DIVIDE_KNOB_1 + i));
+            addParam(createParamCentered<Trimpot>             (Vec( 190, 35 + 38 + i * 38 ), module, Syncro::DIVIDE_KNOB_1 + i));
 
             addParam(createParamCentered<TL1105>              (Vec(280, 35 + 38 + i * 38 ), module, Syncro::FILL_BUTTON_1 + i));
-            addChild(createLightCentered<MediumLight<YellowLight>>    (Vec(280, 35 + 38 + i * 38 ), module, Syncro::FILL_INDICATE_1 + i ));
+            addChild(createLightCentered<SmallLight<YellowLight>>    (Vec(280, 35 + 38 + i * 38 ), module, Syncro::FILL_INDICATE_1 + i ));
             addInput(createInputCentered<ThemedPJ301MPort>    (Vec(300, 35 + 38 + i * 38 ), module, Syncro::FILL_INPUT_1 + i));
         }
 
@@ -433,7 +485,7 @@ struct SyncroWidget : ModuleWidget {
             // Add ratio displays
             for (int i = 0; i < 8; i++) {
                 module->ratioDisplays[i] = new DigitalDisplay();
-                addDigitalDisplay(module->ratioDisplays[i], Vec(215, 65 + i * 38));
+                addDigitalDisplay(module->ratioDisplays[i], Vec(210, 65 + i * 38));
             }
         }       
     }
@@ -450,4 +502,3 @@ struct SyncroWidget : ModuleWidget {
 };
 
 Model* modelSyncro = createModel<Syncro, SyncroWidget>("Syncro");
-
