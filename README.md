@@ -46,4 +46,7 @@ A stereo 6 channel side-chain ducking mixer with compression, saturation, and fe
 ### Flower Patch
 A 12-tone scale polar visualizer for audio signals using FFT processing.
 
+### Syncro
+An 8-channel clock ratio generator.
+
 See the [User's Manual](/img/CV_funk_Manual.pdf) for more information.
