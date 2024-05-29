@@ -12,9 +12,6 @@
 #include "rack.hpp"
 #include "plugin.hpp"
 #include "digital_display.hpp" // Include the DigitalDisplay header
-#include <iomanip>
-#include <sstream>
-
 using namespace rack;
 
 struct Syncro : Module {
@@ -265,16 +262,16 @@ struct Syncro : Module {
             lcmWithMaster[i] = lcm(denom, 1); // Master clock is 1:1
         }
 
-		for (int i = 0; i < 9; i++) {
-			ClockTimer[i].process(deltaTime);
+        for (int i = 0; i < 9; i++) {
+            ClockTimer[i].process(deltaTime);
 
-			if (ClockTimer[i].time >= (60.0f / (bpm * ratio[i]))) {
-				ClockTimer[i].reset();
+            if (ClockTimer[i].time >= (60.0f / (bpm * ratio[i]))) {
+                ClockTimer[i].reset();
 
-				if (i < 1) {  // Master clock reset point
-					masterClockCycle++;
+                if (i < 1) {  // Master clock reset point
+                    masterClockCycle++;
                         // Rotate the phases without resetting the individual clock timers
-					for (int k = 1; k < 9; k++) {
+                    for (int k = 1; k < 9; k++) {
                         int newIndex = (k + clockRotate) % 8;
                         if (newIndex < 0) {
                             newIndex += 8; // Adjust for negative values to wrap around correctly
@@ -336,15 +333,15 @@ struct Syncro : Module {
                 displayUpdateCounter = 0;
                 // Update BPM and Swing displays
                 if (bpmDisplay) {
-                    std::stringstream bpmStream;
-                    bpmStream << std::fixed << std::setprecision(1) << bpm;
-                    bpmDisplay->text = bpmStream.str();
+                    char bpmText[16];
+                    snprintf(bpmText, sizeof(bpmText), "%.1f", bpm);
+                    bpmDisplay->text = bpmText;
                 }
 
                 if (swingDisplay) {
-                    std::stringstream swingStream;
-                    swingStream << std::fixed << std::setprecision(1) << swing << "%";
-                    swingDisplay->text = swingStream.str();
+                    char swingText[16];
+                    snprintf(swingText, sizeof(swingText), "%.1f%%", swing);
+                    swingDisplay->text = swingText;
                 }
 
                 // Update ratio displays
@@ -357,13 +354,16 @@ struct Syncro : Module {
                     disp_multiply[i] = round(params[MULTIPLY_KNOB_1 + index].getValue()) + (fill[i-1] ? fillGlobal : 0);
                     disp_divide[i] = round(params[DIVIDE_KNOB_1 + index].getValue());
                     if (ratioDisplays[i-1]) {
-                        std::string text = std::to_string(static_cast<int>(disp_multiply[i])) + ":" + std::to_string(static_cast<int>(disp_divide[i]));
+                        char ratioText[16];
+                        snprintf(ratioText, sizeof(ratioText), "%d:%d", static_cast<int>(disp_multiply[i]), static_cast<int>(disp_divide[i]));
                         if (index == 0) { // Check if the current index corresponds to the rotated position
-                            text = "▸" + text;
+                            ratioDisplays[i-1]->text = "▸" + std::string(ratioText);
+                        } else {
+                            ratioDisplays[i-1]->text = ratioText;
                         }
-                        ratioDisplays[i-1]->text = text;
                     }
                 }
+
 
                 for (int i = 0; i < 8; i++) {
                     if (i < fillGlobal) {
