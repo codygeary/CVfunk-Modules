@@ -94,7 +94,7 @@ struct Syncro : Module {
     float disp_divide[9] = {1.0f};   
     bool resyncFlag[9] = {false};
     bool firstClockPulse = true;
-    float SyncInterval = 0.0f;
+    float SyncInterval = 1.0f;
     float clockRate = 120.0f;
     float phases[9] = {0.0f};  // Array to store phases for each clock
     float tempPhases[9] = {0.0f};
@@ -238,7 +238,7 @@ struct Syncro : Module {
             // Calculate phase increment
             bpm = params[CLOCK_KNOB].getValue() + (inputs[CLOCK_INPUT].isConnected() ? 10.f * inputs[CLOCK_INPUT].getVoltage() * params[CLOCK_ATT].getValue() : 0.0f);
         }
-        bpm = clamp(bpm, 0.01f, 460.f);
+        bpm = clamp(bpm, 0.01f, 460.f); //bpm is clamped to be non-zero
 
         // Check for reset input or reset button
         bool resetCondition = (inputs[RESET_INPUT].isConnected() && resetTrigger.process(inputs[RESET_INPUT].getVoltage())) || (params[RESET_BUTTON].getValue() > 0.1f);
@@ -266,6 +266,8 @@ struct Syncro : Module {
 
         for (int i = 0; i < 9; i++) {
             ClockTimer[i].process(deltaTime);
+
+            if(ratio[i] <= 0.f){ratio[i] = 1.0f;} //div by zero safety
 
             if (ClockTimer[i].time >= (60.0f / (bpm * ratio[i]))) {
                 ClockTimer[i].reset();
@@ -375,7 +377,6 @@ struct Syncro : Module {
                         }
                     }
                 }
-
 
                 for (int i = 0; i < 8; i++) {
                     if (i < fillGlobal) {
