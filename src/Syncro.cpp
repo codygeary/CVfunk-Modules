@@ -75,8 +75,8 @@ struct Syncro : Module {
     DigitalDisplay* swingDisplay = nullptr;
     DigitalDisplay* ratioDisplays[8] = {nullptr};
 
-    Light* fillLights[8];
-    Light* gateStateLights[18]; // 9 outputs with regular and inverted gate state indicators
+    Light fillLights[8];
+    Light gateStateLights[18];
 
     dsp::Timer SyncTimer;
     dsp::Timer SwingTimer;
@@ -93,11 +93,11 @@ struct Syncro : Module {
     float bpm = 120.0f;
     int displayUpdateCounter = 0;
     float phase = 0.0f;
-    float multiply[9] = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f}; 
-    float divide[9] = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f};   
-    float ratio[9] = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f};   
-    float disp_multiply[9] = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f}; 
-    float disp_divide[9] = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f};   
+    float multiply[9] = {1.0f}; 
+    float divide[9] = {1.0f};   
+    float ratio[9] = {1.0f};   
+    float disp_multiply[9] = {1.0f}; 
+    float disp_divide[9] = {1.0f};   
     bool resyncFlag[9] = {false};
     bool firstClockPulse = true;
     float SyncInterval = 0.0f;
@@ -110,6 +110,12 @@ struct Syncro : Module {
 
     Syncro() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
+
+		bpmDisplay = nullptr;
+		swingDisplay = nullptr;
+		for (int i = 0; i < 8; ++i) {
+			ratioDisplays[i] = nullptr;
+		}
 
         // Configure parameters
         configParam(CLOCK_KNOB, 0.01f, 360.0f, 120.0f, "Clock Rate", " BPM");
@@ -163,179 +169,178 @@ struct Syncro : Module {
         configOutput(INV_CLOCK_OUTPUT_8, "Inverted Clock 8");
 
         // Initialize fill LEDs
-        for (int i = 1; i < 9; i++) {
-            fillLights[i] = new Light();
+        for (int i = 0; i < 8; i++) {
             configLight(FILL_LIGHT_1 + i, "Fill Light " + std::to_string(i + 1));
         }
 
         // Initialize gate state lights
         for (int i = 0; i < 18; i++) {
-            gateStateLights[i] = new Light();
             configLight(CLOCK_LIGHT + i, "Gate State Light " + std::to_string(i + 1));
         }
     }
 
-    void process(const ProcessArgs &args) override {
-        float swing = params[SWING_KNOB].getValue() + (inputs[SWING_INPUT].isConnected() ? 10.f * inputs[SWING_INPUT].getVoltage() * params[SWING_ATT].getValue() : 0.0f);   
-        swing = clamp (swing, -99.f, 99.f);     
-        float width = params[WIDTH_KNOB].getValue() + (inputs[WIDTH_INPUT].isConnected() ? 0.1f * inputs[WIDTH_INPUT].getVoltage() * params[WIDTH_ATT].getValue() : 0.0f);
-        width = clamp (width, 0.01f, 0.99f);
-        float rotate = params[ROTATE_KNOB].getValue() + (inputs[ROTATE_INPUT].isConnected() ? 0.2f * inputs[ROTATE_INPUT].getVoltage() * params[ROTATE_ATT].getValue() : 0.0f);
-        int clockRotate = static_cast<int>(round(fmod(-8.0f*rotate, 8.0f)));
-        float deltaTime = args.sampleTime;
-        float actualTime = deltaTime;
-        bool isExtClock = inputs[EXT_CLOCK_INPUT].isConnected();
-  
-        SwingPhase = SwingTimer.time/(120.f/bpm) ;      
-        if (SwingPhase >= 1.0f){
-           SwingTimer.reset();
-        }
+	void process(const ProcessArgs &args) override {
+		float swing = params[SWING_KNOB].getValue() + (inputs[SWING_INPUT].isConnected() ? 10.f * inputs[SWING_INPUT].getVoltage() * params[SWING_ATT].getValue() : 0.0f);   
+		swing = clamp(swing, -99.f, 99.f);     
+		float width = params[WIDTH_KNOB].getValue() + (inputs[WIDTH_INPUT].isConnected() ? 0.1f * inputs[WIDTH_INPUT].getVoltage() * params[WIDTH_ATT].getValue() : 0.0f);
+		width = clamp(width, 0.01f, 0.99f);
+		float rotate = params[ROTATE_KNOB].getValue() + (inputs[ROTATE_INPUT].isConnected() ? 0.2f * inputs[ROTATE_INPUT].getVoltage() * params[ROTATE_ATT].getValue() : 0.0f);
+		int clockRotate = static_cast<int>(round(fmod(-8.0f*rotate, 8.0f)));
+		float deltaTime = args.sampleTime;
+		float actualTime = deltaTime;
+		bool isExtClock = inputs[EXT_CLOCK_INPUT].isConnected();
 
-        deltaTime *= 1.0f + (swing / 100.0f * sinf(2.0f * M_PI * SwingPhase));
+		SwingPhase = SwingTimer.time/(120.f/bpm) ;      
+		if (SwingPhase >= 1.0f){
+		   SwingTimer.reset();
+		}
 
-        // Check for on/off input or on/off button
-        bool onOffCondition = false;
-        if (inputs[ON_OFF_INPUT].isConnected()) {
-            onOffCondition = onOffTrigger.process(inputs[ON_OFF_INPUT].getVoltage()) || onOffButtonTrigger.process(params[ON_OFF_BUTTON].getValue() > 0.1f);
-        } else {
-            onOffCondition = onOffButtonTrigger.process(params[ON_OFF_BUTTON].getValue());    
-        }
-  
-        if (onOffCondition) {
-            sequenceRunning = !sequenceRunning; // Toggle sequenceRunning
-        }
-  
-        lights[ON_OFF_LIGHT].setBrightness(sequenceRunning ? 1.0f : 0.0f);        
+		deltaTime *= 1.0f + (swing / 100.0f * sinf(2.0f * M_PI * SwingPhase));
 
-        if (!sequenceRunning) {
-            deltaTime = 0.f;
-            for (int i = 0; i < 9; i++) {
-                ClockTimer[i].reset();
-            }               
-        }
-        
-        // Process timers
-        SyncTimer.process(actualTime);
-        SwingTimer.process(deltaTime);
+		// Check for on/off input or on/off button
+		bool onOffCondition = false;
+		if (inputs[ON_OFF_INPUT].isConnected()) {
+			onOffCondition = onOffTrigger.process(inputs[ON_OFF_INPUT].getVoltage()) || onOffButtonTrigger.process(params[ON_OFF_BUTTON].getValue() > 0.1f);
+		} else {
+			onOffCondition = onOffButtonTrigger.process(params[ON_OFF_BUTTON].getValue());    
+		}
 
-        // Update fill state
-        for (int i = 1; i < 9; i++) {
-            fill[i-1] = (params[FILL_BUTTON_1 + i - 1].getValue() > 0.1f) || (inputs[FILL_INPUT_1 + i - 1].getVoltage() > 0.1f);
-        }
-        
-        // Process clock sync input
-        if (isExtClock) {
-            float SyncInputVoltage = inputs[EXT_CLOCK_INPUT].getVoltage();
-            
-            if (SyncTrigger.process(SyncInputVoltage)) {
-                if (!firstClockPulse) {
-                    SyncInterval = SyncTimer.time; // Get the accumulated time since the last reset
-                }
-                SyncTimer.reset(); // Reset the timer for the next trigger interval measurement
-                firstClockPulse = false;
-            }
-            if (SyncInterval > 0) {
-                bpm = 60.f / SyncInterval;
-            } else {
-                bpm = 120.f;  //div by zero protection, default to 120bpm
-            }                       
-        } else {
-            // Calculate phase increment
-            bpm = params[CLOCK_KNOB].getValue() + (inputs[CLOCK_INPUT].isConnected() ? 10.f * inputs[CLOCK_INPUT].getVoltage() * params[CLOCK_ATT].getValue() : 0.0f);
-        }
-        bpm = clamp(bpm, 0.01f, 460.f);
+		if (onOffCondition) {
+			sequenceRunning = !sequenceRunning; // Toggle sequenceRunning
+		}
 
-        // Check for reset input or reset button
-        bool resetCondition = (inputs[RESET_INPUT].isConnected() && resetTrigger.process(inputs[RESET_INPUT].getVoltage())) || (params[RESET_BUTTON].getValue() > 0.1f);
+		lights[ON_OFF_LIGHT].setBrightness(sequenceRunning ? 1.0f : 0.0f);        
 
-        if (resetCondition) {
-            for (int i = 0; i < 9; i++) {
-                ClockTimer[i].reset();
-                outputs[CLOCK_OUTPUT + 2 * i].setVoltage(0.f);
-                outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage(0.f);
-                lights[CLOCK_LIGHT + 2 * i].setBrightness(0.0f);
-                lights[CLOCK_LIGHT + 2 * i + 1].setBrightness(0.0f);
-            }
-        }
-        
-        fillGlobal = static_cast<int>(round(params[FILL_KNOB].getValue() + (inputs[FILL_INPUT].isConnected() ? inputs[FILL_INPUT].getVoltage() * params[FILL_ATT].getValue() : 0.0f)));               
+		if (!sequenceRunning) {
+			deltaTime = 0.f;
+			for (int i = 0; i < 9; i++) {
+				ClockTimer[i].reset();
+			}               
+		}
+	
+		// Process timers
+		SyncTimer.process(actualTime);
+		SwingTimer.process(deltaTime);
 
-        // Calculate the LCM for each clock
-        int lcmWithMaster[9];
-        for (int i = 1; i < 9; ++i) {
-            int num = static_cast<int>(round(multiply[i]));
-            int denom = static_cast<int>(round(divide[i]));
-            simplifyRatio(num, denom);
-            lcmWithMaster[i] = lcm(denom, 1); // Master clock is 1:1
-        }
+		// Update fill state
+		for (int i = 1; i < 9; i++) {
+			fill[i-1] = (params[FILL_BUTTON_1 + i - 1].getValue() > 0.1f) || (inputs[FILL_INPUT_1 + i - 1].getVoltage() > 0.1f);
+		}
+	
+		// Process clock sync input
+		if (isExtClock) {
+			float SyncInputVoltage = inputs[EXT_CLOCK_INPUT].getVoltage();
+		
+			if (SyncTrigger.process(SyncInputVoltage)) {
+				if (!firstClockPulse) {
+					SyncInterval = SyncTimer.time; // Get the accumulated time since the last reset
+				}
+				SyncTimer.reset(); // Reset the timer for the next trigger interval measurement
+				firstClockPulse = false;
+			}
+			if (SyncInterval > 0) {
+				bpm = 60.f / SyncInterval;
+			} else {
+				bpm = 120.f;  //div by zero protection, default to 120bpm
+			}                       
+		} else {
+			// Calculate phase increment
+			bpm = params[CLOCK_KNOB].getValue() + (inputs[CLOCK_INPUT].isConnected() ? 10.f * inputs[CLOCK_INPUT].getVoltage() * params[CLOCK_ATT].getValue() : 0.0f);
+		}
+		bpm = clamp(bpm, 0.01f, 460.f);
+
+		// Check for reset input or reset button
+		bool resetCondition = (inputs[RESET_INPUT].isConnected() && resetTrigger.process(inputs[RESET_INPUT].getVoltage())) || (params[RESET_BUTTON].getValue() > 0.1f);
+
+		if (resetCondition) {
+			for (int i = 0; i < 9; i++) {
+				ClockTimer[i].reset();
+				outputs[CLOCK_OUTPUT + 2 * i].setVoltage(0.f);
+				outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage(0.f);
+				lights[CLOCK_LIGHT + 2 * i].setBrightness(0.0f);
+				lights[CLOCK_LIGHT + 2 * i + 1].setBrightness(0.0f);
+			}
+		}
+	
+		fillGlobal = static_cast<int>(round(params[FILL_KNOB].getValue() + (inputs[FILL_INPUT].isConnected() ? inputs[FILL_INPUT].getVoltage() * params[FILL_ATT].getValue() : 0.0f)));               
+
+		// Calculate the LCM for each clock
+		int lcmWithMaster[9];
+		for (int i = 1; i < 9; ++i) {
+			int num = static_cast<int>(round(multiply[i]));
+			int denom = static_cast<int>(round(divide[i]));
+			simplifyRatio(num, denom);
+			lcmWithMaster[i] = lcm(denom, 1); // Master clock is 1:1
+		}
 
 
-        for (int i = 0; i < 9; i++) {
-            ClockTimer[i].process(deltaTime);
+		for (int i = 0; i < 9; i++) {
+			ClockTimer[i].process(deltaTime);
 
-            if (ClockTimer[i].time >= (60.0f / (bpm * ratio[i]))) {
-                ClockTimer[i].reset();
+			if (ClockTimer[i].time >= (60.0f / (bpm * ratio[i]))) {
+				ClockTimer[i].reset();
 
-                if (i < 1) {  // Master clock reset point
-                    masterClockCycle++;
-                    // Rotate the phases without resetting the individual clock timers
-                    for (int k = 1; k < 9; k++) {
-                        int newIndex = (k + clockRotate) % 8;
-                        if (newIndex < 0) {
-                            newIndex += 8; // Adjust for negative values to wrap around correctly
-                        }
-                        tempPhases[newIndex + 1] = phases[k];
-                    }
-                    for (int k = 1; k < 9; k++) {
-                        phases[k] = tempPhases[k];
-                    }
+				if (i < 1) {  // Master clock reset point
+					masterClockCycle++;
+					// Rotate the phases without resetting the individual clock timers
+					for (int k = 1; k < 9; k++) {
+						int newIndex = (k + clockRotate) % 8;
+						if (newIndex < 0) {
+							newIndex += 8; // Adjust for negative values to wrap around correctly
+						}
+						tempPhases[newIndex + 1] = phases[k];
+					}
+					for (int k = 1; k < 9; k++) {
+						phases[k] = tempPhases[k];
+					}
 
-                    for (int j = 1; j < 9; j++) {
+					for (int j = 1; j < 9; j++) {
 
-                        if (masterClockCycle % lcmWithMaster[j] == 0) {
-                            ClockTimer[j].reset();
-                        }
+						if (masterClockCycle % lcmWithMaster[j] == 0) {
+							ClockTimer[j].reset();
+						}
 
-                        if (resyncFlag[j]) {
-                            ClockTimer[j].reset();
-                            resyncFlag[j] = false;
-                        }
+						if (resyncFlag[j]) {
+							ClockTimer[j].reset();
+							resyncFlag[j] = false;
+						}
 
-                        int index = (clockRotate + j - 1) % 8;
-                        if (index < 0) {
-                            index += 8; // Adjust for negative values to wrap around correctly
-                        }
+						int index = (clockRotate + j - 1) % 8;
+						if (index < 0) {
+							index += 8; // Adjust for negative values to wrap around correctly
+						}
 
-                        multiply[j] = round(params[MULTIPLY_KNOB_1 + index].getValue()) + (fill[j-1] ? fillGlobal : 0);
-                        divide[j] = round(params[DIVIDE_KNOB_1 + index].getValue());
-                        ratio[j] = multiply[j] / divide[j];
+						multiply[j] = round(params[MULTIPLY_KNOB_1 + index].getValue()) + (fill[j-1] ? fillGlobal : 0);
+						divide[j] = round(params[DIVIDE_KNOB_1 + index].getValue());
+						ratio[j] = (divide[j] != 0) ? (multiply[j] / divide[j]) : 1.0f;
 
-                        if (fill[j] || ratio[j] != multiply[j] / divide[j]) {
-                            resyncFlag[j] = true;
-                        }
-                    }
-                }
-            }
+						if (fill[j] || ratio[j] != multiply[j] / divide[j]) {
+							resyncFlag[j] = true;
+						}
+					}
+				}
+			}
 
-            // Apply swing as a global adjustment to the phase increment
-            phases[i] = ClockTimer[i].time / (60.0f / (bpm * ratio[i]));
+			// Apply swing as a global adjustment to the phase increment
+			float phaseDenominator = 60.0f / (bpm * ratio[i]);
+			phases[i] = (phaseDenominator != 0) ? (ClockTimer[i].time / phaseDenominator) : 0.0f;
 
-            // Determine the output state based on pulse width
-            bool highState = phases[i] < width;
+			// Determine the output state based on pulse width
+			bool highState = phases[i] < width;
 
-            if (sequenceRunning) {
-                outputs[CLOCK_OUTPUT + 2 * i].setVoltage(highState ? 5.0f : 0.0f);
-                outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage(highState ? 0.0f : 5.0f);
-                lights[CLOCK_LIGHT + 2 * i].setBrightness(highState ? 1.0f : 0.0f);
-                lights[CLOCK_LIGHT + 2 * i + 1].setBrightness(highState ? 0.0f : 1.0f);
-            } else {
-                outputs[CLOCK_OUTPUT + 2 * i].setVoltage(0.f);
-                outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage(0.f);
-                lights[CLOCK_LIGHT + 2 * i].setBrightness(0.0f);
-                lights[CLOCK_LIGHT + 2 * i + 1].setBrightness(0.0f);
-            }
-        }
-                                
+			if (sequenceRunning) {
+				outputs[CLOCK_OUTPUT + 2 * i].setVoltage(highState ? 5.0f : 0.0f);
+				outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage(highState ? 0.0f : 5.0f);
+				lights[CLOCK_LIGHT + 2 * i].setBrightness(highState ? 1.0f : 0.0f);
+				lights[CLOCK_LIGHT + 2 * i + 1].setBrightness(highState ? 0.0f : 1.0f);
+			} else {
+				outputs[CLOCK_OUTPUT + 2 * i].setVoltage(0.f);
+				outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage(0.f);
+				lights[CLOCK_LIGHT + 2 * i].setBrightness(0.0f);
+				lights[CLOCK_LIGHT + 2 * i + 1].setBrightness(0.0f);
+			}
+		}
+							
         displayUpdateCounter++;
         if (displayUpdateCounter >= (1.0f / deltaTime / 30.0f)) { // Update 30 times per second
             displayUpdateCounter = 0;
@@ -403,7 +408,7 @@ struct Syncro : Module {
         numerator /= g;
         denominator /= g;
     }
-        
+            
 };
 
 struct SyncroWidget : ModuleWidget {
