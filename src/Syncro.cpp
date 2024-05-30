@@ -101,6 +101,8 @@ struct Syncro : Module {
     bool fill[9] = {false}; // Array to track the fill state for each channel
     int fillGlobal = 0;
     int masterClockCycle = 0;
+    float swing = 0.f;
+    int clockRotate = 0;
 
     Syncro() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
@@ -167,14 +169,14 @@ struct Syncro : Module {
         }
     }
 
-    void process(const ProcessArgs &args) override {
-        float swing = params[SWING_KNOB].getValue() + (inputs[SWING_INPUT].isConnected() ? 10.f * inputs[SWING_INPUT].getVoltage() * params[SWING_ATT].getValue() : 0.0f);
+     void process(const ProcessArgs &args) override {
+        swing = params[SWING_KNOB].getValue() + (inputs[SWING_INPUT].isConnected() ? 10.f * inputs[SWING_INPUT].getVoltage() * params[SWING_ATT].getValue() : 0.0f);
         swing = clamp(swing, -99.f, 99.f);
         float width = params[WIDTH_KNOB].getValue() + (inputs[WIDTH_INPUT].isConnected() ? 0.1f * inputs[WIDTH_INPUT].getVoltage() * params[WIDTH_ATT].getValue() : 0.0f);
         width = clamp(width, 0.01f, 0.99f);
         float rotate = params[ROTATE_KNOB].getValue() + (inputs[ROTATE_INPUT].isConnected() ? 0.2f * inputs[ROTATE_INPUT].getVoltage() * params[ROTATE_ATT].getValue() : 0.0f);
-        int clockRotate = static_cast<int>(round(fmod(-8.0f * rotate, 8.0f)));
- 
+        clockRotate = static_cast<int>(round(fmod(-8.0f * rotate, 8.0f)));
+
         if (SyncInterval <= 0) {
             SyncInterval = 1.0; // Default to a non-zero value to avoid division by zero
         }
@@ -262,12 +264,19 @@ struct Syncro : Module {
             int denom = static_cast<int>(round(divide[i]));
             simplifyRatio(num, denom);
             lcmWithMaster[i] = lcm(denom, 1); // Master clock is 1:1
+
+            // Ensure lcmWithMaster[i] is not zero to prevent division by zero
+            if (lcmWithMaster[i] == 0) {
+                lcmWithMaster[i] = 1; // Default to 1 to avoid division by zero
+            }
         }
 
         for (int i = 0; i < 9; i++) {
             ClockTimer[i].process(deltaTime);
 
-            if(ratio[i] <= 0.f){ratio[i] = 1.0f;} //div by zero safety
+            if (ratio[i] <= 0.f) {
+                ratio[i] = 1.0f; // div by zero safety
+            }
 
             if (ClockTimer[i].time >= (60.0f / (bpm * ratio[i]))) {
                 ClockTimer[i].reset();
@@ -341,57 +350,9 @@ struct Syncro : Module {
             if (deltaTime <= 0) {
                 deltaTime = 1.0f / 48000.0f;  // Assume a default sample rate if deltaTime is zero to avoid division by zero
             }
-
-            displayUpdateCounter++;
-            if (displayUpdateCounter >= (1.0f / deltaTime / 30.0f)) { // Update 30 times per second
-                displayUpdateCounter = 0;
-                // Update BPM and Swing displays
-                if (bpmDisplay) {
-                    char bpmText[16];
-                    snprintf(bpmText, sizeof(bpmText), "%.1f", bpm);
-                    bpmDisplay->text = bpmText;
-                }
-
-                if (swingDisplay) {
-                    char swingText[16];
-                    snprintf(swingText, sizeof(swingText), "%.1f%%", swing);
-                    swingDisplay->text = swingText;
-                }
-
-                // Update ratio displays
-                for (int i = 1; i < 9; i++) {
-                    int index = (clockRotate + i - 1) % 8;
-                    if (index < 0) {
-                        index += 8; // Adjust for negative values to wrap around correctly
-                    }
-
-                    disp_multiply[i] = round(params[MULTIPLY_KNOB_1 + index].getValue()) + (fill[i-1] ? fillGlobal : 0);
-                    disp_divide[i] = round(params[DIVIDE_KNOB_1 + index].getValue());
-                    if (ratioDisplays[i-1]) {
-                        char ratioText[16];
-                        snprintf(ratioText, sizeof(ratioText), "%d:%d", static_cast<int>(disp_multiply[i]), static_cast<int>(disp_divide[i]));
-                        if (index == 0) { // Check if the current index corresponds to the rotated position
-                            ratioDisplays[i-1]->text = "▸" + std::string(ratioText);
-                        } else {
-                            ratioDisplays[i-1]->text = ratioText;
-                        }
-                    }
-                }
-
-                for (int i = 0; i < 8; i++) {
-                    if (i < fillGlobal) {
-                        lights[FILL_LIGHT_1 + i].setBrightness(1.0f);
-                    } else {
-                        lights[FILL_LIGHT_1 + i].setBrightness(0.0f);
-                    }
-                if (fill[i]) {
-                    lights[FILL_INDICATE_1 + i].setBrightness(1.0f);
-                } else {
-                    lights[FILL_INDICATE_1 + i].setBrightness(0.0f);
-                }
-            }
         }
-    }
+    
+
 
     int gcd(int a, int b) {
         while (b != 0) {
@@ -504,6 +465,58 @@ struct SyncroWidget : ModuleWidget {
             for (int i = 0; i < 8; i++) {
                 module->ratioDisplays[i] = createDigitalDisplay(Vec(210, 65 + i * 38), "1:1");
                 addChild(module->ratioDisplays[i]);
+            }
+        }
+    }
+
+    void draw(const DrawArgs& args) override {
+        ModuleWidget::draw(args);
+        Syncro* module = dynamic_cast<Syncro*>(this->module);
+        if (!module) return;
+
+        // Update BPM and Swing displays
+        if (module->bpmDisplay) {
+            char bpmText[16];
+            snprintf(bpmText, sizeof(bpmText), "%.1f", module->bpm);
+            module->bpmDisplay->text = bpmText;
+        }
+
+        if (module->swingDisplay) {
+            char swingText[16];
+            snprintf(swingText, sizeof(swingText), "%.1f%%", module->swing);
+            module->swingDisplay->text = swingText;
+        }
+
+        // Update ratio displays
+        for (int i = 1; i < 9; i++) {
+            int index = (module->clockRotate + i - 1) % 8;
+            if (index < 0) {
+                index += 8; // Adjust for negative values to wrap around correctly
+            }
+
+            module->disp_multiply[i] = round(module->params[Syncro::MULTIPLY_KNOB_1 + index].getValue()) + (module->fill[i-1] ? module->fillGlobal : 0);
+            module->disp_divide[i] = round(module->params[Syncro::DIVIDE_KNOB_1 + index].getValue());
+            if (module->ratioDisplays[i-1]) {
+                char ratioText[16];
+                snprintf(ratioText, sizeof(ratioText), "%d:%d", static_cast<int>(module->disp_multiply[i]), static_cast<int>(module->disp_divide[i]));
+                if (index == 0) { // Check if the current index corresponds to the rotated position
+                    module->ratioDisplays[i-1]->text = "▸" + std::string(ratioText);
+                } else {
+                    module->ratioDisplays[i-1]->text = ratioText;
+                }
+            }
+        }
+
+        for (int i = 0; i < 8; i++) {
+            if (i < module->fillGlobal) {
+                module->lights[Syncro::FILL_LIGHT_1 + i].setBrightness(1.0f);
+            } else {
+                module->lights[Syncro::FILL_LIGHT_1 + i].setBrightness(0.0f);
+            }
+            if (module->fill[i]) {
+                module->lights[Syncro::FILL_INDICATE_1 + i].setBrightness(1.0f);
+            } else {
+                module->lights[Syncro::FILL_INDICATE_1 + i].setBrightness(0.0f);
             }
         }
     }
