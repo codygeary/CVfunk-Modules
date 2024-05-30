@@ -56,51 +56,27 @@ struct EnvelopeArray : Module {
         CURVE_INPUT,
         TIME1_INPUT,
         TIME6_INPUT,
-        _1_INPUT,
-        _2_INPUT,
-        _3_INPUT,
-        _4_INPUT,
-        _5_INPUT,
-        _6_INPUT,
+        _1_INPUT, _2_INPUT,  _3_INPUT,
+        _4_INPUT, _5_INPUT,  _6_INPUT,
         INPUTS_LEN
     };
     enum OutputId {
-        _1_OUTPUT,
-        _2_OUTPUT,
-        _3_OUTPUT,
-        _4_OUTPUT,
-        _5_OUTPUT,
-        _6_OUTPUT,
-        EOF1_OUTPUT,
-        EOF2_OUTPUT,
-        EOF3_OUTPUT,
-        EOF4_OUTPUT,
-        EOF5_OUTPUT,
-        EOF6_OUTPUT,
+        _1_OUTPUT, _2_OUTPUT, _3_OUTPUT,
+        _4_OUTPUT, _5_OUTPUT, _6_OUTPUT,
+        EOF1_OUTPUT,  EOF2_OUTPUT,  EOF3_OUTPUT,
+        EOF4_OUTPUT, EOF5_OUTPUT, EOF6_OUTPUT,
         OUTPUTS_LEN
     };
     enum LightId {
-        _1_LIGHT,
-        _2_LIGHT,
-        _3_LIGHT,
-        _4_LIGHT,
-        _5_LIGHT,
-        _6_LIGHT,
-        _7_LIGHT,
-        _8_LIGHT,
-        _9_LIGHT,
-        _10_LIGHT,
-        _11_LIGHT,
-        _12_LIGHT,
-        TIME1_LED1_LIGHT,  
-        TIME1_LED2_LIGHT,  
-        TIME1_LED3_LIGHT,  
-        TIME6_LED1_LIGHT,  
-        TIME6_LED2_LIGHT,  
-        TIME6_LED3_LIGHT,  
+        _1_LIGHT, _2_LIGHT, _3_LIGHT,
+        _4_LIGHT, _5_LIGHT, _6_LIGHT,
+        _7_LIGHT, _8_LIGHT, _9_LIGHT,
+        _10_LIGHT, _11_LIGHT, _12_LIGHT,
+        TIME1_LED1_LIGHT, TIME1_LED2_LIGHT,  
+        TIME1_LED3_LIGHT, TIME6_LED1_LIGHT,  
+        TIME6_LED2_LIGHT, TIME6_LED3_LIGHT,  
         LIGHTS_LEN  
-    };
-    
+    };  
     enum SpeedRange {
         HIGH,
         MID,
@@ -160,11 +136,14 @@ struct EnvelopeArray : Module {
         configParam(CURVE_PARAM, -1.f, 1.f, -.75f, "Curve");
         configParam(TIME1_PARAM, 0.0f, 1.0f, 0.4f, "First Width");
         configParam(TIME6_PARAM, 0.0f, 1.0f, 0.75f, "Last Width");
-        configParam(SLANT_ATTEN_PARAM, -1.0f, 1.0f, 1.f, "");
-        configParam(CURVE_ATTEN_PARAM, -1.f, 1.f, 1.F, "");
-        configParam(TIME1_ATTEN_PARAM, -1.f, 1.f, 1.f, "");
-        configParam(TIME6_ATTEN_PARAM, -1.f, 1.f, 1.f, "");
-        
+        configParam(SLANT_ATTEN_PARAM, -1.0f, 1.0f, 0.f, "Slant Attenuvertor");
+        configParam(CURVE_ATTEN_PARAM, -1.0f, 1.0f, 0.f, "Curve Attenuvertor");
+        configParam(TIME1_ATTEN_PARAM, -1.0f, 1.0f, 0.f, "First Width Attenuvertor");
+        configParam(TIME6_ATTEN_PARAM, -1.0f, 1.0f, 0.f, "Last Width Attenuvertor");
+ 
+		configParam(TIME1_RANGE_BUTTON, 0.0, 1.0, 0.0, "First Width Range" );
+		configParam(TIME6_RANGE_BUTTON, 0.0, 1.0, 0.0, "Last Width Range" );
+       
         /////////////////////
         //configParam(SECRET_PARAM,-5.0, 10.0f, 4.7f, "Mapping to a test knob"); //only used for calibration
         /////////////////////

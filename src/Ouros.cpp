@@ -59,7 +59,6 @@ struct Ouros : Module {
         SPREAD_KNOB,
         FEEDBACK_KNOB,
         MULTIPLY_KNOB,
-        RATE_ATT_KNOB,
         NODE_ATT_KNOB,
         ROTATE_ATT_KNOB,
         SPREAD_ATT_KNOB,
@@ -69,7 +68,6 @@ struct Ouros : Module {
         POSITION_ATT_KNOB,        
         MULTIPLY_ATT_KNOB,
         RESET_BUTTON,
-        PRESET,
         NUM_PARAMS
     };
     enum InputIds {
@@ -180,6 +178,10 @@ struct Ouros : Module {
         configParam(FEEDBACK_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Feedback Attenuverter"); // 
         configParam(POSITION_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Feedback Position Attenuverter"); // 
         configParam(MULTIPLY_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Multiply Attenuverter"); // 
+
+        configParam(FM_ATT_KNOB, -1.0f, 1.0f, 0.0f, "FM Attenuverter"); // 
+        configInput(HARD_SYNC_INPUT, "Sync");
+		configParam(RESET_BUTTON, 0.0, 1.0, 0.0, "Reset" );
 
         configInput(ROTATE_INPUT, "Rotate");
         configInput(SPREAD_INPUT, "Phase Spread");

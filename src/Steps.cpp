@@ -73,20 +73,24 @@ struct Steps : Module {
         configParam(BIAS_PARAM, -5.f, 5.f, 1.f, "Bias");
         configParam(RANGE_PARAM, 0.f, 10.f, 3.f, "Range");
         configParam(STEP_PARAM, -1.f, 1.f, 0.41666666f, "Step Size");
-        configInput(COMPARATOR_INPUT, "Comparator IN");
-        configInput(BIAS_INPUT, "Bias IN");
-        configInput(RANGE_INPUT, "Range IN");
-        configInput(INVERT_INPUT, "Invert Gate IN");
-        configInput(STEP_INPUT, "Step Size IN");
-        configInput(TRIGGER_INPUT, "Trigger IN");
-        configInput(RESET_INPUT, "Reset IN");
-        configOutput(COMPARATOR_UP_OUTPUT, "Comparator Above OUT");
-        configOutput(COMPARATOR_DN_OUTPUT, "Comparator Below OUT");
-        configOutput(STEPPER_OUTPUT, "Stepper OUT");
+        configInput(COMPARATOR_INPUT, "Comparator");
+        configInput(BIAS_INPUT, "Bias");
+        configInput(RANGE_INPUT, "Range");
+        configInput(INVERT_INPUT, "Invert Gate");
+        configInput(STEP_INPUT, "Step Size");
+        configInput(TRIGGER_INPUT, "Trigger");
+        configInput(RESET_INPUT, "Reset");
+        configOutput(COMPARATOR_UP_OUTPUT, "Comparator Above");
+        configOutput(COMPARATOR_DN_OUTPUT, "Comparator Below");
+        configOutput(STEPPER_OUTPUT, "Stepper");
         // Initialize step_mix with the bias value
         step_mix = params[BIAS_PARAM].getValue() + inputs[BIAS_INPUT].getVoltage();
-        
-       // Initialize variables in the constructor
+ 
+
+        configParam(TRIGGER_BUTTON_PARAM, 0.0, 1.0, 0.0, "Trigger" );
+        configParam(RESET_BUTTON_PARAM, 0.0, 1.0, 0.0, "Reset" );
+       
+        // Initialize variables in the constructor
         previousTriggerState = false;
         previousResetState = false;
         

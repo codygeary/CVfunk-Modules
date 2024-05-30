@@ -360,17 +360,24 @@ struct Strings : Module {
         configInput(ALT_CHORD_GATE, "Chord Bank II");
         
         for (int i = ENVELOPE_IN_1; i <= ENVELOPE_IN_6; i++) {
-            configInput(i, "Envelope Input " + std::to_string(i - ENVELOPE_IN_1 + 1));
+            configInput(i, "Pitch Bend " + std::to_string(i - ENVELOPE_IN_1 + 1));
         }
-        configInput(WHAMMY_BAR_CV, "Whammy Bar CV");
+        configInput(WHAMMY_BAR_CV, "Whammy Bar");
 
         // Initialize outputs
         for (int i = STRING_CV_OUT_1; i <= STRING_CV_OUT_6; i++) {
-            configOutput(i, "String CV Output " + std::to_string(i - STRING_CV_OUT_1 + 1));
+            configOutput(i, "String " + std::to_string(i - STRING_CV_OUT_1 + 1) + " V/oct");
         }
-        configOutput(ROOT_NOTE_CV_OUT, "Root Note CV");      
+        configOutput(ROOT_NOTE_CV_OUT, "Root Note V/oct");      
         configOutput(TRIGGER_OUT, "Chord Change Trigger");      
- 
+
+		configParam(BARRE_CHORD_BUTTON, 0.0, 1.0, 0.0, "Chord Bank I Button" );
+		configParam(ALT_CHORD_BUTTON, 0.0, 1.0, 0.0, "Chord Bank II Button" );
+
+        for (int i = MUTE_OUT_1; i <= MUTE_OUT_6; i++) {
+            configOutput(i, "Mute " + std::to_string(i - MUTE_OUT_1 + 1));
+        }
+
         barreLatched = false;
         altLatched = false; 
         barreGateActive = false;

@@ -240,6 +240,14 @@ struct PressedDuck : Module {
         configParam(PAN5_PARAM, -1.f, 1.f, 0.f, "Channel 5 Pan");
         configParam(PAN6_PARAM, -1.f, 1.f, 0.f, "Channel 6 Pan");
 
+		configParam(MUTE1_PARAM, 0.0, 1.0, 0.0, "Mute 1" );
+		configParam(MUTE2_PARAM, 0.0, 1.0, 0.0, "Mute 2" );
+		configParam(MUTE3_PARAM, 0.0, 1.0, 0.0, "Mute 3" );
+		configParam(MUTE4_PARAM, 0.0, 1.0, 0.0, "Mute 4" );
+		configParam(MUTE5_PARAM, 0.0, 1.0, 0.0, "Mute 5" );
+		configParam(MUTE6_PARAM, 0.0, 1.0, 0.0, "Mute 6" );
+		configParam(MUTESIDE_PARAM, 0.0, 1.0, 0.0, "Mute Sidechain" );
+
         // Configure side and saturation parameters
         configParam(SIDECHAIN_VOLUME_PARAM, 0.f, 2.f, 0.6f, "Sidechain Volume");
         configParam(DUCK_PARAM, 0.f, 1.f, 0.7f, "Duck Amount");

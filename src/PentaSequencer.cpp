@@ -103,6 +103,8 @@ struct PentaSequencer : Module {
         configOutput(C_OUTPUT, "C");
         configOutput(D_OUTPUT, "D");
         configOutput(E_OUTPUT, "E");
+		configParam(MANUAL_TRIGGER_PARAM, 0.0, 1.0, 0.0, "Manual Trigger" );
+		configParam(MANUAL_RESET_PARAM, 0.0, 1.0, 0.0, "Manual Reset" );
     }
 
     void process(const ProcessArgs& args) override {

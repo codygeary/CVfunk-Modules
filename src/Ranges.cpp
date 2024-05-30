@@ -52,16 +52,19 @@ struct Ranges : Module {
         configParam(BOTTOM_ATT_PARAM, -1.f, 1.f, 0.f, "Botom Attenuation");
         configParam(DIVISIONS_PARAM, 0.f, 11.f, 1.f, "Divisions");
 
-
-        configInput(TOP_INPUT, "Top IN");
-        configInput(BOTTOM_INPUT, "Bottom IN");
-        configInput(DIVISIONS_INPUT, "Divisions IN");
-
+        configInput(TOP_INPUT, "Top");
+        configInput(BOTTOM_INPUT, "Bottom");
+        configInput(DIVISIONS_INPUT, "Divisions");
 
         // Initialize lights if needed
         for (int i = 0; i < 13; ++i) {
             configLight(OUT1_LIGHT + i, "Output Active Indicator");
         }
+
+        for (int i = 0; i < 13; ++i) {
+            configOutput(OUT1_OUTPUT + i, "Range " + std::to_string(i + 1));
+        }
+
     }
 
     void process(const ProcessArgs& args) override {
@@ -108,7 +111,6 @@ struct RangesWidget : ModuleWidget {
         addChild(createWidget<ThemedScrew>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, 0)));
         addChild(createWidget<ThemedScrew>(Vec(RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
         addChild(createWidget<ThemedScrew>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
-
 
         // Left Section
         addParam(createParam<RoundBlackKnob>(mm2px(Vec(5, 12)), module, Ranges::TOP_PARAM));
