@@ -1,3 +1,4 @@
+
 ////////////////////////////////////////////////////////////
 //
 //   Syncro
@@ -68,45 +69,57 @@ struct Syncro : Module {
         NUM_LIGHTS
     };
 
+    DigitalDisplay* phasorDisplay = nullptr;
     DigitalDisplay* bpmDisplay = nullptr;
     DigitalDisplay* swingDisplay = nullptr;
     DigitalDisplay* ratioDisplays[8] = {nullptr};
+
     Light fillLights[8];
     Light gateStateLights[18];
+
     dsp::Timer SyncTimer;
     dsp::Timer SwingTimer;
-    float SwingPhase = 0.0f;
     dsp::Timer ClockTimer[9];  // Array to store timers for each clock
+ 
     dsp::SchmittTrigger SyncTrigger;
     dsp::SchmittTrigger resetTrigger;
     dsp::SchmittTrigger onOffTrigger;
     dsp::SchmittTrigger onOffButtonTrigger;
-    bool sequenceRunning = true;
+
+    float SwingPhase = 0.0f;
     float lastClockTime = -1.0f;
-    float warpedTime = 1.0f;
     float bpm = 120.0f;
-    int displayUpdateCounter = 0;
     float phase = 0.0f;
     float multiply[9] = {1.0f}; 
     float divide[9] = {1.0f};   
     float ratio[9] = {1.0f};   
     float disp_multiply[9] = {1.0f}; 
     float disp_divide[9] = {1.0f};   
-    bool resyncFlag[9] = {false};
-    bool firstClockPulse = true;
     float SyncInterval = 1.0f;
     float clockRate = 120.0f;
     float phases[9] = {0.0f};  // Array to store phases for each clock
     float tempPhases[9] = {0.0f};
-    bool fill[9] = {false}; // Array to track the fill state for each channel
+    float swing = 0.f;
+
+    int clockRotate = 0;
+    int swingCount = 0;
     int fillGlobal = 0;
     int masterClockCycle = 0;
-    float swing = 0.f;
-    int clockRotate = 0;
+
+    bool fill[9] = {false}; // Array to track the fill state for each channel
+    bool resyncFlag[9] = {false};
+    bool firstClockPulse = true;
+    bool sequenceRunning = true;
+    bool phasorMode = false;
+    bool clockCVAsVoct = false;
+    bool resetPulse = false;
+
 
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
         json_object_set_new(rootJ, "sequenceRunning", json_boolean(sequenceRunning));
+        json_object_set_new(rootJ, "phasorMode", json_boolean(phasorMode));
+        json_object_set_new(rootJ, "clockCVAsVoct", json_boolean(clockCVAsVoct));
         return rootJ;
     }
 
@@ -115,24 +128,34 @@ struct Syncro : Module {
         if (sequenceRunningJ) {
             sequenceRunning = json_is_true(sequenceRunningJ);
         }
+
+        json_t* phasorModeJ = json_object_get(rootJ, "phasorMode");
+        if (phasorModeJ) {
+            phasorMode = json_is_true(phasorModeJ);
+        }
+
+        json_t* clockCVAsVoctJ = json_object_get(rootJ, "clockCVAsVoct");
+        if (clockCVAsVoctJ) {
+            clockCVAsVoct = json_is_true(clockCVAsVoctJ);
+        }
     }
 
     Syncro() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
     
         // Configure parameters
-        configParam(CLOCK_KNOB, 0.01f, 360.0f, 120.0f, "Clock Rate", " BPM");
+        configParam(CLOCK_KNOB, 0.000001f, 360.0f, 120.0f, "Clock Rate", " BPM");
         configParam(CLOCK_ATT, -1.f, 1.f, 0.0f, "Clock Attenuvertor");
         configParam(SWING_KNOB, -99.0f, 99.0f, 0.0f, "Swing", " %");
         configParam(SWING_ATT, -1.f, 1.f, 0.0f, "Swing Attenuvertor");
-        configParam(MULTIPLY_KNOB_1, 1.0f, 256.0f, 1.0f, "Multiply 1");
-        configParam(MULTIPLY_KNOB_2, 1.0f, 256.0f, 1.0f, "Multiply 2");
-        configParam(MULTIPLY_KNOB_3, 1.0f, 256.0f, 1.0f, "Multiply 3");
-        configParam(MULTIPLY_KNOB_4, 1.0f, 256.0f, 1.0f, "Multiply 4");
-        configParam(MULTIPLY_KNOB_5, 1.0f, 256.0f, 1.0f, "Multiply 5");
-        configParam(MULTIPLY_KNOB_6, 1.0f, 256.0f, 1.0f, "Multiply 6");
-        configParam(MULTIPLY_KNOB_7, 1.0f, 256.0f, 1.0f, "Multiply 7");
-        configParam(MULTIPLY_KNOB_8, 1.0f, 256.0f, 1.0f, "Multiply 8");
+        configParam(MULTIPLY_KNOB_1, 1.0f, 128.0f, 1.0f, "Multiply 1");
+        configParam(MULTIPLY_KNOB_2, 1.0f, 128.0f, 1.0f, "Multiply 2");
+        configParam(MULTIPLY_KNOB_3, 1.0f, 128.0f, 1.0f, "Multiply 3");
+        configParam(MULTIPLY_KNOB_4, 1.0f, 128.0f, 1.0f, "Multiply 4");
+        configParam(MULTIPLY_KNOB_5, 1.0f, 128.0f, 1.0f, "Multiply 5");
+        configParam(MULTIPLY_KNOB_6, 1.0f, 128.0f, 1.0f, "Multiply 6");
+        configParam(MULTIPLY_KNOB_7, 1.0f, 128.0f, 1.0f, "Multiply 7");
+        configParam(MULTIPLY_KNOB_8, 1.0f, 128.0f, 1.0f, "Multiply 8");
         configParam(DIVIDE_KNOB_1, 1.0f, 256.0f, 1.0f, "Divide 1");
         configParam(DIVIDE_KNOB_2, 1.0f, 256.0f, 2.0f, "Divide 2");
         configParam(DIVIDE_KNOB_3, 1.0f, 256.0f, 4.0f, "Divide 3");
@@ -171,13 +194,13 @@ struct Syncro : Module {
         configOutput(CLOCK_OUTPUT_8, "Clock 8");
         configOutput(INV_CLOCK_OUTPUT_8, "Inverted Clock 8");
 
-		configInput(CLOCK_INPUT , "Clock" );
-		configInput(SWING_INPUT , "Swing" );
-		configInput(FILL_INPUT , "Fill" );
-		configInput(WIDTH_INPUT , "Pulse Width" );
-		configInput(ROTATE_INPUT , "Rotation" );
-		configParam(RESET_BUTTON, 0.0, 1.0, 0.0, "Reset" );
-		configParam(ON_OFF_BUTTON, 0.0, 1.0, 0.0, "On / Off " );
+        configInput(CLOCK_INPUT , "Clock" );
+        configInput(SWING_INPUT , "Swing" );
+        configInput(FILL_INPUT , "Fill" );
+        configInput(WIDTH_INPUT , "Pulse Width" );
+        configInput(ROTATE_INPUT , "Rotation" );
+        configParam(RESET_BUTTON, 0.0, 1.0, 0.0, "Reset" );
+        configParam(ON_OFF_BUTTON, 0.0, 1.0, 0.0, "On / Off " );
 
         // Initialize fill buttons
         for (int i = 0; i < 8; i++) {
@@ -204,25 +227,47 @@ struct Syncro : Module {
         swing = params[SWING_KNOB].getValue() + (inputs[SWING_INPUT].isConnected() ? 10.f * inputs[SWING_INPUT].getVoltage() * params[SWING_ATT].getValue() : 0.0f);
         swing = clamp(swing, -99.f, 99.f);
         float width = params[WIDTH_KNOB].getValue() + (inputs[WIDTH_INPUT].isConnected() ? 0.1f * inputs[WIDTH_INPUT].getVoltage() * params[WIDTH_ATT].getValue() : 0.0f);
-        width = clamp(width, 0.01f, 0.99f);
-        float rotate = params[ROTATE_KNOB].getValue() + (inputs[ROTATE_INPUT].isConnected() ? 0.2f * inputs[ROTATE_INPUT].getVoltage() * params[ROTATE_ATT].getValue() : 0.0f);
+        width = clamp(width, 0.001f, 0.999f);
+        float rotate = params[ROTATE_KNOB].getValue() + (inputs[ROTATE_INPUT].isConnected() ? 0.1f*inputs[ROTATE_INPUT].getVoltage() * params[ROTATE_ATT].getValue() : 0.0f);
         clockRotate = static_cast<int>(round(fmod(-8.0f * rotate, 8.0f)));
 
-        if (SyncInterval <= 0) {
-            SyncInterval = 1.0; // Default to a non-zero value to avoid division by zero
+        // Process clock sync input
+        if (inputs[EXT_CLOCK_INPUT].isConnected()) {
+            float SyncInputVoltage = inputs[EXT_CLOCK_INPUT].getVoltage();
+
+            if (SyncTrigger.process(SyncInputVoltage)) {
+                if (!firstClockPulse) {
+                     SyncInterval = SyncTimer.time; // Get the accumulated time since the last reset
+                }
+                SyncTimer.reset(); // Reset the timer for the next trigger interval measurement
+                phases[0] = 0.0f;
+                ClockTimer[0].reset();
+                resetPulse = true;
+
+                firstClockPulse = false;
+            }
+            bpm = (SyncInterval > 0) ? (60.f / SyncInterval) : 120.f; // Use default 120 BPM if SyncInterval is zero
+
+        } else {
+            // Calculate phase increment
+            if ( clockCVAsVoct && inputs[CLOCK_INPUT].isConnected() ) {
+                float input_v_oct = inputs[CLOCK_INPUT].getVoltage();//ignore the attenuator in this mode
+                // Process input_v_oct into BPM using V/Oct scale centered on 120 BPM
+                bpm = 120.f * powf(2.f, input_v_oct);
+            } else {
+                bpm = params[CLOCK_KNOB].getValue() + (inputs[CLOCK_INPUT].isConnected() ? 10.f * inputs[CLOCK_INPUT].getVoltage() * params[CLOCK_ATT].getValue() : 0.0f);
+            }
         }
-        bpm = 60.f / SyncInterval; 
 
         float deltaTime = args.sampleTime;
-        float actualTime = deltaTime;
-        bool isExtClock = inputs[EXT_CLOCK_INPUT].isConnected();
 
+        // Process timers
+        SyncTimer.process(deltaTime);
+        SwingTimer.process(deltaTime);
+
+        // Compute swing
         SwingPhase = SwingTimer.time / (120.f / bpm);
-        if (SwingPhase >= 1.0f) {
-            SwingTimer.reset();
-        }
-
-        deltaTime *= 1.0f + (swing / 100.0f) * sinf(2.0f * M_PI * SwingPhase);
+        deltaTime = deltaTime*(1.0f + (swing / 100.0f) * cosf(2.0f * M_PI * SwingPhase));
 
         // Check for on/off input or on/off button
         bool onOffCondition = false;
@@ -245,33 +290,16 @@ struct Syncro : Module {
             }
         }
 
-        // Process timers
-        SyncTimer.process(actualTime);
-        SwingTimer.process(deltaTime);
-
         // Update fill state
         for (int i = 1; i < 9; i++) {
             fill[i-1] = (params[FILL_BUTTON_1 + i - 1].getValue() > 0.1f) || (inputs[FILL_INPUT_1 + i - 1].getVoltage() > 0.1f);
         }
 
-        // Process clock sync input
-        if (isExtClock) {
-            float SyncInputVoltage = inputs[EXT_CLOCK_INPUT].getVoltage();
+		// Calculate the Nyquist frequency and the maximum BPM considering a 128x multiplier
+		float maxBPM = (args.sampleRate * 60.0f) / 256.0f;
 
-            if (SyncTrigger.process(SyncInputVoltage)) {
-                if (!firstClockPulse) {
-                     SyncInterval = SyncTimer.time; // Get the accumulated time since the last reset
-                }
-                SyncTimer.reset(); // Reset the timer for the next trigger interval measurement
-                firstClockPulse = false;
-            }
-            bpm = (SyncInterval > 0) ? (60.f / SyncInterval) : 120.f; // Use default 120 BPM if SyncInterval is zero
-
-        } else {
-            // Calculate phase increment
-            bpm = params[CLOCK_KNOB].getValue() + (inputs[CLOCK_INPUT].isConnected() ? 10.f * inputs[CLOCK_INPUT].getVoltage() * params[CLOCK_ATT].getValue() : 0.0f);
-        }
-        bpm = clamp(bpm, 0.01f, 460.f); //bpm is clamped to be non-zero
+		// Clamp BPM based on the Nyquist frequency
+		bpm = clamp(bpm, 0.000001f, maxBPM);
 
         // Check for reset input or reset button
         bool resetCondition = (inputs[RESET_INPUT].isConnected() && resetTrigger.process(inputs[RESET_INPUT].getVoltage())) || (params[RESET_BUTTON].getValue() > 0.1f);
@@ -309,9 +337,30 @@ struct Syncro : Module {
                 ratio[i] = 1.0f; // div by zero safety
             }
 
+			if (i < 1){  //Swing clock reset logic
+				if ( inputs[EXT_CLOCK_INPUT].isConnected() ) {
+  				    if (resetPulse){
+						swingCount++;
+						if (swingCount > 1.f){
+							SwingTimer.reset();
+							swingCount = 0;
+						}
+                        resetPulse = false;
+					}
+				} else {
+					if ( ClockTimer[0].time >= (60.0f / (bpm ) ) ){
+						swingCount++;
+						if (swingCount > 1.f){
+							SwingTimer.reset();
+							swingCount = 0;
+						}
+					}
+				}
+			}
+
             if (ClockTimer[i].time >= (60.0f / (bpm * ratio[i]))) {
                 ClockTimer[i].reset();
-
+                
                 if (i < 1) {  // Master clock reset point
                     masterClockCycle++;
                     // Rotate phases
@@ -366,10 +415,33 @@ struct Syncro : Module {
                 bool highState = phases[i] < width;
 
                 if (sequenceRunning) {
-                    outputs[CLOCK_OUTPUT + 2 * i].setVoltage(highState ? 5.0f : 0.0f);
-                    outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage(highState ? 0.0f : 5.0f);
-                    lights[CLOCK_LIGHT + 2 * i].setBrightness(highState ? 1.0f : 0.0f);
-                    lights[CLOCK_LIGHT + 2 * i + 1].setBrightness(highState ? 0.0f : 1.0f);
+                    if (phasorMode){
+
+                        // Compute phase offset from pulse width input
+                        float phase_offset = params[WIDTH_KNOB].getValue() + 
+                                             (inputs[WIDTH_INPUT].isConnected() ? 0.1f * inputs[WIDTH_INPUT].getVoltage() * params[WIDTH_ATT].getValue() : 0.0f);
+                        phase_offset = clamp(phase_offset, 0.f, 1.0f);
+
+                        // Calculate adjusted phase and use fmod for safe modulo operation
+                        float adjusted_phase = fmod(phases[i] + phase_offset, 1.0f);
+
+                        // Ensure adjusted_phase is within 0 to 1 range
+                        if (adjusted_phase < 0.0f) {
+                            adjusted_phase += 1.0f;
+                        }
+
+                        outputs[CLOCK_OUTPUT + 2 * i].setVoltage(phases[i]*10.f);
+                        outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage( adjusted_phase*10.f );
+                        lights[CLOCK_LIGHT + 2 * i].setBrightness(phases[i]);
+                        lights[CLOCK_LIGHT + 2 * i + 1].setBrightness(1-phases[i]);
+
+                    } else {
+                        outputs[CLOCK_OUTPUT + 2 * i].setVoltage(highState ? 5.0f : 0.0f);
+                        outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage(highState ? 0.0f : 5.0f);
+                        lights[CLOCK_LIGHT + 2 * i].setBrightness(highState ? 1.0f : 0.0f);
+                        lights[CLOCK_LIGHT + 2 * i + 1].setBrightness(highState ? 0.0f : 1.0f);
+                    }
+
                 } else {
                     outputs[CLOCK_OUTPUT + 2 * i].setVoltage(0.f);
                     outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage(0.f);
@@ -383,8 +455,6 @@ struct Syncro : Module {
             }
         }
     
-
-
     int gcd(int a, int b) {
         while (b != 0) {
             int t = b;
@@ -492,6 +562,10 @@ struct SyncroWidget : ModuleWidget {
             module->swingDisplay = createDigitalDisplay(Vec(90, 28), "0.0%");
             addChild(module->swingDisplay);
 
+            // Phasor Display Initialization
+            module->phasorDisplay = createDigitalDisplay(Vec(230, 26), "");
+            addChild(module->phasorDisplay);
+
             // Ratio Displays Initialization
             for (int i = 0; i < 8; i++) {
                 module->ratioDisplays[i] = createDigitalDisplay(Vec(210, 65 + i * 38), "1:1");
@@ -500,22 +574,79 @@ struct SyncroWidget : ModuleWidget {
         }
     }
 
+    void appendContextMenu(Menu* menu) override {
+        ModuleWidget::appendContextMenu(menu);
+
+        // Cast the module to Syncro and check if the cast is successful
+        Syncro* syncroModule = dynamic_cast<Syncro*>(module);
+        if (!syncroModule) return;
+
+        // Separator for visual grouping in the context menu
+        menu->addChild(new MenuSeparator());
+
+        // Retriggering enabled/disabled menu item
+        struct PhasorEnabledItem : MenuItem {
+            Syncro* syncroModule;
+            void onAction(const event::Action& e) override {
+                syncroModule->phasorMode = !syncroModule->phasorMode;
+            }
+            void step() override {
+                rightText = syncroModule->phasorMode ? "✔" : "";
+                MenuItem::step();
+            }
+        };
+
+        PhasorEnabledItem* phasorItem = new PhasorEnabledItem();
+        phasorItem->text = "Phasor Mode";
+        phasorItem->syncroModule = syncroModule; // Ensure we're setting the module
+        menu->addChild(phasorItem);
+
+        // Clock CV as V/oct enabled/disabled menu item
+        struct ClockCVAsVoctItem : MenuItem {
+            Syncro* syncroModule;
+            void onAction(const event::Action& e) override {
+                syncroModule->clockCVAsVoct = !syncroModule->clockCVAsVoct;
+            }
+            void step() override {
+                rightText = syncroModule->clockCVAsVoct ? "✔" : "";
+                MenuItem::step();
+            }
+        };
+
+        ClockCVAsVoctItem* clockItem = new ClockCVAsVoctItem();
+        clockItem->text = "Clock CV as V/oct";
+        clockItem->syncroModule = syncroModule; // Ensure we're setting the module
+        menu->addChild(clockItem);
+    }
+
     void draw(const DrawArgs& args) override {
         ModuleWidget::draw(args);
         Syncro* module = dynamic_cast<Syncro*>(this->module);
         if (!module) return;
 
         // Update BPM and Swing displays
-        if (module->bpmDisplay) {
-            char bpmText[16];
-            snprintf(bpmText, sizeof(bpmText), "%.1f", module->bpm);
-            module->bpmDisplay->text = bpmText;
-        }
+		if (module->bpmDisplay) {
+			char bpmText[16];
+			if (module->clockCVAsVoct) {
+				snprintf(bpmText, sizeof(bpmText), "▸%.1f", module->bpm);//symbol indicates v/oct mode
+			} else {
+				snprintf(bpmText, sizeof(bpmText), "%.1f", module->bpm);
+			}
+			module->bpmDisplay->text = bpmText;
+		}
 
         if (module->swingDisplay) {
             char swingText[16];
             snprintf(swingText, sizeof(swingText), "%.1f%%", module->swing);
             module->swingDisplay->text = swingText;
+        }
+
+        if (module->phasorDisplay) {
+            if (module->phasorMode){
+                module->phasorDisplay->text = "Phasor Mode";
+            } else {
+                module->phasorDisplay->text = "";
+            }
         }
 
         // Update ratio displays
