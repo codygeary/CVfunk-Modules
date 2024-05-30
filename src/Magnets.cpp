@@ -100,6 +100,7 @@ struct Magnets : Module {
         configParam(POLARIZATION_PARAM, -1.f, 1.f, 0.f, "Polarization");
         configParam(INTERACTION_PARAM, 0.f, 1.f, 0.5f, "Interaction Strength");
         configParam(UPDATE_INTERVAL_PARAM, 0.15f, 2.f, 0.5f, "Update Interval", " ms");
+		configParam(RESET_BUTTON, 0.0, 1.0, 0.0, "Reset" );
 
         // Initialize attenuators 
         configParam(TEMP_ATTENUATOR, -1.f, 1.f, 0.0f, "Temperature Attenuator");
@@ -115,7 +116,7 @@ struct Magnets : Module {
 
         // Initialize outputs with labels
         for (int i = 0; i < NUM_SECTIONS; ++i) {
-            configOutput(OUTPUTS_START + i, "#" + std::to_string(i+1));
+            configOutput(OUTPUTS_START + i, "Zone " + std::to_string(i+1));
         }
         
         // Initialize all lights to off

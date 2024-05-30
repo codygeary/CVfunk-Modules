@@ -148,18 +148,10 @@ struct ImpulseController : Module {
         configInput(LAG_INPUT, "Lag");
         configInput(SPREAD_INPUT, "Spread");
         configInput(DECAY_INPUT, "Decay");
-        configOutput(_01_OUTPUT, ""); configOutput(_02_OUTPUT, "");
-        configOutput(_03_OUTPUT, ""); configOutput(_04_OUTPUT, "");
-        configOutput(_05_OUTPUT, ""); configOutput(_06_OUTPUT, "");
-        configOutput(_07_OUTPUT, ""); configOutput(_08_OUTPUT, "");
-        configOutput(_09_OUTPUT, ""); configOutput(_10_OUTPUT, "");
-        configOutput(_11_OUTPUT, ""); configOutput(_12_OUTPUT, "");
-        configOutput(_13_OUTPUT, ""); configOutput(_14_OUTPUT, "");
-        configOutput(_15_OUTPUT, ""); configOutput(_16_OUTPUT, "");
-        configOutput(_17_OUTPUT, ""); configOutput(_18_OUTPUT, "");
-        configOutput(_19_OUTPUT, ""); configOutput(_20_OUTPUT, "");
-        configOutput(_21_OUTPUT, ""); configOutput(_22_OUTPUT, "");
-        configOutput(_23_OUTPUT, ""); configOutput(_24_OUTPUT, "");
+
+        for (int i = 0; i < 24; ++i) {
+            configOutput(_01_OUTPUT + i, "Impulse " + std::to_string(i+1));
+        }
     }
 
     void process(const ProcessArgs& args) override {
