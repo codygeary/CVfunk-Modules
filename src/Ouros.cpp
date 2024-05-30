@@ -59,6 +59,7 @@ struct Ouros : Module {
         SPREAD_KNOB,
         FEEDBACK_KNOB,
         MULTIPLY_KNOB,
+        RATE_ATT_KNOB,
         NODE_ATT_KNOB,
         ROTATE_ATT_KNOB,
         SPREAD_ATT_KNOB,
@@ -68,6 +69,7 @@ struct Ouros : Module {
         POSITION_ATT_KNOB,        
         MULTIPLY_ATT_KNOB,
         RESET_BUTTON,
+        PRESET,
         NUM_PARAMS
     };
     enum InputIds {

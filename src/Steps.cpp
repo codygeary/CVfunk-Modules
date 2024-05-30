@@ -18,6 +18,10 @@ struct Steps : Module {
         BIAS_PARAM,
         RANGE_PARAM,
         STEP_PARAM,
+        BIAS_ATT,
+        RANGE_ATT,
+        STEP_ATT,
+        COMPARATOR_ATT,
         TRIGGER_BUTTON_PARAM,
         RESET_BUTTON_PARAM,
         PARAMS_LEN
@@ -70,10 +74,15 @@ struct Steps : Module {
 
     Steps() {
         config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
-        configParam(BIAS_PARAM, -5.f, 5.f, 1.f, "Bias");
-        configParam(RANGE_PARAM, 0.f, 10.f, 3.f, "Range");
-        configParam(STEP_PARAM, -1.f, 1.f, 0.41666666f, "Step Size");
-        configInput(COMPARATOR_INPUT, "Comparator");
+        configParam(BIAS_PARAM, -5.0f, 5.0f, 1.0f, "Bias");
+        configParam(RANGE_PARAM, 0.0f, 10.0f, 3.0f, "Range");
+        configParam(STEP_PARAM, -1.0f, 1.0f, 0.41666666f, "Step Size");
+        configParam(BIAS_ATT, -1.0f, 1.f, 1.0f, "Bias Attenuvertor");
+        configParam(RANGE_ATT, -1.0f, 1.0f, 1.0f, "Range Attenuvertor");
+        configParam(STEP_ATT, -1.0f, 1.0f, 1.0f, "Step Size Attenuvertor");
+        configParam(COMPARATOR_ATT, -1.0f, 1.0f, 1.0f, "Comparator Input Attenuvertor");
+
+        configInput(COMPARATOR_INPUT, "Comparator (Input breaks normal)");
         configInput(BIAS_INPUT, "Bias");
         configInput(RANGE_INPUT, "Range");
         configInput(INVERT_INPUT, "Invert Gate");
@@ -86,27 +95,25 @@ struct Steps : Module {
         // Initialize step_mix with the bias value
         step_mix = params[BIAS_PARAM].getValue() + inputs[BIAS_INPUT].getVoltage();
  
-
         configParam(TRIGGER_BUTTON_PARAM, 0.0, 1.0, 0.0, "Trigger" );
         configParam(RESET_BUTTON_PARAM, 0.0, 1.0, 0.0, "Reset" );
        
         // Initialize variables in the constructor
         previousTriggerState = false;
-        previousResetState = false;
-        
+        previousResetState = false;        
     }
 
      void process(const ProcessArgs& args) override {
         // Read parameters
-        float bias = params[BIAS_PARAM].getValue() + inputs[BIAS_INPUT].getVoltage();
-        float range = params[RANGE_PARAM].getValue() + inputs[RANGE_INPUT].getVoltage();
-        float step = params[STEP_PARAM].getValue() + inputs[STEP_INPUT].getVoltage();
+        float bias = params[BIAS_PARAM].getValue();// + (inputs[BIAS_INPUT].isConnected() ? inputs[BIAS_INPUT].getVoltage() * params[BIAS_ATT].getValue() : 0.f);
+        float range = params[RANGE_PARAM].getValue();// + (inputs[RANGE_INPUT].isConnected() ? inputs[RANGE_INPUT].getVoltage() * params[RANGE_ATT].getValue() : 0.f);
+        float step = params[STEP_PARAM].getValue();// + (inputs[STEP_INPUT].isConnected() ? inputs[STEP_INPUT].getVoltage() * params[STEP_ATT].getValue() : 0.f);
 
         // Read inputs
         float comparatorInput = 0.0; // Initialize to 0
         if (inputs[COMPARATOR_INPUT].isConnected()) {
             // Read from COMPARATOR_INPUT if cable is connected
-            comparatorInput = inputs[COMPARATOR_INPUT].getVoltage();
+            comparatorInput = inputs[COMPARATOR_INPUT].getVoltage()*params[COMPARATOR_ATT].getValue();
         } else {
             // Otherwise, normalize to StepMix
             comparatorInput = step_mix;
@@ -269,6 +276,7 @@ struct StepsWidget : ModuleWidget {
         addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(37.219, 49.183)), module, Steps::RANGE_PARAM));
         addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(12.978, 78.965)), module, Steps::STEP_PARAM));
 
+
         addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(7.3, 28.408)), module, Steps::COMPARATOR_INPUT));
         addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(19.545, 28.408)), module, Steps::BIAS_INPUT));
         addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(32.159, 28.408)), module, Steps::RANGE_INPUT));
@@ -277,8 +285,14 @@ struct StepsWidget : ModuleWidget {
         addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(19.545, 112.263)), module, Steps::TRIGGER_INPUT));
         addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(32.159, 112.263)), module, Steps::RESET_INPUT));
 
-        addParam(createParamCentered<TL1105>(mm2px(Vec(19.545, 105.263)), module, Steps::TRIGGER_BUTTON_PARAM));
-        addParam(createParamCentered<TL1105>(mm2px(Vec(32.159, 105.263)), module, Steps::RESET_BUTTON_PARAM));
+        addParam(createParamCentered<Trimpot>(mm2px(Vec(19.545, 28.408-8)), module, Steps::BIAS_ATT));
+        addParam(createParamCentered<Trimpot>(mm2px(Vec(32.159, 28.408-8)), module, Steps::RANGE_ATT));
+        addParam(createParamCentered<Trimpot>(mm2px(Vec(7.3, 112.263-8)), module, Steps::STEP_ATT));
+        addParam(createParamCentered<Trimpot>(mm2px(Vec(7.3, 28.408-8)), module, Steps::COMPARATOR_ATT));
+
+
+        addParam(createParamCentered<TL1105>(mm2px(Vec(19.545, 112.263-8)), module, Steps::TRIGGER_BUTTON_PARAM));
+        addParam(createParamCentered<TL1105>(mm2px(Vec(32.159, 112.263-8)), module, Steps::RESET_BUTTON_PARAM));
 
         addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(44.445, 19.632)), module, Steps::COMPARATOR_UP_OUTPUT));
         addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(44.426, 28.485)), module, Steps::COMPARATOR_DN_OUTPUT));
