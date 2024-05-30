@@ -104,6 +104,19 @@ struct Syncro : Module {
     float swing = 0.f;
     int clockRotate = 0;
 
+    json_t* dataToJson() override {
+        json_t* rootJ = json_object();
+        json_object_set_new(rootJ, "sequenceRunning", json_boolean(sequenceRunning));
+        return rootJ;
+    }
+
+    void dataFromJson(json_t* rootJ) override {
+        json_t* sequenceRunningJ = json_object_get(rootJ, "sequenceRunning");
+        if (sequenceRunningJ) {
+            sequenceRunning = json_is_true(sequenceRunningJ);
+        }
+    }
+
     Syncro() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
     
@@ -158,14 +171,32 @@ struct Syncro : Module {
         configOutput(CLOCK_OUTPUT_8, "Clock 8");
         configOutput(INV_CLOCK_OUTPUT_8, "Inverted Clock 8");
 
+		configInput(CLOCK_INPUT , "Clock" );
+		configInput(SWING_INPUT , "Swing" );
+		configInput(FILL_INPUT , "Fill" );
+		configInput(WIDTH_INPUT , "Pulse Width" );
+		configInput(ROTATE_INPUT , "Rotation" );
+		configParam(RESET_BUTTON, 0.0, 1.0, 0.0, "Reset" );
+		configParam(ON_OFF_BUTTON, 0.0, 1.0, 0.0, "On / Off " );
+
+        // Initialize fill buttons
+        for (int i = 0; i < 8; i++) {
+            configParam(FILL_BUTTON_1 + i, 0.0, 1.0, 0.0, "Fill Button " + std::to_string(i + 1));
+        }
+
+        // Initialize fill inputs
+        for (int i = 0; i < 8; i++) {
+            configInput(FILL_INPUT_1 + i, "Fill " + std::to_string(i + 1));
+        }
+
         // Initialize fill LEDs
         for (int i = 0; i < 8; i++) {
-            configLight(FILL_LIGHT_1 + i, "Fill Light " + std::to_string(i + 1));
+            configLight(FILL_LIGHT_1 + i, "Fill " + std::to_string(i + 1));
         }
 
         // Initialize gate state lights
         for (int i = 0; i < 18; i++) {
-            configLight(CLOCK_LIGHT + i, "Gate State Light " + std::to_string(i + 1));
+            configLight(CLOCK_LIGHT + i, "Gate State " + std::to_string(i + 1));
         }
     }
 
