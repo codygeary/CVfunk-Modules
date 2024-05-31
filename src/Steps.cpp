@@ -105,9 +105,9 @@ struct Steps : Module {
 
      void process(const ProcessArgs& args) override {
         // Read parameters
-        float bias = params[BIAS_PARAM].getValue();// + (inputs[BIAS_INPUT].isConnected() ? inputs[BIAS_INPUT].getVoltage() * params[BIAS_ATT].getValue() : 0.f);
-        float range = params[RANGE_PARAM].getValue();// + (inputs[RANGE_INPUT].isConnected() ? inputs[RANGE_INPUT].getVoltage() * params[RANGE_ATT].getValue() : 0.f);
-        float step = params[STEP_PARAM].getValue();// + (inputs[STEP_INPUT].isConnected() ? inputs[STEP_INPUT].getVoltage() * params[STEP_ATT].getValue() : 0.f);
+        float bias = params[BIAS_PARAM].getValue() + (inputs[BIAS_INPUT].isConnected() ? inputs[BIAS_INPUT].getVoltage() * params[BIAS_ATT].getValue() : 0.f);
+        float range = params[RANGE_PARAM].getValue() + (inputs[RANGE_INPUT].isConnected() ? inputs[RANGE_INPUT].getVoltage() * params[RANGE_ATT].getValue() : 0.f);
+        float step = params[STEP_PARAM].getValue() + (inputs[STEP_INPUT].isConnected() ? inputs[STEP_INPUT].getVoltage() * params[STEP_ATT].getValue() : 0.f);
 
         // Read inputs
         float comparatorInput = 0.0; // Initialize to 0
@@ -163,7 +163,7 @@ struct Steps : Module {
                 }
             } else if (step<0) {
                 // Comparator stage
-                if (comparatorInput > bias + 0.5 * range) { //avoid self-oscillatory behavior with < here 
+                if (comparatorInput > bias + 0.5 * range) { //avoid self-oscillatory behavior with > here 
                     comparatorOutput = -5.0;
                     correction = -range;
                 } else if (comparatorInput <= bias - 0.5 * range) { 
@@ -235,9 +235,15 @@ struct Steps : Module {
             lights[DOWN_LIGHT].setSmoothBrightness(0.0, args.sampleTime);
         }
 
+
+        int led_level = 0; //default to zero
         // Calculate the LED level based on the voltage, bias, and range
-        int led_level = floor(((step_mix - (bias - 0.5 * range)) / range) * 10) ;
- 
+        if (inputs[COMPARATOR_INPUT].isConnected()) {
+            led_level = floor(((step_mix + 10) / 20) * 10) ;
+        } else {
+            led_level = floor(((step_mix - (bias - 0.5 * range)) / range) * 10) ;
+        }
+
         // Clamp led_level to be within [0, 10]
         led_level = std::max(std::min(led_level, 10), 0);
 
