@@ -1,4 +1,3 @@
-
 ////////////////////////////////////////////////////////////
 //
 //   Syncro
@@ -114,7 +113,6 @@ struct Syncro : Module {
     bool clockCVAsVoct = false;
     bool resetPulse = false;
 
-
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
         json_object_set_new(rootJ, "sequenceRunning", json_boolean(sequenceRunning));
@@ -223,7 +221,7 @@ struct Syncro : Module {
         }
     }
 
-     void process(const ProcessArgs &args) override {
+    void process(const ProcessArgs &args) override {
         swing = params[SWING_KNOB].getValue() + (inputs[SWING_INPUT].isConnected() ? 10.f * inputs[SWING_INPUT].getVoltage() * params[SWING_ATT].getValue() : 0.0f);
         swing = clamp(swing, -99.f, 99.f);
         float width = params[WIDTH_KNOB].getValue() + (inputs[WIDTH_INPUT].isConnected() ? 0.1f * inputs[WIDTH_INPUT].getVoltage() * params[WIDTH_ATT].getValue() : 0.0f);
@@ -295,11 +293,11 @@ struct Syncro : Module {
             fill[i-1] = (params[FILL_BUTTON_1 + i - 1].getValue() > 0.1f) || (inputs[FILL_INPUT_1 + i - 1].getVoltage() > 0.1f);
         }
 
-		// Calculate the Nyquist frequency and the maximum BPM considering a 128x multiplier
-		float maxBPM = (args.sampleRate * 60.0f) / 256.0f;
+        // Calculate the Nyquist frequency and the maximum BPM considering a 128x multiplier
+        float maxBPM = (args.sampleRate * 60.0f) / 256.0f;
 
-		// Clamp BPM based on the Nyquist frequency
-		bpm = clamp(bpm, 0.000001f, maxBPM);
+        // Clamp BPM based on the Nyquist frequency
+        bpm = clamp(bpm, 0.000001f, maxBPM);
 
         // Check for reset input or reset button
         bool resetCondition = (inputs[RESET_INPUT].isConnected() && resetTrigger.process(inputs[RESET_INPUT].getVoltage())) || (params[RESET_BUTTON].getValue() > 0.1f);
@@ -337,123 +335,123 @@ struct Syncro : Module {
                 ratio[i] = 1.0f; // div by zero safety
             }
 
-			if (i < 1){  //Swing clock reset logic
-				if ( inputs[EXT_CLOCK_INPUT].isConnected() ) {
-  				    if (resetPulse){
-						swingCount++;
-						if (swingCount > 1.f){
-							SwingTimer.reset();
-							swingCount = 0;
-						}
+            if (i < 1){  //Swing clock reset logic
+                if ( inputs[EXT_CLOCK_INPUT].isConnected() ) {
+                      if (resetPulse){
+                        swingCount++;
+                        if (swingCount > 1.f){
+                            SwingTimer.reset();
+                            swingCount = 0;
+                        }
                         resetPulse = false;
-					}
-				} else {
-					if ( ClockTimer[0].time >= (60.0f / (bpm ) ) ){
-						swingCount++;
-						if (swingCount > 1.f){
-							SwingTimer.reset();
-							swingCount = 0;
-						}
-					}
-				}
-			}
-
-            if (ClockTimer[i].time >= (60.0f / (bpm * ratio[i]))) {
-                ClockTimer[i].reset();
-                
-                if (i < 1) {  // Master clock reset point
-                    masterClockCycle++;
-                    // Rotate phases
-                    for (int k = 1; k < 9; k++) {
-                        int newIndex = (k + clockRotate) % 8;
-                        if (newIndex < 0) {
-                            newIndex += 8; // Adjust for negative values to wrap around correctly
-                        }
-                            tempPhases[newIndex + 1] = phases[k];
-                        }
-                        for (int k = 1; k < 9; k++) {
-                            phases[k] = tempPhases[k];
-                        }
-
-                        for (int j = 1; j < 9; j++) {
-                            if (masterClockCycle % lcmWithMaster[j] == 0) {
-                               ClockTimer[j].reset();
-                            }
-
-                            if (resyncFlag[j]) {
-                               ClockTimer[j].reset();
-                               resyncFlag[j] = false;
-                            }
-
-                            int index = (clockRotate + j - 1) % 8;
-                            if (index < 0) {
-                               index += 8; // Adjust for negative values to wrap around correctly
-                            }
-
-                            multiply[j] = round(params[MULTIPLY_KNOB_1 + index].getValue()) + (fill[j-1] ? fillGlobal : 0);
-                            divide[j] = round(params[DIVIDE_KNOB_1 + index].getValue());
-                            if (divide[j] <= 0) {
-                                divide[j] = 1.0f; // Now safe to use divide[j] for divisions
-                            }
-                            ratio[j] = multiply[j] / divide[j]; 
-
-                            if (fill[j] || ratio[j] != multiply[j] / divide[j]) {
-                                resyncFlag[j] = true;
-                            }
-                        }
                     }
-                }
-
-                // Apply swing as a global adjustment to the phase increment
-                if (bpm <= 0) bpm = 1.0f;  // Ensure bpm is positive and non-zero
-                if (ratio[i] <= 0) ratio[i] = 1.0f;  // Ensure ratio is positive and non-zero
-
-                float phaseDenominator = 60.0f / (bpm * ratio[i]);
-                phases[i] = ClockTimer[i].time / phaseDenominator;  
-
-                // Determine the output state based on pulse width
-                bool highState = phases[i] < width;
-
-                if (sequenceRunning) {
-                    if (phasorMode){
-
-                        // Compute phase offset from pulse width input
-                        float phase_offset = params[WIDTH_KNOB].getValue() + 
-                                             (inputs[WIDTH_INPUT].isConnected() ? 0.1f * inputs[WIDTH_INPUT].getVoltage() * params[WIDTH_ATT].getValue() : 0.0f);
-                        phase_offset = clamp(phase_offset, 0.f, 1.0f);
-
-                        // Calculate adjusted phase and use fmod for safe modulo operation
-                        float adjusted_phase = fmod(phases[i] + phase_offset, 1.0f);
-
-                        // Ensure adjusted_phase is within 0 to 1 range
-                        if (adjusted_phase < 0.0f) {
-                            adjusted_phase += 1.0f;
-                        }
-
-                        outputs[CLOCK_OUTPUT + 2 * i].setVoltage(phases[i]*10.f);
-                        outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage( adjusted_phase*10.f );
-                        lights[CLOCK_LIGHT + 2 * i].setBrightness(phases[i]);
-                        lights[CLOCK_LIGHT + 2 * i + 1].setBrightness(1-phases[i]);
-
-                    } else {
-                        outputs[CLOCK_OUTPUT + 2 * i].setVoltage(highState ? 5.0f : 0.0f);
-                        outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage(highState ? 0.0f : 5.0f);
-                        lights[CLOCK_LIGHT + 2 * i].setBrightness(highState ? 1.0f : 0.0f);
-                        lights[CLOCK_LIGHT + 2 * i + 1].setBrightness(highState ? 0.0f : 1.0f);
-                    }
-
                 } else {
-                    outputs[CLOCK_OUTPUT + 2 * i].setVoltage(0.f);
-                    outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage(0.f);
-                    lights[CLOCK_LIGHT + 2 * i].setBrightness(0.0f);
-                    lights[CLOCK_LIGHT + 2 * i + 1].setBrightness(0.0f);
+                if ( ClockTimer[0].time >= (60.0f / (bpm ) ) ){
+                    swingCount++;
+                    if (swingCount > 1.f){
+                        SwingTimer.reset();
+                        swingCount = 0;
+                    }
                 }
-            }
-
-            if (deltaTime <= 0) {
-                deltaTime = 1.0f / 48000.0f;  // Assume a default sample rate if deltaTime is zero to avoid division by zero
             }
         }
+
+        if (ClockTimer[i].time >= (60.0f / (bpm * ratio[i]))) {
+            ClockTimer[i].reset();
+            
+            if (i < 1) {  // Master clock reset point
+                masterClockCycle++;
+                // Rotate phases
+                for (int k = 1; k < 9; k++) {
+                    int newIndex = (k + clockRotate) % 8;
+                    if (newIndex < 0) {
+                        newIndex += 8; // Adjust for negative values to wrap around correctly
+                    }
+                        tempPhases[newIndex + 1] = phases[k];
+                    }
+                    for (int k = 1; k < 9; k++) {
+                        phases[k] = tempPhases[k];
+                    }
+
+                    for (int j = 1; j < 9; j++) {
+                        if (masterClockCycle % lcmWithMaster[j] == 0) {
+                           ClockTimer[j].reset();
+                        }
+
+                        if (resyncFlag[j]) {
+                           ClockTimer[j].reset();
+                           resyncFlag[j] = false;
+                        }
+
+                        int index = (clockRotate + j - 1) % 8;
+                        if (index < 0) {
+                           index += 8; // Adjust for negative values to wrap around correctly
+                        }
+
+                        multiply[j] = round(params[MULTIPLY_KNOB_1 + index].getValue()) + (fill[j-1] ? fillGlobal : 0);
+                        divide[j] = round(params[DIVIDE_KNOB_1 + index].getValue());
+                        if (divide[j] <= 0) {
+                            divide[j] = 1.0f; // Now safe to use divide[j] for divisions
+                        }
+                        ratio[j] = multiply[j] / divide[j]; 
+
+                        if (fill[j] || ratio[j] != multiply[j] / divide[j]) {
+                            resyncFlag[j] = true;
+                        }
+                    }
+                }
+            }
+
+            // Apply swing as a global adjustment to the phase increment
+            if (bpm <= 0) bpm = 1.0f;  // Ensure bpm is positive and non-zero
+            if (ratio[i] <= 0) ratio[i] = 1.0f;  // Ensure ratio is positive and non-zero
+
+            float phaseDenominator = 60.0f / (bpm * ratio[i]);
+            phases[i] = ClockTimer[i].time / phaseDenominator;  
+
+            // Determine the output state based on pulse width
+            bool highState = phases[i] < width;
+
+            if (sequenceRunning) {
+                if (phasorMode){
+
+                    // Compute phase offset from pulse width input
+                    float phase_offset = params[WIDTH_KNOB].getValue() + 
+                                         (inputs[WIDTH_INPUT].isConnected() ? 0.1f * inputs[WIDTH_INPUT].getVoltage() * params[WIDTH_ATT].getValue() : 0.0f);
+                    phase_offset = clamp(phase_offset, 0.f, 1.0f);
+
+                    // Calculate adjusted phase and use fmod for safe modulo operation
+                    float adjusted_phase = fmod(phases[i] + phase_offset, 1.0f);
+
+                    // Ensure adjusted_phase is within 0 to 1 range
+                    if (adjusted_phase < 0.0f) {
+                        adjusted_phase += 1.0f;
+                    }
+
+                    outputs[CLOCK_OUTPUT + 2 * i].setVoltage(phases[i]*10.f);
+                    outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage( adjusted_phase*10.f );
+                    lights[CLOCK_LIGHT + 2 * i].setBrightness(phases[i]);
+                    lights[CLOCK_LIGHT + 2 * i + 1].setBrightness(1-phases[i]);
+
+                } else {
+                    outputs[CLOCK_OUTPUT + 2 * i].setVoltage(highState ? 5.0f : 0.0f);
+                    outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage(highState ? 0.0f : 5.0f);
+                    lights[CLOCK_LIGHT + 2 * i].setBrightness(highState ? 1.0f : 0.0f);
+                    lights[CLOCK_LIGHT + 2 * i + 1].setBrightness(highState ? 0.0f : 1.0f);
+                }
+
+            } else {
+                outputs[CLOCK_OUTPUT + 2 * i].setVoltage(0.f);
+                outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage(0.f);
+                lights[CLOCK_LIGHT + 2 * i].setBrightness(0.0f);
+                lights[CLOCK_LIGHT + 2 * i + 1].setBrightness(0.0f);
+            }
+        }
+
+        if (deltaTime <= 0) {
+            deltaTime = 1.0f / 48000.0f;  // Assume a default sample rate if deltaTime is zero to avoid division by zero
+        }
+    }
     
     int gcd(int a, int b) {
         while (b != 0) {
@@ -625,15 +623,15 @@ struct SyncroWidget : ModuleWidget {
         if (!module) return;
 
         // Update BPM and Swing displays
-		if (module->bpmDisplay) {
-			char bpmText[16];
-			if (module->clockCVAsVoct) {
-				snprintf(bpmText, sizeof(bpmText), "▸%.1f", module->bpm);//symbol indicates v/oct mode
-			} else {
-				snprintf(bpmText, sizeof(bpmText), "%.1f", module->bpm);
-			}
-			module->bpmDisplay->text = bpmText;
-		}
+        if (module->bpmDisplay) {
+            char bpmText[16];
+            if (module->clockCVAsVoct) {
+                snprintf(bpmText, sizeof(bpmText), "▸%.1f", module->bpm);//symbol indicates v/oct mode
+            } else {
+                snprintf(bpmText, sizeof(bpmText), "%.1f", module->bpm);
+            }
+            module->bpmDisplay->text = bpmText;
+        }
 
         if (module->swingDisplay) {
             char swingText[16];
