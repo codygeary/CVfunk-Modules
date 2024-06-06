@@ -52,7 +52,7 @@ An 8-channel clock ratio generator.
 ### Nona
 A 9-channel CV gain/offset utility mixer.
 
-### Decmia
+### Decima
 A 10-channel gate sequencer with per-step probability.
 
 ### Morta
