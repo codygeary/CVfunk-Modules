@@ -22,6 +22,9 @@ void init(Plugin* p) {
 	p->addModel(modelPressedDuck);
 	p->addModel(modelFlowerPatch);
 	p->addModel(modelSyncro);
+	p->addModel(modelNona);
+	p->addModel(modelDecima);
+	p->addModel(modelMorta);
 
 	// Any other plugin initialization may go here.
 	// As an alternative, consider lazy-loading assets and lookup tables when your module is created to reduce startup times of Rack.

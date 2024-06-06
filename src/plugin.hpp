@@ -22,3 +22,6 @@ extern Model* modelOuros;
 extern Model* modelPressedDuck;
 extern Model* modelFlowerPatch;
 extern Model* modelSyncro;
+extern Model* modelNona;
+extern Model* modelDecima;
+extern Model* modelMorta;
