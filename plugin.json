@@ -1,7 +1,7 @@
 {
   "slug": "CVfunk",
   "name": "CV funk Modules",
-  "version": "2.0.6",
+  "version": "2.0.7",
   "license": "MIT",
   "brand": "CV funk",
   "author": "Cody Geary",
@@ -140,6 +140,34 @@
         "Clock generator",
         "Clock modulator"
       ]
+    },
+	{
+      "slug": "Nona",
+      "name": "Nona",
+      "description": "Nine-stage attenuation, gain, and offset.",
+      "tags": [
+        "Attenuator",
+        "Utility"
+      ]
+    },
+	{
+      "slug": "Decima",
+      "name": "Decima",
+      "description": "Ten-step gate sequencer with direction and sequence length CV.",
+      "tags": [
+        "Sequencer",
+        "Utility"
+      ]
+    },
+	{
+      "slug": "Morta",
+      "name": "Morta",
+      "description": "A one-knob macro-controller with many simultaneous outputs.",
+      "tags": [
+        "Controller",
+        "Utility"
+      ]
     }
+
   ]
 }
