@@ -49,4 +49,13 @@ A 12-tone scale polar visualizer for audio signals using FFT processing.
 ### Syncro
 An 8-channel clock ratio generator.
 
+### Nona
+A 9-channel CV gain/offset utility mixer.
+
+### Decmia
+A 10-channel gate sequencer with per-step probability.
+
+### Morta
+A single-knob macro-controller utility with 16 simultaneous outputs in different ranges.
+
 See the [User's Manual](/img/CV_funk_Manual.pdf) for more information.
