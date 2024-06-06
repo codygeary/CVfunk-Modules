@@ -69,7 +69,7 @@
     },
    {
       "slug": "HexMod",
-      "name": "HexMod",
+      "name": "Hex Mod",
       "description": "Six phase-related LFOs with rate sync and individual phase reset triggers.",
       "tags": [
         "Low-frequency oscillator",
@@ -144,7 +144,7 @@
 	{
       "slug": "Nona",
       "name": "Nona",
-      "description": "Nine-stage attenuation, gain, and offset.",
+      "description": "Nine-channel CV gain/offset utility mixer.",
       "tags": [
         "Attenuator",
         "Utility"
@@ -153,7 +153,7 @@
 	{
       "slug": "Decima",
       "name": "Decima",
-      "description": "Ten-step gate sequencer with direction and sequence length CV.",
+      "description": "Ten-channel gate sequencer with per-step probability.",
       "tags": [
         "Sequencer",
         "Utility"
@@ -162,7 +162,7 @@
 	{
       "slug": "Morta",
       "name": "Morta",
-      "description": "A one-knob macro-controller with many simultaneous outputs.",
+      "description": "Single-knob macro-controller utility with 16 simultaneous outputs in different ranges.",
       "tags": [
         "Controller",
         "Utility"
