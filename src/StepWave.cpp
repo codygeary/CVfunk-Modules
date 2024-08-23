@@ -118,9 +118,8 @@ struct StepWave : Module {
     float currentTime[2] = {0.f, 0.f};
     float finalCV[2] = {0.0f,0.0f};        
 
-
     //For the display
-    CircularBuffer<float, 1024> waveBuffers[2];
+    CircularBuffer<float, 1024> waveBuffers[3];
     float oscPhase[2] = {0.0f}; // Current oscillator phase for each channel
 
     // For the output
@@ -128,23 +127,40 @@ struct StepWave : Module {
     dsp::SlewLimiter slewLimiterB; 
     float lastTargetVoltage[2] = {0.f,0.f};
     bool trackCV = false;
-
+    bool shapeBeats = false;
+    
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
+    
+        // Save the state of sequenceRunning
         json_object_set_new(rootJ, "sequenceRunning", json_boolean(sequenceRunning));
+    
+        // Save the state of trackCV
         json_object_set_new(rootJ, "trackCV", json_boolean(trackCV));
+    
+        // Save the state of shapeBeats
+        json_object_set_new(rootJ, "shapeBeats", json_boolean(shapeBeats));
+    
         return rootJ;
     }
-
+    
     void dataFromJson(json_t* rootJ) override {
+        // Load the state of sequenceRunning
         json_t* sequenceRunningJ = json_object_get(rootJ, "sequenceRunning");
         if (sequenceRunningJ) {
             sequenceRunning = json_is_true(sequenceRunningJ);
         }
-        
+    
+        // Load the state of trackCV
         json_t* trackCVJ = json_object_get(rootJ, "trackCV");
         if (trackCVJ) {
             trackCV = json_is_true(trackCVJ);
+        }
+    
+        // Load the state of shapeBeats
+        json_t* shapeBeatsJ = json_object_get(rootJ, "shapeBeats");
+        if (shapeBeatsJ) {
+            shapeBeats = json_is_true(shapeBeatsJ);
         }                
     }
 
@@ -359,7 +375,10 @@ struct StepWave : Module {
             }    
             
             //CV and Gate computation
-            numBeats = floor( params[STEP_1_BEATS + currentStage[j]].getValue() );                
+            if (shapeBeats){
+                numBeats = floor( params[STEP_1_BEATS + currentStage[j]].getValue() );     
+            } else { numBeats = 1;}   
+                    
             frameLength[j] = stageDuration[j]/numBeats;
             splitTime[j] = currentTime[j];
             while( splitTime[j] > stageDuration[j]/numBeats ) { //Compute subdivisions for beats
@@ -606,6 +625,7 @@ struct StepWave : Module {
                 } else { 
                     waveBuffers[1][sampleIndex] = finalCV[j];
                 }
+                waveBuffers[2][sampleIndex] = 0.2*gateCV - 5.8;
             }
         }            
     }           
@@ -630,6 +650,8 @@ struct WaveDisplay : TransparentWidget {
 
             drawWaveform(args, module->waveBuffers[0], nvgRGBAf(1, 0.4, 0, 0.8));
             drawWaveform(args, module->waveBuffers[1], nvgRGBAf(0, 0.4, 1, 0.8));
+            drawWaveform(args, module->waveBuffers[2], nvgRGBAf(0.5, 0.5, 0.6, 0.8));
+            
         }
 
         TransparentWidget::drawLayer(args, layer);
@@ -748,7 +770,7 @@ struct StepWaveWidget : ModuleWidget {
         // Separator for visual grouping in the context menu
         menu->addChild(new MenuSeparator());
 
-        // VOctCV menu item
+        // TrackCV menu item
         struct TrackCVMenuItem : MenuItem {
             StepWave* StepWaveModule;
             void onAction(const event::Action& e) override {
@@ -761,11 +783,32 @@ struct StepWaveWidget : ModuleWidget {
                 MenuItem::step();
             }
         };
-        
+       
         TrackCVMenuItem* trackCVItem = new TrackCVMenuItem();
         trackCVItem->text = "Track CV Values";
         trackCVItem->StepWaveModule = StepWaveModule;
         menu->addChild(trackCVItem);
+        
+        // ShapeBeats menu item
+        struct ShapeBeatsMenuItem : MenuItem {
+            StepWave* StepWaveModule;
+            void onAction(const event::Action& e) override {
+                // Toggle the "Shape follows number of Beats" mode
+                StepWaveModule->shapeBeats = !StepWaveModule->shapeBeats;
+            }
+            void step() override {
+                // Update the display to show a checkmark when the mode is active
+                rightText = StepWaveModule->shapeBeats ? "✔" : "";
+                MenuItem::step();
+            }
+        };
+                
+        ShapeBeatsMenuItem* shapeBeatsItem = new ShapeBeatsMenuItem();
+        shapeBeatsItem->text = "Shape follows number of Beats";
+        shapeBeatsItem->StepWaveModule = StepWaveModule;
+        menu->addChild(shapeBeatsItem);
+        
+        
     }        
 
 };
