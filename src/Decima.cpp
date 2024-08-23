@@ -124,10 +124,10 @@ struct Decima : Module {
 
         if (reset) {
             step = 0; // Reset step
-			float probability = params[PROB_1 + step].getValue();
-			trigger = (random::uniform() < probability);
-			SyncTimer.reset(); // Reset the timer for the next trigger interval measurement
-			firstClockPulse = false; // Ensure firstClockPulse is reset
+            float probability = params[PROB_1 + step].getValue();
+            trigger = (random::uniform() < probability);
+            SyncTimer.reset(); // Reset the timer for the next trigger interval measurement
+            firstClockPulse = false; // Ensure firstClockPulse is reset
        }
 
         // Handle direction input
@@ -193,20 +193,20 @@ struct Decima : Module {
             lights[BUTTON_LIGHT_1 + i].setBrightness(active ? 1.0f : 0.0f);
             lights[STAGE_LIGHT_1 + i].setBrightness(step == i ? 1.0f : 0.0f);
 
-			if (probGateEnabled) {
-				if (step == i && stepActive[i] && trigger) {
-					outputs[GATE_1 + i].setVoltage(10.0f);
-				} else {
-					outputs[GATE_1 + i].setVoltage(0.0f);
-				}
-			
-			} else {
-				if (step == i) {
-					outputs[GATE_1 + i].setVoltage(10.0f);
-				} else {
-					outputs[GATE_1 + i].setVoltage(0.0f);
-				}
-			}    
+            if (probGateEnabled) {
+                if (step == i && stepActive[i] && trigger) {
+                    outputs[GATE_1 + i].setVoltage(10.0f);
+                } else {
+                    outputs[GATE_1 + i].setVoltage(0.0f);
+                }
+            
+            } else {
+                if (step == i) {
+                    outputs[GATE_1 + i].setVoltage(10.0f);
+                } else {
+                    outputs[GATE_1 + i].setVoltage(0.0f);
+                }
+            }    
             
         }
       
@@ -278,7 +278,7 @@ struct DecimaWidget : ModuleWidget {
         addOutput(createOutputCentered<ThemedPJ301MPort>(Vec(92, 338), module, Decima::INV_OUTPUT));
     }
     
-	void appendContextMenu(Menu* menu) override {
+    void appendContextMenu(Menu* menu) override {
         ModuleWidget::appendContextMenu(menu);
 
         Decima* decimaModule = dynamic_cast<Decima*>(module);

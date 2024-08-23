@@ -60,12 +60,12 @@ struct PentaSequencer : Module {
         LIGHTS_LEN
     };
 
-	// Define Knob to Output maps
-	//                      A  B  C  D  E
-	int CIRC_CW_map[5]  =  {0, 1, 2, 3, 4};
-	int STAR_CW_map[5]  =  {0, 3, 1, 4, 2}; 
-	int CIRC_CCW_map[5] =  {0, 4, 3, 2, 1};
-	int STAR_CCW_map[5] =  {0, 2, 4, 1, 3}; 
+    // Define Knob to Output maps
+    //                      A  B  C  D  E
+    int CIRC_CW_map[5]  =  {0, 1, 2, 3, 4};
+    int STAR_CW_map[5]  =  {0, 3, 1, 4, 2}; 
+    int CIRC_CCW_map[5] =  {0, 4, 3, 2, 1};
+    int STAR_CCW_map[5] =  {0, 2, 4, 1, 3}; 
 
     // Variables for internal logic
     int step = 0; // Current step in the sequence
@@ -103,8 +103,8 @@ struct PentaSequencer : Module {
         configOutput(C_OUTPUT, "C");
         configOutput(D_OUTPUT, "D");
         configOutput(E_OUTPUT, "E");
-		configParam(MANUAL_TRIGGER_PARAM, 0.0, 1.0, 0.0, "Manual Trigger" );
-		configParam(MANUAL_RESET_PARAM, 0.0, 1.0, 0.0, "Manual Reset" );
+        configParam(MANUAL_TRIGGER_PARAM, 0.0, 1.0, 0.0, "Manual Trigger" );
+        configParam(MANUAL_RESET_PARAM, 0.0, 1.0, 0.0, "Manual Reset" );
     }
 
     void process(const ProcessArgs& args) override {
@@ -123,12 +123,12 @@ struct PentaSequencer : Module {
 
         bool manualResetPressed = params[MANUAL_RESET_PARAM].getValue() > 0.0f;
 
-		// Override and animate slew control if external CV connected
-		if (inputs[SLEW_INPUT].isConnected()) {
-		    float adjustedSlewInput = (inputs[SLEW_INPUT].getVoltage()+5.0f)/10.0f;
-		    adjustedSlewInput = clamp (adjustedSlewInput, 0.f, 1.f );
-			params[SLEW_PARAM].setValue(adjustedSlewInput);
-		}
+        // Override and animate slew control if external CV connected
+        if (inputs[SLEW_INPUT].isConnected()) {
+            float adjustedSlewInput = (inputs[SLEW_INPUT].getVoltage()+5.0f)/10.0f;
+            adjustedSlewInput = clamp (adjustedSlewInput, 0.f, 1.f );
+            params[SLEW_PARAM].setValue(adjustedSlewInput);
+        }
 
 
         // Process reset input

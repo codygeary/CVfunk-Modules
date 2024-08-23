@@ -428,29 +428,29 @@ struct Syncro : Module {
                         adjusted_phase += 1.0f;
                     }
 
-					if (multiply[i]>0){
-						outputs[CLOCK_OUTPUT + 2 * i].setVoltage(phases[i]*10.f);
-						outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage( adjusted_phase*10.f );
-						lights[CLOCK_LIGHT + 2 * i].setBrightness(phases[i]);
-						lights[CLOCK_LIGHT + 2 * i + 1].setBrightness(1-phases[i]);
+                    if (multiply[i]>0){
+                        outputs[CLOCK_OUTPUT + 2 * i].setVoltage(phases[i]*10.f);
+                        outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage( adjusted_phase*10.f );
+                        lights[CLOCK_LIGHT + 2 * i].setBrightness(phases[i]);
+                        lights[CLOCK_LIGHT + 2 * i + 1].setBrightness(1-phases[i]);
                     } else {
-						outputs[CLOCK_OUTPUT + 2 * i].setVoltage(0.f);
-						outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage(10.f);
-						lights[CLOCK_LIGHT + 2 * i].setBrightness(0.f);
-						lights[CLOCK_LIGHT + 2 * i + 1].setBrightness(10.f);
-					}
+                        outputs[CLOCK_OUTPUT + 2 * i].setVoltage(0.f);
+                        outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage(10.f);
+                        lights[CLOCK_LIGHT + 2 * i].setBrightness(0.f);
+                        lights[CLOCK_LIGHT + 2 * i + 1].setBrightness(10.f);
+                    }
                 } else {
-					if (multiply[i]>0){
-						outputs[CLOCK_OUTPUT + 2 * i].setVoltage(highState ? 5.0f : 0.0f);
-						outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage(highState ? 0.0f : 5.0f);
-						lights[CLOCK_LIGHT + 2 * i].setBrightness(highState ? 1.0f : 0.0f);
-						lights[CLOCK_LIGHT + 2 * i + 1].setBrightness(highState ? 0.0f : 1.0f);
-					} else {
-						outputs[CLOCK_OUTPUT + 2 * i].setVoltage( 0.0f);
-						outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage( 5.0f);
-						lights[CLOCK_LIGHT + 2 * i].setBrightness( 0.0f);
-						lights[CLOCK_LIGHT + 2 * i + 1].setBrightness( 1.0f);				
-					}
+                    if (multiply[i]>0){
+                        outputs[CLOCK_OUTPUT + 2 * i].setVoltage(highState ? 5.0f : 0.0f);
+                        outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage(highState ? 0.0f : 5.0f);
+                        lights[CLOCK_LIGHT + 2 * i].setBrightness(highState ? 1.0f : 0.0f);
+                        lights[CLOCK_LIGHT + 2 * i + 1].setBrightness(highState ? 0.0f : 1.0f);
+                    } else {
+                        outputs[CLOCK_OUTPUT + 2 * i].setVoltage( 0.0f);
+                        outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage( 5.0f);
+                        lights[CLOCK_LIGHT + 2 * i].setBrightness( 0.0f);
+                        lights[CLOCK_LIGHT + 2 * i + 1].setBrightness( 1.0f);                
+                    }
 
                 }
 

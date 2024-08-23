@@ -141,8 +141,8 @@ struct EnvelopeArray : Module {
         configParam(TIME1_ATTEN_PARAM, -1.0f, 1.0f, 0.f, "First Width Attenuvertor");
         configParam(TIME6_ATTEN_PARAM, -1.0f, 1.0f, 0.f, "Last Width Attenuvertor");
  
-		configParam(TIME1_RANGE_BUTTON, 0.0, 1.0, 0.0, "First Width Range" );
-		configParam(TIME6_RANGE_BUTTON, 0.0, 1.0, 0.0, "Last Width Range" );
+        configParam(TIME1_RANGE_BUTTON, 0.0, 1.0, 0.0, "First Width Range" );
+        configParam(TIME6_RANGE_BUTTON, 0.0, 1.0, 0.0, "Last Width Range" );
        
         /////////////////////
         //configParam(SECRET_PARAM,-5.0, 10.0f, 4.7f, "Mapping to a test knob"); //only used for calibration

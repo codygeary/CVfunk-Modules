@@ -125,8 +125,8 @@ struct MortaWidget : ModuleWidget {
             }
         }
 
-		//Main CV Output
-		addOutput(createOutputCentered<ThemedPJ301MPort>(Vec(box.size.x/2 + 55, 119), module, Morta::MAIN_OUTPUT));
+        //Main CV Output
+        addOutput(createOutputCentered<ThemedPJ301MPort>(Vec(box.size.x/2 + 55, 119), module, Morta::MAIN_OUTPUT));
 
         if (module) {
             // Volt Display Initialization
