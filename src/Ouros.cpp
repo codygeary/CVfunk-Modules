@@ -183,7 +183,7 @@ struct Ouros : Module {
 
         configParam(FM_ATT_KNOB, -1.0f, 1.0f, 0.0f, "FM Attenuverter"); // 
         configInput(HARD_SYNC_INPUT, "Sync");
-		configParam(RESET_BUTTON, 0.0, 1.0, 0.0, "Reset" );
+        configParam(RESET_BUTTON, 0.0, 1.0, 0.0, "Reset" );
 
         configInput(ROTATE_INPUT, "Rotate");
         configInput(SPREAD_INPUT, "Phase Spread");

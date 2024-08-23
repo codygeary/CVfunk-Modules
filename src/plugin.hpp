@@ -25,3 +25,4 @@ extern Model* modelSyncro;
 extern Model* modelNona;
 extern Model* modelDecima;
 extern Model* modelMorta;
+extern Model* modelStepWave;

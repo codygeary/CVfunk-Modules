@@ -39,7 +39,7 @@ struct PentaSequencer : Module {
         PARAMS_LEN
     };
     enum InputId {
-        TRIG_INPUT, SHAPE_INPUT, SHIFT_INPUT, DIR_INPUT, RESET_INPUT,
+        TRIG_INPUT, SHAPE_INPUT, SHIFT_INPUT, DIR_INPUT, RESET_INPUT, SLEW_INPUT,
         INPUTS_LEN
     };
     enum OutputId {
@@ -60,12 +60,12 @@ struct PentaSequencer : Module {
         LIGHTS_LEN
     };
 
-	// Define Knob to Output maps
-	//                      A  B  C  D  E
-	int CIRC_CW_map[5]  =  {0, 1, 2, 3, 4};
-	int STAR_CW_map[5]  =  {0, 3, 1, 4, 2}; 
-	int CIRC_CCW_map[5] =  {0, 4, 3, 2, 1};
-	int STAR_CCW_map[5] =  {0, 2, 4, 1, 3}; 
+    // Define Knob to Output maps
+    //                      A  B  C  D  E
+    int CIRC_CW_map[5]  =  {0, 1, 2, 3, 4};
+    int STAR_CW_map[5]  =  {0, 3, 1, 4, 2}; 
+    int CIRC_CCW_map[5] =  {0, 4, 3, 2, 1};
+    int STAR_CCW_map[5] =  {0, 2, 4, 1, 3}; 
 
     // Variables for internal logic
     int step = 0; // Current step in the sequence
@@ -103,8 +103,8 @@ struct PentaSequencer : Module {
         configOutput(C_OUTPUT, "C");
         configOutput(D_OUTPUT, "D");
         configOutput(E_OUTPUT, "E");
-		configParam(MANUAL_TRIGGER_PARAM, 0.0, 1.0, 0.0, "Manual Trigger" );
-		configParam(MANUAL_RESET_PARAM, 0.0, 1.0, 0.0, "Manual Reset" );
+        configParam(MANUAL_TRIGGER_PARAM, 0.0, 1.0, 0.0, "Manual Trigger" );
+        configParam(MANUAL_RESET_PARAM, 0.0, 1.0, 0.0, "Manual Reset" );
     }
 
     void process(const ProcessArgs& args) override {
@@ -122,6 +122,14 @@ struct PentaSequencer : Module {
         };
 
         bool manualResetPressed = params[MANUAL_RESET_PARAM].getValue() > 0.0f;
+
+        // Override and animate slew control if external CV connected
+        if (inputs[SLEW_INPUT].isConnected()) {
+            float adjustedSlewInput = (inputs[SLEW_INPUT].getVoltage()+5.0f)/10.0f;
+            adjustedSlewInput = clamp (adjustedSlewInput, 0.f, 1.f );
+            params[SLEW_PARAM].setValue(adjustedSlewInput);
+        }
+
 
         // Process reset input
         if (inputs[RESET_INPUT].isConnected() || manualResetPressed){
@@ -368,7 +376,9 @@ struct PentaSequencerWidget : ModuleWidget {
         addChild(createWidget<ThemedScrew>(Vec(RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
         addChild(createWidget<ThemedScrew>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 
-        addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(38.001, 44.06)), module, PentaSequencer::SLEW_PARAM));
+        addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(38.001, 44.06)), module, PentaSequencer::SLEW_PARAM));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(38.001, 44.06)), module, PentaSequencer::SLEW_INPUT));
+       
         addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(9.281, 77.271)), module, PentaSequencer::KNOB3_PARAM));
         addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(20.23, 92.394)), module, PentaSequencer::KNOB2_PARAM));
         addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(38.213, 96.263)), module, PentaSequencer::KNOB1_PARAM));

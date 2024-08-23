@@ -54,6 +54,7 @@ struct Decima : Module {
     float PulseLength = 1.0f;
     bool trigger = true;
     bool manualStageSelect = false;
+    bool probGateEnabled = false;
 
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
@@ -64,6 +65,8 @@ struct Decima : Module {
             json_array_append_new(stepActiveJ, json_boolean(stepActive[i]));
         }
         json_object_set_new(rootJ, "stepActive", stepActiveJ);
+        json_object_set_new(rootJ, "probGateEnabled", json_boolean(probGateEnabled));
+
 
         return rootJ;
     }
@@ -79,6 +82,10 @@ struct Decima : Module {
                 }
             }
         }
+        
+        json_t* probGateEnabledJ = json_object_get(rootJ, "probGateEnabled");
+        if (probGateEnabledJ) probGateEnabled = json_is_true(probGateEnabledJ);        
+        
     }
 
     Decima() {
@@ -117,10 +124,10 @@ struct Decima : Module {
 
         if (reset) {
             step = 0; // Reset step
-			float probability = params[PROB_1 + step].getValue();
-			trigger = (random::uniform() < probability);
-			SyncTimer.reset(); // Reset the timer for the next trigger interval measurement
-			firstClockPulse = false; // Ensure firstClockPulse is reset
+            float probability = params[PROB_1 + step].getValue();
+            trigger = (random::uniform() < probability);
+            SyncTimer.reset(); // Reset the timer for the next trigger interval measurement
+            firstClockPulse = false; // Ensure firstClockPulse is reset
        }
 
         // Handle direction input
@@ -186,14 +193,24 @@ struct Decima : Module {
             lights[BUTTON_LIGHT_1 + i].setBrightness(active ? 1.0f : 0.0f);
             lights[STAGE_LIGHT_1 + i].setBrightness(step == i ? 1.0f : 0.0f);
 
-            if (step == i) {
-                outputs[GATE_1 + i].setVoltage(10.0f);
+            if (probGateEnabled) {
+                if (step == i && stepActive[i] && trigger) {
+                    outputs[GATE_1 + i].setVoltage(10.0f);
+                } else {
+                    outputs[GATE_1 + i].setVoltage(0.0f);
+                }
+            
             } else {
-                outputs[GATE_1 + i].setVoltage(0.0f);
-            }
+                if (step == i) {
+                    outputs[GATE_1 + i].setVoltage(10.0f);
+                } else {
+                    outputs[GATE_1 + i].setVoltage(0.0f);
+                }
+            }    
+            
         }
       
-        if (!manualStageSelect) { // Add this condition
+        if (!manualStageSelect) { 
             if (stepActive[step] && (SyncTimer.time < PulseLength)) {
                 if (trigger) { // Only output if the step is triggered by probability setting
                     outputs[OUTPUT].setVoltage(10.0f);
@@ -260,6 +277,35 @@ struct DecimaWidget : ModuleWidget {
         addOutput(createOutputCentered<ThemedPJ301MPort>(Vec(57, 338), module, Decima::OUTPUT));
         addOutput(createOutputCentered<ThemedPJ301MPort>(Vec(92, 338), module, Decima::INV_OUTPUT));
     }
+    
+    void appendContextMenu(Menu* menu) override {
+        ModuleWidget::appendContextMenu(menu);
+
+        Decima* decimaModule = dynamic_cast<Decima*>(module);
+        assert(decimaModule); // Ensure the cast succeeds
+
+        // Separator for visual grouping in the context menu
+        menu->addChild(new MenuSeparator());
+
+        // Retriggering enabled/disabled menu item
+        struct ProbgateEnabledItem : MenuItem {
+            Decima* decimaModule;
+            void onAction(const event::Action& e) override {
+                decimaModule->probGateEnabled = !decimaModule->probGateEnabled;
+            }
+            void step() override {
+                rightText = decimaModule->probGateEnabled ? "✔" : "";
+                MenuItem::step();
+            }
+        };
+
+        ProbgateEnabledItem* probGateItem = new ProbgateEnabledItem();
+        probGateItem->text = "Active step outputs to Gate output";
+        probGateItem->decimaModule = decimaModule; // Ensure we're setting the module
+        menu->addChild(probGateItem);
+    }
+
+    
 };
 
 Model* modelDecima = createModel<Decima, DecimaWidget>("Decima");
