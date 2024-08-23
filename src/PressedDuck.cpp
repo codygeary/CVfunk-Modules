@@ -108,42 +108,52 @@ struct PressedDuck : Module {
     //for tracking the mute state of each channel
     bool muteLatch[7] = {false,false,false,false,false,false,false};
     bool muteState[7] = {false,false,false,false,false,false,false};
-
+    bool mutedSideDucks = false;
+    
     // Serialization method to save module state
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
-
-        // Save the state of retriggerEnabled as a boolean
+    
+        // Save the state of applyFilters as a boolean
         json_object_set_new(rootJ, "applyFilters", json_boolean(applyFilters));
-
+    
+        // Save the state of mutedSideDucks as a boolean
+        json_object_set_new(rootJ, "mutedSideDucks", json_boolean(mutedSideDucks));
+    
         // Save the muteLatch and muteState arrays
         json_t* muteLatchJ = json_array();
         json_t* muteStateJ = json_array();
-
+    
         for (int i = 0; i < 7; i++) {
             json_array_append_new(muteLatchJ, json_boolean(muteLatch[i]));
             json_array_append_new(muteStateJ, json_boolean(muteState[i]));
         }
-
+    
         json_object_set_new(rootJ, "muteLatch", muteLatchJ);
         json_object_set_new(rootJ, "muteState", muteStateJ);
-
+    
         return rootJ;
     }
-
+    
     // Deserialization method to load module state
     void dataFromJson(json_t* rootJ) override {
-        // Load the state of retriggerEnabled
+        // Load the state of applyFilters
         json_t* applyFiltersJ = json_object_get(rootJ, "applyFilters");
         if (applyFiltersJ) {
             // Use json_is_true() to check if the JSON value is true; otherwise, set to false
             applyFilters = json_is_true(applyFiltersJ);
-        }   
-        
+        }
+    
+        // Load the state of mutedSideDucks
+        json_t* mutedSideDucksJ = json_object_get(rootJ, "mutedSideDucks");
+        if (mutedSideDucksJ) {
+            mutedSideDucks = json_is_true(mutedSideDucksJ);
+        }
+    
         // Load muteLatch and muteState arrays
         json_t* muteLatchJ = json_object_get(rootJ, "muteLatch");
         json_t* muteStateJ = json_object_get(rootJ, "muteState");
-
+    
         if (muteLatchJ) {
             for (size_t i = 0; i < json_array_size(muteLatchJ) && i < 7; i++) {
                 json_t* muteLatchValue = json_array_get(muteLatchJ, i);
@@ -152,7 +162,7 @@ struct PressedDuck : Module {
                 }
             }
         }
-
+    
         if (muteStateJ) {
             for (size_t i = 0; i < json_array_size(muteStateJ) && i < 7; i++) {
                 json_t* muteStateValue = json_array_get(muteStateJ, i);
@@ -161,7 +171,6 @@ struct PressedDuck : Module {
                 }
             }
         }        
-                   
     }
 
     // Variables for envelope followers and lights
@@ -478,7 +487,7 @@ struct PressedDuck : Module {
         mixR *= saturationEffect;
  
         // Remove DC offsets by high pass filtering
-         if(applyFilters){
+        if(applyFilters){
             mixL = hpfL.process(mixL);
             mixR = hpfR.process(mixR);
         } 
@@ -568,7 +577,7 @@ struct PressedDuck : Module {
         return 1.0f - x2 / 2.0f + x4 / 24.0f - x6 / 720.0f;
     }
 
-    void processSide(float &sideL, float &sideR, float decayRate, float &mixL, float &mixR) {
+	void processSide(float &sideL, float &sideR, float decayRate, float &mixL, float &mixR) {
         // Apply VCA control if connected
         if (inputs[VCA_SIDECHAIN_INPUT].isConnected()) {
             float vcaVoltage = inputs[VCA_SIDECHAIN_INPUT].getVoltage() / 10.f;
@@ -582,32 +591,34 @@ struct PressedDuck : Module {
         sideL *= sideVol;
         sideR *= sideVol;
 
-        // Handle muting with fade transition
-        if (params[MUTESIDE_PARAM].getValue() > 0.5f) {
-            if (!muteLatch[6]) {
-                muteLatch[6] = true;
-                muteState[6] = !muteState[6];
-                transitionCount[6] = transitionSamples;  // Reset the transition count
-            }
-        } else {
-            muteLatch[6] = false;
-        }
+		// Handle muting with fade transition
+		if (params[MUTESIDE_PARAM].getValue() > 0.5f) {
+			if (!muteLatch[6]) {
+				muteLatch[6] = true;
+				muteState[6] = !muteState[6];
+				transitionCount[6] = transitionSamples;  // Reset the transition count
+			}
+		} else {
+			muteLatch[6] = false;
+		}
+	
+		if (transitionCount[6] > 0) {
+			float fadeStep = (muteState[6] ? -1.0f : 1.0f) / transitionSamples;
+			fadeLevel[6] += fadeStep;
+			if ((muteState[6] && fadeLevel[6] < 0.0f) || (!muteState[6] && fadeLevel[6] > 1.0f)) {
+				fadeLevel[6] = muteState[6] ? 0.0f : 1.0f;
+				transitionCount[6] = 0;  // End transition
+			}
+			transitionCount[6]--;
+		} else {
+			fadeLevel[6] = muteState[6] ? 0.0f : 1.0f;
+		}
 
-        if (transitionCount[6] > 0) {
-            float fadeStep = (muteState[6] ? -1.0f : 1.0f) / transitionSamples;
-            fadeLevel[6] += fadeStep;
-            if ((muteState[6] && fadeLevel[6] < 0.0f) || (!muteState[6] && fadeLevel[6] > 1.0f)) {
-                fadeLevel[6] = muteState[6] ? 0.0f : 1.0f;
-                transitionCount[6] = 0;  // End transition
-            }
-            transitionCount[6]--;
-        } else {
-            fadeLevel[6] = muteState[6] ? 0.0f : 1.0f;
-        }
-
-        sideL *= fadeLevel[6];
-        sideR *= fadeLevel[6];
-
+		if (!mutedSideDucks){	//only fade out the sound if mixing it
+			sideL *= fadeLevel[6];
+			sideR *= fadeLevel[6];
+		}
+      
         // Check sidechain connection
         bool isSideConnectedL = inputs[SIDECHAIN_INPUT_L].isConnected();
         bool isSideConnectedR = inputs[SIDECHAIN_INPUT_R].isConnected();
@@ -620,32 +631,42 @@ struct PressedDuck : Module {
             filteredSideEnvelopeR = 0.0f;
             sideEnvelope = 0.0f;
         } else {
-            // Calculate the envelope for the side signals
-            sidePeakL = fmax(sidePeakL * decayRate, fabs(sideL));
-            sidePeakR = fmax(sidePeakR * decayRate, fabs(sideR));
-            filteredSideEnvelopeL = alpha * sidePeakL + (1 - alpha) * filteredSideEnvelopeL;
-            filteredSideEnvelopeR = alpha * sidePeakR + (1 - alpha) * filteredSideEnvelopeR;
+			// Calculate the envelope for the side signals
+			sidePeakL = fmax(sidePeakL * decayRate, fabs(sideL));
+			sidePeakR = fmax(sidePeakR * decayRate, fabs(sideR));
+			filteredSideEnvelopeL = alpha * sidePeakL + (1 - alpha) * filteredSideEnvelopeL;
+			filteredSideEnvelopeR = alpha * sidePeakR + (1 - alpha) * filteredSideEnvelopeR;
+	
+			// Apply the envelope to the side signals
+			sideL *= filteredSideEnvelopeL;
+			sideR *= filteredSideEnvelopeR;
+	
+			// Calculate ducking based on the side envelope
+			float duckAmount = params[DUCK_PARAM].getValue();
+			if (inputs[DUCK_CV].isConnected()) {
+				duckAmount += clamp(inputs[DUCK_CV].getVoltage() / 5.0f, 0.f, 1.f) * params[DUCK_ATT].getValue();
+			}
+			float duckingFactorL = fmax(0.0f, 1.f - duckAmount * (filteredSideEnvelopeL / 5.0f));
+			float duckingFactorR = fmax(0.0f, 1.f - duckAmount * (filteredSideEnvelopeR / 5.0f));
+			sideEnvelope = (filteredSideEnvelopeL + filteredSideEnvelopeR) / 2.0f;
 
-            // Apply the envelope to the side signals
-            sideL *= filteredSideEnvelopeL;
-            sideR *= filteredSideEnvelopeR;
-
-            // Calculate ducking based on the side envelope
-            float duckAmount = params[DUCK_PARAM].getValue();
-            if (inputs[DUCK_CV].isConnected()) {
-                duckAmount += clamp(inputs[DUCK_CV].getVoltage() / 5.0f, 0.f, 1.f) * params[DUCK_ATT].getValue();
-            }
-            float duckingFactorL = fmax(0.0f, 1.f - duckAmount * (filteredSideEnvelopeL / 5.0f));
-            float duckingFactorR = fmax(0.0f, 1.f - duckAmount * (filteredSideEnvelopeR / 5.0f));
-            sideEnvelope = (filteredSideEnvelopeL + filteredSideEnvelopeR) / 2.0f;
-
-            // Apply ducking to the main mix and add the processed side signals
-            mixL = (mixL * duckingFactorL) + sideL;
-            mixR = (mixR * duckingFactorR) + sideR;
-        }
-    }
+			if (!mutedSideDucks){
+				// Apply ducking to the main mix and add the processed side signals
+				mixL = (mixL * duckingFactorL) + sideL;
+				mixR = (mixR * duckingFactorR) + sideR;
+			} else {
+				if (muteState[6]) {
+					mixL = (mixL * duckingFactorL) ;
+					mixR = (mixR * duckingFactorR) ;
+					
+				} else {
+					mixL = (mixL * duckingFactorL) + sideL;
+					mixR = (mixR * duckingFactorR) + sideR;				
+				}
+			}
+		}
+	}//end process side
    
-
     void updateLights() {
         if (++cycleCount >= 2000) {
             for (int i = 0; i < 6; i++) {
@@ -907,6 +928,27 @@ struct PressedDuckWidget : ModuleWidget {
         filterItem->text = "Apply Filters";
         filterItem->PressedDuckModule = PressedDuckModule;
         menu->addChild(filterItem);
+        
+        // MutedSideDucks menu item
+        struct MutedSideDucksMenuItem : MenuItem {
+            PressedDuck* PressedDuckModule;
+            void onAction(const event::Action& e) override {
+                // Toggle the "Muted Side Ducks" mode
+                PressedDuckModule->mutedSideDucks = !PressedDuckModule->mutedSideDucks;
+            }
+            void step() override {
+                // Update the display to show a checkmark when the mode is active
+                rightText = PressedDuckModule->mutedSideDucks ? "✔" : "";
+                MenuItem::step();
+            }
+        };
+        
+        // Create the MutedSideDucks menu item and add it to the menu
+        MutedSideDucksMenuItem* mutedSideDucksItem = new MutedSideDucksMenuItem();
+        mutedSideDucksItem->text = "Muted Sidechain still Ducks";
+        mutedSideDucksItem->PressedDuckModule = PressedDuckModule;
+        menu->addChild(mutedSideDucksItem);        
+        
     }        
 };
 
