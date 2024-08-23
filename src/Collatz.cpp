@@ -165,18 +165,18 @@ struct Collatz : Module {
             } 
         }
         
-        // Handle reset logic
-        if (resetTrigger.process(params[RESET_BUTTON_PARAM].getValue()) || 
-            resetTrigger.process(inputs[RESET_INPUT].getVoltage()-0.01f)) {
-            sequenceRunning = false;
-            rhythmStepIndex = 0;
-            currentNumber = 0;
-            lights[RUN_LIGHT].setBrightness(0);      
-            outputs[GATE_OUTPUT].setVoltage(0.0f);
-            outputs[ACCENT_OUTPUT].setVoltage(0.0f);
-            lights[GATE_LIGHT].setBrightness(0);
-            lights[ACCENT_LIGHT].setBrightness(0);
-        }
+		if (resetTrigger.process(params[RESET_BUTTON_PARAM].getValue()) || 
+			resetTrigger.process(inputs[RESET_INPUT].getVoltage() - 0.01f)) {
+			sequenceRunning = false;
+			sequenceTriggered = false;  // Clear the trigger flag on reset
+			rhythmStepIndex = 0;
+			currentNumber = 0;
+			lights[RUN_LIGHT].setBrightness(0);      
+			outputs[GATE_OUTPUT].setVoltage(0.0f);
+			outputs[ACCENT_OUTPUT].setVoltage(0.0f);
+			lights[GATE_LIGHT].setBrightness(0);
+			lights[ACCENT_LIGHT].setBrightness(0);
+		}
 
         // Handle trigger logic
         if ( (sampleTrigger.process(inputs[START_INPUT].getVoltage()) || params[START_BUTTON_PARAM].getValue() > 0) && !sequenceRunning && !sequenceTriggered) {
@@ -184,24 +184,27 @@ struct Collatz : Module {
              lights[RUN_LIGHT].setBrightness(1);      
         }
         
-        // Clock handling logic
-        bool externalClockConnected = inputs[CLOCK_INPUT].isConnected();
-        if (externalClockConnected && clockTrigger.process(inputs[CLOCK_INPUT].getVoltage()-0.01f)) {
-            if (sequenceTriggered) {
-                // Reset necessary variables for starting the sequence
-                currentNumber = startingNumber;
-                sequenceRunning = true;
-                sequenceTriggered = false; // Reset trigger flag after starting the sequence
-                rhythmStepIndex = 0; // Reset rhythm index if needed
-            } else if (sequenceRunning ) {
-                advanceSequence();
-            }
-
-            // Update lastClockTime for rate calculation
-            if (firstPulseReceived) {clockRate = 1.0f / lastClockTime;}
-            lastClockTime = 0.0f;
-            firstPulseReceived = true;
-        } 
+		// Clock handling logic
+		bool externalClockConnected = inputs[CLOCK_INPUT].isConnected();
+		if (externalClockConnected && clockTrigger.process(inputs[CLOCK_INPUT].getVoltage() - 0.01f)) {
+			if (sequenceTriggered || !sequenceRunning) {  // Check if either the sequence was triggered or it isn't running
+				// Reset necessary variables for starting the sequence
+				currentNumber = startingNumber;
+				sequenceRunning = true;
+				sequenceTriggered = false; // Reset trigger flag after starting the sequence
+				rhythmStepIndex = 0; // Reset rhythm index if needed
+			} else if (sequenceRunning) {
+				advanceSequence();
+			}
+		
+			// Update lastClockTime for rate calculation
+			if (firstPulseReceived) {
+				clockRate = 1.0f / lastClockTime;
+			}
+			lastClockTime = 0.0f;
+			firstPulseReceived = true;
+		}
+ 
 
         // Accumulate time since the last clock pulse for rate calculation
         if (firstPulseReceived && externalClockConnected) {

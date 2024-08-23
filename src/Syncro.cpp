@@ -146,14 +146,14 @@ struct Syncro : Module {
         configParam(CLOCK_ATT, -1.f, 1.f, 0.0f, "Clock Attenuvertor");
         configParam(SWING_KNOB, -99.0f, 99.0f, 0.0f, "Swing", " %");
         configParam(SWING_ATT, -1.f, 1.f, 0.0f, "Swing Attenuvertor");
-        configParam(MULTIPLY_KNOB_1, 1.0f, 128.0f, 1.0f, "Multiply 1");
-        configParam(MULTIPLY_KNOB_2, 1.0f, 128.0f, 1.0f, "Multiply 2");
-        configParam(MULTIPLY_KNOB_3, 1.0f, 128.0f, 1.0f, "Multiply 3");
-        configParam(MULTIPLY_KNOB_4, 1.0f, 128.0f, 1.0f, "Multiply 4");
-        configParam(MULTIPLY_KNOB_5, 1.0f, 128.0f, 1.0f, "Multiply 5");
-        configParam(MULTIPLY_KNOB_6, 1.0f, 128.0f, 1.0f, "Multiply 6");
-        configParam(MULTIPLY_KNOB_7, 1.0f, 128.0f, 1.0f, "Multiply 7");
-        configParam(MULTIPLY_KNOB_8, 1.0f, 128.0f, 1.0f, "Multiply 8");
+        configParam(MULTIPLY_KNOB_1, 0.0f, 128.0f, 1.0f, "Multiply 1");
+        configParam(MULTIPLY_KNOB_2, 0.0f, 128.0f, 1.0f, "Multiply 2");
+        configParam(MULTIPLY_KNOB_3, 0.0f, 128.0f, 1.0f, "Multiply 3");
+        configParam(MULTIPLY_KNOB_4, 0.0f, 128.0f, 1.0f, "Multiply 4");
+        configParam(MULTIPLY_KNOB_5, 0.0f, 128.0f, 1.0f, "Multiply 5");
+        configParam(MULTIPLY_KNOB_6, 0.0f, 128.0f, 1.0f, "Multiply 6");
+        configParam(MULTIPLY_KNOB_7, 0.0f, 128.0f, 1.0f, "Multiply 7");
+        configParam(MULTIPLY_KNOB_8, 0.0f, 128.0f, 1.0f, "Multiply 8");
         configParam(DIVIDE_KNOB_1, 1.0f, 256.0f, 1.0f, "Divide 1");
         configParam(DIVIDE_KNOB_2, 1.0f, 256.0f, 2.0f, "Divide 2");
         configParam(DIVIDE_KNOB_3, 1.0f, 256.0f, 4.0f, "Divide 3");
@@ -428,16 +428,30 @@ struct Syncro : Module {
                         adjusted_phase += 1.0f;
                     }
 
-                    outputs[CLOCK_OUTPUT + 2 * i].setVoltage(phases[i]*10.f);
-                    outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage( adjusted_phase*10.f );
-                    lights[CLOCK_LIGHT + 2 * i].setBrightness(phases[i]);
-                    lights[CLOCK_LIGHT + 2 * i + 1].setBrightness(1-phases[i]);
-
+					if (multiply[i]>0){
+						outputs[CLOCK_OUTPUT + 2 * i].setVoltage(phases[i]*10.f);
+						outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage( adjusted_phase*10.f );
+						lights[CLOCK_LIGHT + 2 * i].setBrightness(phases[i]);
+						lights[CLOCK_LIGHT + 2 * i + 1].setBrightness(1-phases[i]);
+                    } else {
+						outputs[CLOCK_OUTPUT + 2 * i].setVoltage(0.f);
+						outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage(10.f);
+						lights[CLOCK_LIGHT + 2 * i].setBrightness(0.f);
+						lights[CLOCK_LIGHT + 2 * i + 1].setBrightness(10.f);
+					}
                 } else {
-                    outputs[CLOCK_OUTPUT + 2 * i].setVoltage(highState ? 5.0f : 0.0f);
-                    outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage(highState ? 0.0f : 5.0f);
-                    lights[CLOCK_LIGHT + 2 * i].setBrightness(highState ? 1.0f : 0.0f);
-                    lights[CLOCK_LIGHT + 2 * i + 1].setBrightness(highState ? 0.0f : 1.0f);
+					if (multiply[i]>0){
+						outputs[CLOCK_OUTPUT + 2 * i].setVoltage(highState ? 5.0f : 0.0f);
+						outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage(highState ? 0.0f : 5.0f);
+						lights[CLOCK_LIGHT + 2 * i].setBrightness(highState ? 1.0f : 0.0f);
+						lights[CLOCK_LIGHT + 2 * i + 1].setBrightness(highState ? 0.0f : 1.0f);
+					} else {
+						outputs[CLOCK_OUTPUT + 2 * i].setVoltage( 0.0f);
+						outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage( 5.0f);
+						lights[CLOCK_LIGHT + 2 * i].setBrightness( 0.0f);
+						lights[CLOCK_LIGHT + 2 * i + 1].setBrightness( 1.0f);				
+					}
+
                 }
 
             } else {

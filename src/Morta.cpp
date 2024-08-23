@@ -31,6 +31,7 @@ struct Morta : Module {
         OUTPUT_2_1, OUTPUT_2_2, OUTPUT_2_3, OUTPUT_2_4,
         OUTPUT_3_1, OUTPUT_3_2, OUTPUT_3_3, OUTPUT_3_4,
         OUTPUT_4_1, OUTPUT_4_2, OUTPUT_4_3, OUTPUT_4_4,
+        MAIN_OUTPUT,
         NUM_OUTPUTS
     };
    enum LightIds {    
@@ -85,6 +86,8 @@ struct Morta : Module {
                 outputs[OUTPUT_1_1 + row * 4 + col].setVoltage(scaledValues[row][col]);
             }
         }
+        
+        outputs[MAIN_OUTPUT].setVoltage(inputValue);
     }
 };
 
@@ -121,6 +124,9 @@ struct MortaWidget : ModuleWidget {
                 addOutput(createOutputCentered<ThemedPJ301MPort>(Vec(x, y), module, Morta::OUTPUT_1_1 + row * 4 + col));
             }
         }
+
+		//Main CV Output
+		addOutput(createOutputCentered<ThemedPJ301MPort>(Vec(box.size.x/2 + 55, 119), module, Morta::MAIN_OUTPUT));
 
         if (module) {
             // Volt Display Initialization
