@@ -58,4 +58,7 @@ A 10-channel gate sequencer with per-step probability.
 ### Morta
 A single-knob macro-controller utility with 16 simultaneous outputs in different ranges.
 
+### Step Wave
+An 8-step wave sequencer with rhythmic displacement control over the boundries between stages, and variable shape control for each stage.
+
 See the [User's Manual](/img/CV_funk_Manual.pdf) for more information.
