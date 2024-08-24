@@ -96,8 +96,8 @@ struct Nona : Module {
             offsets[i] = params[OFFSET_KNOB_1 + i].getValue();
         }
     
-        // Read the master gain control if mainVCA is active
-        float masterGain = 1.0f;
+        // Compute the master gain if mainVCA is active
+        float masterGain = 1.0f; // Default value if mainVCA is not active
         if (mainVCA) {
             // Compute the master gain similar to the top channel
             if (inputs[INPUT_1].isConnected()) {
@@ -106,40 +106,29 @@ struct Nona : Module {
                 masterGain = offsets[0]; // Just use offset if no input is present
             }
             masterGain = clamp(masterGain, -10.f, 10.f); // Ensure the master gain stays within a reasonable range
-        }
     
-        // Separate processing for the top channel (index 0)
-        float topChannelOutput = 0.0f;
-        if (mainVCA) {
-            // Process the top channel separately
-            topChannelOutput = inputVoltages[0] * gains[0] + offsets[0];
-            topChannelOutput = clamp(topChannelOutput, -10.f, 10.f);
-    
-            // Output the top channel value directly to its own output
+            // Output the top channel's processed signal directly to its own output
             if (outputs[OUTPUT_1].isConnected()) {
-                outputs[OUTPUT_1].setVoltage(topChannelOutput);
+                outputs[OUTPUT_1].setVoltage(masterGain);
             }
         }
     
-        // Initialize mix for the remaining channels
-        float mixOutput = 0.f;
-    
         // Process each stage: Calculate the raw output voltage for each stage
-        for (int i = 1; i < 9; i++) {  // Start from channel 1
+        for (int i = (mainVCA ? 1 : 0); i < 9; i++) {  // Start from 1 if mainVCA, else start from 0
             outputVoltages[i] = inputVoltages[i] * gains[i] + offsets[i];
         }
     
         // Apply master gain to all stages if mainVCA is active
         if (mainVCA) {
-            for (int i = 1; i < 9; i++) {
+            for (int i = 1; i < 9; i++) {  // Start from 1 since the top channel is separate
                 outputVoltages[i] *= masterGain;
             }
         }
     
         // Process each output with normalling
-        for (int i = 1; i < 9; i++) {  // Start from channel 1
+        for (int i = (mainVCA ? 1 : 0); i < 9; i++) {  // Start from 1 if mainVCA, else start from 0
             float outputMix = 0.f;
-            for (int k = i; k >= 1; k--) {  // Adjust for normalisation
+            for (int k = i; k >= (mainVCA ? 1 : 0); k--) {  // Adjust for normalling; start from 1 if mainVCA, else 0
                 if (outputActive[k] && k != i) {
                     break;
                 }
@@ -153,11 +142,20 @@ struct Nona : Module {
             }
         }
     
-        // Output the master VCA's scaled signal (if active)
-        if (mainVCA && outputs[OUTPUT_2].isConnected()) {  // Assuming OUTPUT_2 is where the master VCA output should go
-            outputs[OUTPUT_2].setVoltage(topChannelOutput * masterGain);
+        // When mainVCA is off, handle the top channel like the others, with normalling
+        if (!mainVCA && outputs[OUTPUT_1].isConnected()) {
+            float topChannelMix = 0.f;
+            for (int k = 0; k >= 0; k--) {  // Only for the top channel (i = 0)
+                if (outputActive[k] && k != 0) {
+                    break;
+                }
+                topChannelMix += outputVoltages[k];
+            }
+            topChannelMix = clamp(topChannelMix, -10.f, 10.f);
+            outputs[OUTPUT_1].setVoltage(topChannelMix);
         }
     }
+
 };
 
 struct SplineWidget : TransparentWidget {
