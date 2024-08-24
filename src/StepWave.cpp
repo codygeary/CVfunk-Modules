@@ -100,10 +100,6 @@ struct StepWave : Module {
     dsp::SchmittTrigger resetTrigger;
     dsp::SchmittTrigger onOffTrigger;
     dsp::SchmittTrigger onOffButtonTrigger;
- //    dsp::SchmittTrigger linkShapeBeatsTrigger;
-//     dsp::SchmittTrigger linkShapeBeatsButton;
-//     dsp::SchmittTrigger trackTrigger;
-//     dsp::SchmittTrigger trackButton;
 
     bool sequenceRunning = true;
 
@@ -156,6 +152,12 @@ struct StepWave : Module {
         // Save the state of linkShapeBeats
         json_object_set_new(rootJ, "linkShapeBeats", json_boolean(linkShapeBeats));
     
+        // Save the state of firstClockPulse
+        json_object_set_new(rootJ, "firstClockPulse", json_boolean(firstClockPulse));
+    
+        // Save the value of SyncInterval[1]
+        json_object_set_new(rootJ, "SyncInterval1", json_real(SyncInterval[1]));
+    
         return rootJ;
     }
     
@@ -176,8 +178,21 @@ struct StepWave : Module {
         json_t* linkShapeBeatsJ = json_object_get(rootJ, "linkShapeBeats");
         if (linkShapeBeatsJ) {
             linkShapeBeats = json_is_true(linkShapeBeatsJ);
-        }                
+        }
+    
+        // Load the state of firstClockPulse
+        json_t* firstClockPulseJ = json_object_get(rootJ, "firstClockPulse");
+        if (firstClockPulseJ) {
+            firstClockPulse = json_is_true(firstClockPulseJ);
+        }
+    
+        // Load the value of SyncInterval[1]
+        json_t* SyncInterval1J = json_object_get(rootJ, "SyncInterval1");
+        if (SyncInterval1J) {
+            SyncInterval[1] = (float)json_real_value(SyncInterval1J);
+        }
     }
+
 
     StepWave() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
@@ -256,37 +271,37 @@ struct StepWave : Module {
         lights[ON_OFF_LIGHT].setBrightness(sequenceRunning ? 1.0f : 0.0f);
 
         // Check for link button input and toggle
-		if (params[LINK_BUTTON].getValue() > 0) {
-			if (!linkButtonPressed) {
-				linkLatched = !linkLatched;
-				linkButtonPressed = true;
-			}
-		} else {
-			linkButtonPressed = false;
-		}
+        if (params[LINK_BUTTON].getValue() > 0) {
+            if (!linkButtonPressed) {
+                linkLatched = !linkLatched;
+                linkButtonPressed = true;
+            }
+        } else {
+            linkButtonPressed = false;
+        }
 
-		// Determine gate states based on latched states and external gate presence
-		linkGateActive = inputs[LINK_INPUT].isConnected() ? linkLatched ^ (inputs[LINK_INPUT].getVoltage() > 0.05f) : linkLatched;
+        // Determine gate states based on latched states and external gate presence
+        linkGateActive = inputs[LINK_INPUT].isConnected() ? linkLatched ^ (inputs[LINK_INPUT].getVoltage() > 0.05f) : linkLatched;
 
-		// Update lights based on latched state or external gate activity
-		lights[LINK_LIGHT].setBrightness(linkGateActive ? 1.0 : 0.0);
+        // Update lights based on latched state or external gate activity
+        lights[LINK_LIGHT].setBrightness(linkGateActive ? 1.0 : 0.0);
         if (linkGateActive) {linkShapeBeats = true;} else { linkShapeBeats = false;}
 
         // Check for track button input and toggle
-		if (params[TRACK_BUTTON].getValue() > 0) {
-			if (!trackButtonPressed) {
-				trackLatched = !trackLatched;
-				trackButtonPressed = true;
-			}
-		} else {
-			trackButtonPressed = false;
-		}
+        if (params[TRACK_BUTTON].getValue() > 0) {
+            if (!trackButtonPressed) {
+                trackLatched = !trackLatched;
+                trackButtonPressed = true;
+            }
+        } else {
+            trackButtonPressed = false;
+        }
 
-		// Determine gate states based on latched states and external gate presence
-		trackGateActive = inputs[TRACK_INPUT].isConnected() ? trackLatched ^ (inputs[TRACK_INPUT].getVoltage() > 0.05f) : trackLatched;
+        // Determine gate states based on latched states and external gate presence
+        trackGateActive = inputs[TRACK_INPUT].isConnected() ? trackLatched ^ (inputs[TRACK_INPUT].getVoltage() > 0.05f) : trackLatched;
 
-		// Update lights based on latched state or external gate activity
-		lights[TRACK_LIGHT].setBrightness(trackGateActive ? 1.0 : 0.0);
+        // Update lights based on latched state or external gate activity
+        lights[TRACK_LIGHT].setBrightness(trackGateActive ? 1.0 : 0.0);
         if (trackGateActive) {trackCV = true;} else { trackCV = false;}
 
         if (!sequenceRunning) {
@@ -759,13 +774,13 @@ struct StepWaveWidget : ModuleWidget {
         addChild(createLightCentered<MediumLight<YellowLight>>(Vec(25, 85), module, StepWave::ON_OFF_LIGHT ));
         addInput(createInputCentered<ThemedPJ301MPort>    (Vec(25, 85), module, StepWave::ON_OFF_INPUT));
 
-		addParam(createParamCentered<LEDButton>(Vec(48, 157), module, StepWave::TRACK_BUTTON));
-		addChild(createLightCentered<LargeLight<RedLight>>(Vec(48, 157), module, StepWave::TRACK_LIGHT));
+        addParam(createParamCentered<LEDButton>(Vec(48, 157), module, StepWave::TRACK_BUTTON));
+        addChild(createLightCentered<LargeLight<RedLight>>(Vec(48, 157), module, StepWave::TRACK_LIGHT));
         addInput(createInputCentered<ThemedPJ301MPort>(Vec(25, 157), module, StepWave::TRACK_INPUT));
 
 
-		addParam(createParamCentered<LEDButton>(Vec(48, 265), module, StepWave::LINK_BUTTON));
-		addChild(createLightCentered<LargeLight<RedLight>>(Vec(48, 265), module, StepWave::LINK_LIGHT));
+        addParam(createParamCentered<LEDButton>(Vec(48, 265), module, StepWave::LINK_BUTTON));
+        addChild(createLightCentered<LargeLight<RedLight>>(Vec(48, 265), module, StepWave::LINK_LIGHT));
         addInput(createInputCentered<ThemedPJ301MPort>(Vec(25, 265), module, StepWave::LINK_INPUT));
 
 
