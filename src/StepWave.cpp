@@ -128,6 +128,7 @@ struct StepWave : Module {
     float lastTargetVoltage[2] = {0.f,0.f};
     bool trackCV = false;
     bool shapeBeats = false;
+    bool waitForReset = true;
     
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
@@ -208,54 +209,57 @@ struct StepWave : Module {
 
     void process(const ProcessArgs &args) override {
 
-        for (int j=0; j<2; j++){ //temporary until 2 layers is fully implemented
-            // Process clock sync input
-            if (inputs[CLOCK_INPUT].isConnected()) {
-                float SyncInputVoltage = inputs[CLOCK_INPUT].getVoltage();
-    
-                if (SyncTrigger.process(SyncInputVoltage)) {
-                    if (!firstClockPulse) {
-                         SyncInterval[1] = SyncTimer.time; // Get the accumulated time since the last reset                         }
-                    }
-                    SyncTimer.reset(); // Reset the timer for the next trigger interval measurement
-                    resetPulse = true;
-                    firstClockPulse = false;
+        // Process clock sync input
+        if (inputs[CLOCK_INPUT].isConnected()) {
+            float SyncInputVoltage = inputs[CLOCK_INPUT].getVoltage();
+
+            if (SyncTrigger.process(SyncInputVoltage)) {
+                if (!firstClockPulse) {
+                     SyncInterval[1] = SyncTimer.time; // Get the accumulated time since the last reset                         }
                 }
-            } 
-    
-            // Process timers
-            float deltaTimeA = args.sampleTime; //for the display clock
-            float deltaTimeB = args.sampleTime; //for the synced clock
-    
-            SyncTimer.process(deltaTimeB);
-    
-            // Check for on/off input or on/off button
-            bool onOffCondition = false;
-            if (inputs[ON_OFF_INPUT].isConnected()) {
-                onOffCondition = onOffTrigger.process(inputs[ON_OFF_INPUT].getVoltage()) || onOffButtonTrigger.process(params[ON_OFF_BUTTON].getValue() > 0.1f);
-            } else {
-                onOffCondition = onOffButtonTrigger.process(params[ON_OFF_BUTTON].getValue());
+                SyncTimer.reset(); // Reset the timer for the next trigger interval measurement
+                resetPulse = true;
+                firstClockPulse = false;
             }
-            if (onOffCondition) {
-                sequenceRunning = !sequenceRunning; // Toggle sequenceRunning
-            }
-            lights[ON_OFF_LIGHT].setBrightness(sequenceRunning ? 1.0f : 0.0f);
-    
-            if (!sequenceRunning) {
-                deltaTimeB = 0.f;
-                ClockTimerB.reset();
-            }
-    
-            // Check for reset input or reset button
-            bool resetCondition = (inputs[RESET_INPUT].isConnected() && resetTrigger.process(inputs[RESET_INPUT].getVoltage())) || (params[RESET_BUTTON].getValue() > 0.1f);    
-            if (resetCondition) {
-                ClockTimerB.reset();
-                currentStage[1] = 0;
-            }    
+        } 
+
+        // Process timers
+        float deltaTimeA = args.sampleTime; //for the display clock
+        float deltaTimeB = args.sampleTime; //for the synced clock
+
+        SyncTimer.process(deltaTimeB);
+
+        // Check for on/off input or on/off button
+        bool onOffCondition = false;
+        if (inputs[ON_OFF_INPUT].isConnected()) {
+            onOffCondition = onOffTrigger.process(inputs[ON_OFF_INPUT].getVoltage()) || onOffButtonTrigger.process(params[ON_OFF_BUTTON].getValue() > 0.1f);
+        } else {
+            onOffCondition = onOffButtonTrigger.process(params[ON_OFF_BUTTON].getValue());
+        }
+        if (onOffCondition) {
+            sequenceRunning = !sequenceRunning; // Toggle sequenceRunning
+        }
+        lights[ON_OFF_LIGHT].setBrightness(sequenceRunning ? 1.0f : 0.0f);
+
+        if (!sequenceRunning) {
+            deltaTimeB = 0.f;
+            ClockTimerB.reset();
+            firstClockPulse = true;
+        }
+
+        // Check for reset input or reset button
+        bool resetCondition = (inputs[RESET_INPUT].isConnected() && resetTrigger.process(inputs[RESET_INPUT].getVoltage())) || (params[RESET_BUTTON].getValue() > 0.1f);    
+        if (resetCondition) {
+            ClockTimerB.reset();
+            currentStage[1] = 0;
+        } 
+            
+        for (int j=0; j<2; j++){ //Cycle through the two different clock layers
+              
             if (currentStage[j] == 0) { 
                 previousStagesLength[j] = 0.0f;  // Reset at the beginning of the sequence
             }
-    
+            
             // Override and animate stage level controls if external CV connected
             for (int i = 0; i<8; i++){
                 if (inputs[STEP_1_IN_VAL + i].isConnected() && sequenceRunning) {
@@ -292,6 +296,16 @@ struct StepWave : Module {
                 currentTime[j] = ClockTimerB.time;
                 normallizedStageProgress[j] = currentTime[j]/stageDuration[j];        
             }
+
+
+            if (j==1 && resetPulse && currentStage[1]==7) { //require a reset pulse to loop sequence
+                resetPulse = false;
+                ClockTimerB.reset();
+                currentStage[1] += 1; 
+            } else if (j==1 && currentStage[1]<7){
+                resetPulse = false;
+            }
+
             
             if (currentTime[j] >= stageDuration[j]){
                 if (j==0){
@@ -299,8 +313,15 @@ struct StepWave : Module {
                 } else {
                     ClockTimerB.reset();
                 }
-                currentStage[j] += 1;
+                                
+                if (j==0){
+                    currentStage[j] += 1; //always advance the display layer
+                } else if (j==1 && currentStage[1]<7){
+                    currentStage[j] += 1;
+                }
+                
                 if (currentStage[j] > 7) {currentStage[j] = 0;} 
+                
                 sampledStepValue[currentStage[j]] = stepValues[currentStage[j]];
                 currentShape[j] = params[STEP_1_SHAPE + currentStage[j]].getValue();
     
@@ -348,9 +369,7 @@ struct StepWave : Module {
                         
                         stageDuration[j] = ((displacementCurrent / 10.f) - (displacementPrevious / 10.f) + 1) * SyncInterval[j];
             
-
-                        ClockTimerB.reset();
-                        
+                        ClockTimerB.reset();                        
                     }
                 }
             }
@@ -757,8 +776,6 @@ struct StepWaveWidget : ModuleWidget {
         waveDisplay->box.size = Vec(351, 50); // Size of the display widget
         waveDisplay->module = module;
         addChild(waveDisplay);
-
-
     }
 
     void appendContextMenu(Menu* menu) override {
@@ -806,11 +823,8 @@ struct StepWaveWidget : ModuleWidget {
         ShapeBeatsMenuItem* shapeBeatsItem = new ShapeBeatsMenuItem();
         shapeBeatsItem->text = "Shape follows number of Beats";
         shapeBeatsItem->StepWaveModule = StepWaveModule;
-        menu->addChild(shapeBeatsItem);
-        
-        
+        menu->addChild(shapeBeatsItem);       
     }        
-
 };
 
 Model* modelStepWave = createModel<StepWave, StepWaveWidget>("StepWave");

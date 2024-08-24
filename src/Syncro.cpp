@@ -109,48 +109,48 @@ struct Syncro : Module {
     bool resyncFlag[9] = {false};
     bool firstClockPulse = true;
     bool sequenceRunning = true;
-	bool phasorMode = false;
-	bool clockCVAsVoct = false;
-	bool clockCVAsBPM = true;  
-	bool gateVoltage10V = false;  
-	bool resetPulse = false;
+    bool phasorMode = false;
+    bool clockCVAsVoct = false;
+    bool clockCVAsBPM = true;  
+    bool gateVoltage10V = false;  
+    bool resetPulse = false;
 
-	json_t* dataToJson() override {
-		json_t* rootJ = json_object();
-		json_object_set_new(rootJ, "sequenceRunning", json_boolean(sequenceRunning));
-		json_object_set_new(rootJ, "phasorMode", json_boolean(phasorMode));
-		json_object_set_new(rootJ, "clockCVAsVoct", json_boolean(clockCVAsVoct));
-		json_object_set_new(rootJ, "clockCVAsBPM", json_boolean(clockCVAsBPM));  
-		json_object_set_new(rootJ, "gateVoltage10V", json_boolean(gateVoltage10V));  
-		return rootJ;
-	}
-	
-	void dataFromJson(json_t* rootJ) override {
-		json_t* sequenceRunningJ = json_object_get(rootJ, "sequenceRunning");
-		if (sequenceRunningJ) {
-			sequenceRunning = json_is_true(sequenceRunningJ);
-		}
-	
-		json_t* phasorModeJ = json_object_get(rootJ, "phasorMode");
-		if (phasorModeJ) {
-			phasorMode = json_is_true(phasorModeJ);
-		}
-	
-		json_t* clockCVAsVoctJ = json_object_get(rootJ, "clockCVAsVoct");
-		if (clockCVAsVoctJ) {
-			clockCVAsVoct = json_is_true(clockCVAsVoctJ);
-		}
-	
-		json_t* clockCVAsBPMJ = json_object_get(rootJ, "clockCVAsBPM");
-		if (clockCVAsBPMJ) {
-			clockCVAsBPM = json_is_true(clockCVAsBPMJ);
-		}
-	
-		json_t* gateVoltage10VJ = json_object_get(rootJ, "gateVoltage10V");
-		if (gateVoltage10VJ) {
-			gateVoltage10V = json_is_true(gateVoltage10VJ);
-		}
-	}
+    json_t* dataToJson() override {
+        json_t* rootJ = json_object();
+        json_object_set_new(rootJ, "sequenceRunning", json_boolean(sequenceRunning));
+        json_object_set_new(rootJ, "phasorMode", json_boolean(phasorMode));
+        json_object_set_new(rootJ, "clockCVAsVoct", json_boolean(clockCVAsVoct));
+        json_object_set_new(rootJ, "clockCVAsBPM", json_boolean(clockCVAsBPM));  
+        json_object_set_new(rootJ, "gateVoltage10V", json_boolean(gateVoltage10V));  
+        return rootJ;
+    }
+    
+    void dataFromJson(json_t* rootJ) override {
+        json_t* sequenceRunningJ = json_object_get(rootJ, "sequenceRunning");
+        if (sequenceRunningJ) {
+            sequenceRunning = json_is_true(sequenceRunningJ);
+        }
+    
+        json_t* phasorModeJ = json_object_get(rootJ, "phasorMode");
+        if (phasorModeJ) {
+            phasorMode = json_is_true(phasorModeJ);
+        }
+    
+        json_t* clockCVAsVoctJ = json_object_get(rootJ, "clockCVAsVoct");
+        if (clockCVAsVoctJ) {
+            clockCVAsVoct = json_is_true(clockCVAsVoctJ);
+        }
+    
+        json_t* clockCVAsBPMJ = json_object_get(rootJ, "clockCVAsBPM");
+        if (clockCVAsBPMJ) {
+            clockCVAsBPM = json_is_true(clockCVAsBPMJ);
+        }
+    
+        json_t* gateVoltage10VJ = json_object_get(rootJ, "gateVoltage10V");
+        if (gateVoltage10VJ) {
+            gateVoltage10V = json_is_true(gateVoltage10VJ);
+        }
+    }
 
     Syncro() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
@@ -271,15 +271,15 @@ struct Syncro : Module {
             }
         }
 
-        float deltaTime = args.sampleTime;
+        double deltaTime = args.sampleTime;
 
         // Process timers
         SyncTimer.process(deltaTime);
         SwingTimer.process(deltaTime);
 
         // Compute swing
-        SwingPhase = SwingTimer.time / (120.f / bpm);
-        deltaTime = deltaTime*(1.0f + (swing / 100.0f) * cosf(2.0f * M_PI * SwingPhase));
+        SwingPhase = SwingTimer.time / (120.0 / bpm);
+        deltaTime *= (1.0 + (swing / 100.0) * cos(2.0 * M_PI * SwingPhase));
 
         // Check for on/off input or on/off button
         bool onOffCondition = false;
@@ -456,21 +456,21 @@ struct Syncro : Module {
                 } else {
                     if (multiply[i]>0){
                         if (gateVoltage10V){
-							outputs[CLOCK_OUTPUT + 2 * i].setVoltage(highState ? 10.0f : 0.0f);
-							outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage(highState ? 0.0f : 10.0f);
+                            outputs[CLOCK_OUTPUT + 2 * i].setVoltage(highState ? 10.0f : 0.0f);
+                            outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage(highState ? 0.0f : 10.0f);
                         } else {
-							outputs[CLOCK_OUTPUT + 2 * i].setVoltage(highState ? 5.0f : 0.0f);
-							outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage(highState ? 0.0f : 5.0f);
+                            outputs[CLOCK_OUTPUT + 2 * i].setVoltage(highState ? 5.0f : 0.0f);
+                            outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage(highState ? 0.0f : 5.0f);
                         }
                         lights[CLOCK_LIGHT + 2 * i].setBrightness(highState ? 1.0f : 0.0f);
                         lights[CLOCK_LIGHT + 2 * i + 1].setBrightness(highState ? 0.0f : 1.0f);
                     } else {
                         if (gateVoltage10V){
-							outputs[CLOCK_OUTPUT + 2 * i].setVoltage( 0.0f);
-							outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage( 10.0f);
+                            outputs[CLOCK_OUTPUT + 2 * i].setVoltage( 0.0f);
+                            outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage( 10.0f);
                         } else {
-							outputs[CLOCK_OUTPUT + 2 * i].setVoltage( 0.0f);
-							outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage( 5.0f);
+                            outputs[CLOCK_OUTPUT + 2 * i].setVoltage( 0.0f);
+                            outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage( 5.0f);
                         }
                         lights[CLOCK_LIGHT + 2 * i].setBrightness( 0.0f);
                         lights[CLOCK_LIGHT + 2 * i + 1].setBrightness( 1.0f);                
@@ -610,90 +610,90 @@ struct SyncroWidget : ModuleWidget {
         }
     }
 
-	void appendContextMenu(Menu* menu) override {
-		ModuleWidget::appendContextMenu(menu);
-	
-		// Cast the module to Syncro and check if the cast is successful
-		Syncro* syncroModule = dynamic_cast<Syncro*>(module);
-		if (!syncroModule) return;
-	
-		// Separator for visual grouping in the context menu
-		menu->addChild(new MenuSeparator());
-	
-		// Phasor Mode enabled/disabled menu item
-		struct PhasorEnabledItem : MenuItem {
-			Syncro* syncroModule;
-			void onAction(const event::Action& e) override {
-				syncroModule->phasorMode = !syncroModule->phasorMode;
-			}
-			void step() override {
-				rightText = syncroModule->phasorMode ? "✔" : "";
-				MenuItem::step();
-			}
-		};
-	
-		PhasorEnabledItem* phasorItem = new PhasorEnabledItem();
-		phasorItem->text = "Phasor Mode";
-		phasorItem->syncroModule = syncroModule; 
-		menu->addChild(phasorItem);
-	
-		// Clock CV as V/oct enabled/disabled menu item
-		struct ClockCVAsVoctItem : MenuItem {
-			Syncro* syncroModule;
-			void onAction(const event::Action& e) override {
-				syncroModule->clockCVAsVoct = !syncroModule->clockCVAsVoct;
-				if (syncroModule->clockCVAsVoct) {
-					syncroModule->clockCVAsBPM = false;
-				}
-			}
-			void step() override {
-				rightText = syncroModule->clockCVAsVoct ? "✔" : "";
-				MenuItem::step();
-			}
-		};
-	
-		ClockCVAsVoctItem* clockItem = new ClockCVAsVoctItem();
-		clockItem->text = "Clock CV as V/oct";
-		clockItem->syncroModule = syncroModule; 
-		menu->addChild(clockItem);
-	
-		// Clock CV is 1V/10BPM enabled/disabled menu item
-		struct ClockCVAsBPMItem : MenuItem {
-			Syncro* syncroModule;
-			void onAction(const event::Action& e) override {
-				syncroModule->clockCVAsBPM = !syncroModule->clockCVAsBPM;
-				if (syncroModule->clockCVAsBPM) {
-					syncroModule->clockCVAsVoct = false;
-				}
-			}
-			void step() override {
-				rightText = syncroModule->clockCVAsBPM ? "✔" : "";
-				MenuItem::step();
-			}
-		};
-	
-		ClockCVAsBPMItem* bpmItem = new ClockCVAsBPMItem();
-		bpmItem->text = "Clock CV is 1V/10BPM";
-		bpmItem->syncroModule = syncroModule; 
-		menu->addChild(bpmItem);
-	
-		// 5V/10V output gate signal toggle menu item
-		struct GateVoltageItem : MenuItem {
-			Syncro* syncroModule;
-			void onAction(const event::Action& e) override {
-				syncroModule->gateVoltage10V = !syncroModule->gateVoltage10V;
-			}
-			void step() override {
-				rightText = syncroModule->gateVoltage10V ? "10V" : "5V";
-				MenuItem::step();
-			}
-		};
-	
-		GateVoltageItem* gateItem = new GateVoltageItem();
-		gateItem->text = "Gate Output Voltage";
-		gateItem->syncroModule = syncroModule; 
-		menu->addChild(gateItem);
-	}
+    void appendContextMenu(Menu* menu) override {
+        ModuleWidget::appendContextMenu(menu);
+    
+        // Cast the module to Syncro and check if the cast is successful
+        Syncro* syncroModule = dynamic_cast<Syncro*>(module);
+        if (!syncroModule) return;
+    
+        // Separator for visual grouping in the context menu
+        menu->addChild(new MenuSeparator());
+    
+        // Phasor Mode enabled/disabled menu item
+        struct PhasorEnabledItem : MenuItem {
+            Syncro* syncroModule;
+            void onAction(const event::Action& e) override {
+                syncroModule->phasorMode = !syncroModule->phasorMode;
+            }
+            void step() override {
+                rightText = syncroModule->phasorMode ? "✔" : "";
+                MenuItem::step();
+            }
+        };
+    
+        PhasorEnabledItem* phasorItem = new PhasorEnabledItem();
+        phasorItem->text = "Phasor Mode";
+        phasorItem->syncroModule = syncroModule; 
+        menu->addChild(phasorItem);
+    
+        // Clock CV as V/oct enabled/disabled menu item
+        struct ClockCVAsVoctItem : MenuItem {
+            Syncro* syncroModule;
+            void onAction(const event::Action& e) override {
+                syncroModule->clockCVAsVoct = !syncroModule->clockCVAsVoct;
+                if (syncroModule->clockCVAsVoct) {
+                    syncroModule->clockCVAsBPM = false;
+                }
+            }
+            void step() override {
+                rightText = syncroModule->clockCVAsVoct ? "✔" : "";
+                MenuItem::step();
+            }
+        };
+    
+        ClockCVAsVoctItem* clockItem = new ClockCVAsVoctItem();
+        clockItem->text = "Clock CV as V/oct";
+        clockItem->syncroModule = syncroModule; 
+        menu->addChild(clockItem);
+    
+        // Clock CV is 1V/10BPM enabled/disabled menu item
+        struct ClockCVAsBPMItem : MenuItem {
+            Syncro* syncroModule;
+            void onAction(const event::Action& e) override {
+                syncroModule->clockCVAsBPM = !syncroModule->clockCVAsBPM;
+                if (syncroModule->clockCVAsBPM) {
+                    syncroModule->clockCVAsVoct = false;
+                }
+            }
+            void step() override {
+                rightText = syncroModule->clockCVAsBPM ? "✔" : "";
+                MenuItem::step();
+            }
+        };
+    
+        ClockCVAsBPMItem* bpmItem = new ClockCVAsBPMItem();
+        bpmItem->text = "Clock CV is 1V/10BPM";
+        bpmItem->syncroModule = syncroModule; 
+        menu->addChild(bpmItem);
+    
+        // 5V/10V output gate signal toggle menu item
+        struct GateVoltageItem : MenuItem {
+            Syncro* syncroModule;
+            void onAction(const event::Action& e) override {
+                syncroModule->gateVoltage10V = !syncroModule->gateVoltage10V;
+            }
+            void step() override {
+                rightText = syncroModule->gateVoltage10V ? "10V" : "5V";
+                MenuItem::step();
+            }
+        };
+    
+        GateVoltageItem* gateItem = new GateVoltageItem();
+        gateItem->text = "Gate Output Voltage";
+        gateItem->syncroModule = syncroModule; 
+        menu->addChild(gateItem);
+    }
 
     void draw(const DrawArgs& args) override {
         ModuleWidget::draw(args);
