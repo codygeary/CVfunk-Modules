@@ -57,6 +57,7 @@ struct StepWave : Module {
         STEP_5_BUTTON, STEP_6_BUTTON, STEP_7_BUTTON, STEP_8_BUTTON,
         SLEW_PARAM,     
         ON_OFF_BUTTON, RESET_BUTTON,
+        LINK_BUTTON, TRACK_BUTTON,
         NUM_PARAMS
     };
     enum InputIds {
@@ -66,7 +67,7 @@ struct StepWave : Module {
         STEP_1_2_DISPLACE_IN, STEP_2_3_DISPLACE_IN, STEP_3_4_DISPLACE_IN, STEP_4_5_DISPLACE_IN,
         STEP_5_6_DISPLACE_IN, STEP_6_7_DISPLACE_IN, STEP_7_8_DISPLACE_IN,  
         SLEW_INPUT,
-        ON_OFF_INPUT, RESET_INPUT,                     
+        ON_OFF_INPUT, RESET_INPUT, LINK_INPUT, TRACK_INPUT,                    
         NUM_INPUTS
     };
     enum OutputIds {
@@ -80,7 +81,8 @@ struct StepWave : Module {
         STEP_5_VAL_LIGHT, STEP_6_VAL_LIGHT, STEP_7_VAL_LIGHT, STEP_8_VAL_LIGHT,
         STEP_1_GATE_LIGHT, STEP_2_GATE_LIGHT, STEP_3_GATE_LIGHT, STEP_4_GATE_LIGHT, 
         STEP_5_GATE_LIGHT, STEP_6_GATE_LIGHT, STEP_7_GAT_LIGHTE, STEP_8_GATE_LIGHT, 
-        ON_OFF_LIGHT,    
+        ON_OFF_LIGHT, 
+        LINK_LIGHT, TRACK_LIGHT,
         NUM_LIGHTS
     };
 
@@ -98,6 +100,11 @@ struct StepWave : Module {
     dsp::SchmittTrigger resetTrigger;
     dsp::SchmittTrigger onOffTrigger;
     dsp::SchmittTrigger onOffButtonTrigger;
+ //    dsp::SchmittTrigger linkShapeBeatsTrigger;
+//     dsp::SchmittTrigger linkShapeBeatsButton;
+//     dsp::SchmittTrigger trackTrigger;
+//     dsp::SchmittTrigger trackButton;
+
     bool sequenceRunning = true;
 
     // For each stage
@@ -126,9 +133,16 @@ struct StepWave : Module {
     dsp::SlewLimiter slewLimiterA; 
     dsp::SlewLimiter slewLimiterB; 
     float lastTargetVoltage[2] = {0.f,0.f};
-    bool trackCV = false;
-    bool shapeBeats = false;
+    bool linkShapeBeats = false;
     bool waitForReset = true;
+    bool linkButtonPressed = false;
+    bool linkLatched = false;
+    bool linkGateActive = false;
+
+    bool trackCV = false;
+    bool trackButtonPressed = false;
+    bool trackLatched = false;
+    bool trackGateActive = false;
     
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
@@ -139,8 +153,8 @@ struct StepWave : Module {
         // Save the state of trackCV
         json_object_set_new(rootJ, "trackCV", json_boolean(trackCV));
     
-        // Save the state of shapeBeats
-        json_object_set_new(rootJ, "shapeBeats", json_boolean(shapeBeats));
+        // Save the state of linkShapeBeats
+        json_object_set_new(rootJ, "linkShapeBeats", json_boolean(linkShapeBeats));
     
         return rootJ;
     }
@@ -158,10 +172,10 @@ struct StepWave : Module {
             trackCV = json_is_true(trackCVJ);
         }
     
-        // Load the state of shapeBeats
-        json_t* shapeBeatsJ = json_object_get(rootJ, "shapeBeats");
-        if (shapeBeatsJ) {
-            shapeBeats = json_is_true(shapeBeatsJ);
+        // Load the state of linkShapeBeats
+        json_t* linkShapeBeatsJ = json_object_get(rootJ, "linkShapeBeats");
+        if (linkShapeBeatsJ) {
+            linkShapeBeats = json_is_true(linkShapeBeatsJ);
         }                
     }
 
@@ -240,6 +254,40 @@ struct StepWave : Module {
             sequenceRunning = !sequenceRunning; // Toggle sequenceRunning
         }
         lights[ON_OFF_LIGHT].setBrightness(sequenceRunning ? 1.0f : 0.0f);
+
+        // Check for link button input and toggle
+		if (params[LINK_BUTTON].getValue() > 0) {
+			if (!linkButtonPressed) {
+				linkLatched = !linkLatched;
+				linkButtonPressed = true;
+			}
+		} else {
+			linkButtonPressed = false;
+		}
+
+		// Determine gate states based on latched states and external gate presence
+		linkGateActive = inputs[LINK_INPUT].isConnected() ? linkLatched ^ (inputs[LINK_INPUT].getVoltage() > 0.05f) : linkLatched;
+
+		// Update lights based on latched state or external gate activity
+		lights[LINK_LIGHT].setBrightness(linkGateActive ? 1.0 : 0.0);
+        if (linkGateActive) {linkShapeBeats = true;} else { linkShapeBeats = false;}
+
+        // Check for track button input and toggle
+		if (params[TRACK_BUTTON].getValue() > 0) {
+			if (!trackButtonPressed) {
+				trackLatched = !trackLatched;
+				trackButtonPressed = true;
+			}
+		} else {
+			trackButtonPressed = false;
+		}
+
+		// Determine gate states based on latched states and external gate presence
+		trackGateActive = inputs[TRACK_INPUT].isConnected() ? trackLatched ^ (inputs[TRACK_INPUT].getVoltage() > 0.05f) : trackLatched;
+
+		// Update lights based on latched state or external gate activity
+		lights[TRACK_LIGHT].setBrightness(trackGateActive ? 1.0 : 0.0);
+        if (trackGateActive) {trackCV = true;} else { trackCV = false;}
 
         if (!sequenceRunning) {
             deltaTimeB = 0.f;
@@ -324,13 +372,7 @@ struct StepWave : Module {
                 
                 sampledStepValue[currentStage[j]] = stepValues[currentStage[j]];
                 currentShape[j] = params[STEP_1_SHAPE + currentStage[j]].getValue();
-    
-                //Set all the Beats params to an integer and fix the knob at stage end
-                for (int i = 0; i<8; i++){
-                    int intBeats = int(params[STEP_1_BEATS + i].getValue());
-                    params[STEP_1_BEATS + i].setValue(intBeats);
-                }
-                
+               
                 previousStagesLength[j] += stageDuration[j] / SyncInterval[j]; // Accumulate the duration of each stage normalized to SyncInterval[j]
                 normallizedStageProgress[j] = 0; //reset the current stage progress meter
                 
@@ -393,8 +435,9 @@ struct StepWave : Module {
                 }
             }    
             
+
             //CV and Gate computation
-            if (shapeBeats){
+            if (linkShapeBeats){
                 numBeats = floor( params[STEP_1_BEATS + currentStage[j]].getValue() );     
             } else { numBeats = 1;}   
                     
@@ -711,13 +754,23 @@ struct StepWaveWidget : ModuleWidget {
         addChild(createWidget<ThemedScrew>(Vec(0, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
         addChild(createWidget<ThemedScrew>(Vec(box.size.x - 1 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 
-        addInput(createInputCentered<ThemedPJ301MPort>(Vec(25, 75), module, StepWave::CLOCK_INPUT));
-        addParam(createParamCentered<TL1105>              (Vec(25, 170), module, StepWave::ON_OFF_BUTTON));
-        addChild(createLightCentered<MediumLight<YellowLight>>(Vec(25, 170), module, StepWave::ON_OFF_LIGHT ));
-        addInput(createInputCentered<ThemedPJ301MPort>    (Vec(25, 200), module, StepWave::ON_OFF_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(Vec(25, 30), module, StepWave::CLOCK_INPUT));
+        addParam(createParamCentered<TL1105>              (Vec(25, 110), module, StepWave::ON_OFF_BUTTON));
+        addChild(createLightCentered<MediumLight<YellowLight>>(Vec(25, 85), module, StepWave::ON_OFF_LIGHT ));
+        addInput(createInputCentered<ThemedPJ301MPort>    (Vec(25, 85), module, StepWave::ON_OFF_INPUT));
 
-        addParam(createParamCentered<TL1105>              (Vec(25,270), module, StepWave::RESET_BUTTON));
-        addInput(createInputCentered<ThemedPJ301MPort>    (Vec(25,300), module, StepWave::RESET_INPUT));
+		addParam(createParamCentered<LEDButton>(Vec(48, 157), module, StepWave::TRACK_BUTTON));
+		addChild(createLightCentered<LargeLight<RedLight>>(Vec(48, 157), module, StepWave::TRACK_LIGHT));
+        addInput(createInputCentered<ThemedPJ301MPort>(Vec(25, 157), module, StepWave::TRACK_INPUT));
+
+
+		addParam(createParamCentered<LEDButton>(Vec(48, 265), module, StepWave::LINK_BUTTON));
+		addChild(createLightCentered<LargeLight<RedLight>>(Vec(48, 265), module, StepWave::LINK_LIGHT));
+        addInput(createInputCentered<ThemedPJ301MPort>(Vec(25, 265), module, StepWave::LINK_INPUT));
+
+
+        addParam(createParamCentered<TL1105>              (Vec(25,310), module, StepWave::RESET_BUTTON));
+        addInput(createInputCentered<ThemedPJ301MPort>    (Vec(25,335), module, StepWave::RESET_INPUT));
 
         // Constants for positioning
         const Vec channelOffset(23, 160); // Start position for the first channel controls
@@ -777,54 +830,7 @@ struct StepWaveWidget : ModuleWidget {
         waveDisplay->module = module;
         addChild(waveDisplay);
     }
-
-    void appendContextMenu(Menu* menu) override {
-        ModuleWidget::appendContextMenu(menu);
-
-        StepWave* StepWaveModule = dynamic_cast<StepWave*>(module);
-        assert(StepWaveModule); // Ensure the cast succeeds
-
-        // Separator for visual grouping in the context menu
-        menu->addChild(new MenuSeparator());
-
-        // TrackCV menu item
-        struct TrackCVMenuItem : MenuItem {
-            StepWave* StepWaveModule;
-            void onAction(const event::Action& e) override {
-                // Toggle the "Track CV Values" mode
-                StepWaveModule->trackCV = !StepWaveModule->trackCV;
-            }
-            void step() override {
-                // Update the display to show a checkmark when the mode is active
-                rightText = StepWaveModule->trackCV ? "✔" : "";
-                MenuItem::step();
-            }
-        };
-       
-        TrackCVMenuItem* trackCVItem = new TrackCVMenuItem();
-        trackCVItem->text = "Track CV Values";
-        trackCVItem->StepWaveModule = StepWaveModule;
-        menu->addChild(trackCVItem);
-        
-        // ShapeBeats menu item
-        struct ShapeBeatsMenuItem : MenuItem {
-            StepWave* StepWaveModule;
-            void onAction(const event::Action& e) override {
-                // Toggle the "Shape follows number of Beats" mode
-                StepWaveModule->shapeBeats = !StepWaveModule->shapeBeats;
-            }
-            void step() override {
-                // Update the display to show a checkmark when the mode is active
-                rightText = StepWaveModule->shapeBeats ? "✔" : "";
-                MenuItem::step();
-            }
-        };
-                
-        ShapeBeatsMenuItem* shapeBeatsItem = new ShapeBeatsMenuItem();
-        shapeBeatsItem->text = "Shape follows number of Beats";
-        shapeBeatsItem->StepWaveModule = StepWaveModule;
-        menu->addChild(shapeBeatsItem);       
-    }        
+               
 };
 
 Model* modelStepWave = createModel<StepWave, StepWaveWidget>("StepWave");
