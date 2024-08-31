@@ -94,51 +94,61 @@ struct Ouros : Module {
         NUM_LIGHTS
     };
 
-    // Initialize global variables
-    dsp::PulseGenerator resetPulse;
-    dsp::SchmittTrigger SyncTrigger;
+    // Global variables for each channel
+    dsp::PulseGenerator resetPulse[16];
+    dsp::SchmittTrigger SyncTrigger[16];
     CircularBuffer<float, 1024> waveBuffers[4];
-
-    float oscPhase[4] = {0.0f}; // Current oscillator phase for each channel
-    float prevPhaseResetInput = 0.0f; // Previous envelope input, for peak detection
-    float calculateTargetPhase(int channel, float NodePosition, float deltaTime, float place);
-    void adjustoscPhase(int channel, float targetPhase, float envInfluence, float deltaTime);
-    float lastTargetVoltages[4] = {0.f, 0.f, 0.f, 0.f}; // Initialize with default voltages, assuming start at 0V  
-    float place[4] = {0.f, 0.f, 0.f, 0.f};
-    bool risingState = false; // Initialize all channels as falling initially
-    bool latch = true; // Initialize all latches
-    float oscOutput[4] = {0.f, 0.f, 0.f, 0.f};
-    float nextChunk[4] = {0.f, 0.f, 0.f, 0.f}; //measure next voltage step to subdivide
-    int LEDprocessCounter = 0; // Counter to track process cycles
-    int SINprocessCounter = 0; // Counter to track process cycles
-    float lastConnectedInputVoltage = 0.0f;
-    float SyncInterval = 2; //default to 2hz
-    float lastoscPhase[4] = {}; // Track the last phase for each LFO channel to detect wraps
-    float eatValue = 0.0f;
+    
+    float oscPhase[16][4] = {{0.0f}};
+    float prevPhaseResetInput[16] = {0.0f};
+    float lastTargetVoltages[16][4] = {{0.f, 0.f, 0.f, 0.f}};
+    float place[16][4] = {{0.f, 0.f, 0.f, 0.f}};
+    bool risingState[16] = {false};
+    bool latch[16] = {true};
+    float oscOutput[16][4] = {{0.f, 0.f, 0.f, 0.f}};
+    float nextChunk[16][4] = {{0.f, 0.f, 0.f, 0.f}};
+    float lastConnectedInputVoltage[16] = {0.0f};
+    float SyncInterval[16] = {2};
+    float lastoscPhase[16][4] = {{0.0f}};
+    float eatValue[16] = {0.0f};
 
     // Serialization method to save module state
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
-
-        // Save the state of retriggerEnabled as a boolean
-        json_object_set_new(rootJ, "eatValue", json_boolean(eatValue));
-
+    
+        // Create a JSON array to store the eatValue array
+        json_t* eatValueArrayJ = json_array();
+        for (int i = 0; i < 16; i++) {
+            json_array_append_new(eatValueArrayJ, json_real(eatValue[i]));
+        }
+        json_object_set_new(rootJ, "eatValue", eatValueArrayJ);
+    
+        // Repeat for other arrays if needed, e.g., oscPhase, lastTargetVoltages, etc.
+    
         return rootJ;
     }
-
+    
     // Deserialization method to load module state
     void dataFromJson(json_t* rootJ) override {
-        // Load the state of retriggerEnabled
-        json_t* eatValueJ = json_object_get(rootJ, "eatValue");
-        if (eatValueJ) {
-            // Use json_is_true() to check if the JSON value is true; otherwise, set to false
-            eatValue = json_is_true(eatValueJ);
+        // Load the eatValue array
+        json_t* eatValueArrayJ = json_object_get(rootJ, "eatValue");
+        if (eatValueArrayJ) {
+            for (int i = 0; i < 16; i++) {
+                json_t* valueJ = json_array_get(eatValueArrayJ, i);
+                if (valueJ) {
+                    eatValue[i] = json_real_value(valueJ);
+                }
+            }
         }
-         // Trigger resets the phase 
-         resetPulse.trigger(1e-4); 
-              
+    
+        // Repeat for other arrays if needed, e.g., oscPhase, lastTargetVoltages, etc.
+    
+        // Trigger resets the phase
+        for (int i = 0; i < 16; i++) {
+            resetPulse[i].trigger(1e-4);
+        }
     }
-
+        
     void onReset(const ResetEvent& e) override {
         // Reset all parameters
         Module::onReset(e);
@@ -158,7 +168,9 @@ struct Ouros : Module {
           params[MULTIPLY_ATT_KNOB].setValue(0.0f);
 
         // Trigger resets the phase 
-        resetPulse.trigger(1e-4);       
+        for (int i=0; i<16; i++){
+            resetPulse[i].trigger(1e-4);  
+        }     
     }
 
      Ouros() {
@@ -201,240 +213,249 @@ struct Ouros : Module {
      }
 
     void process(const ProcessArgs &args) override {    
-        float deltaTime = args.sampleTime; 
 
-        //PROCESS INPUTS
+        int numChannels = std::max(inputs[RATE_INPUT].getChannels(), 1);
+        outputs[L_OUTPUT].setChannels(numChannels);
+        outputs[R_OUTPUT].setChannels(numChannels);
 
-        // Calculate target phase based on Node knob
-        float fm = 0.0f;
-        if (inputs[FM_INPUT].isConnected()) {
-            fm += inputs[FM_INPUT].getVoltage()*0.2f*params[FM_ATT_KNOB].getValue(); 
-        }
-        fm = clamp(fm, -3.0f, 3.0f);
-
-        float multiply = params[MULTIPLY_KNOB].getValue();
-        if (inputs[MULTIPLY_INPUT].isConnected()) {
-            float multiplyIn = inputs[MULTIPLY_INPUT].getVoltage() * params[MULTIPLY_ATT_KNOB].getValue(); 
-            if (multiplyIn < 0.0f){
-                if ( (multiplyIn + multiply) < 1.0 ){ 
-                    multiply = 1-0.1f*(multiplyIn + multiply);
+        for (int c = 0; c < numChannels; c++) {
+        
+            float deltaTime = args.sampleTime; 
+    
+            //PROCESS INPUTS
+    
+            // Calculate target phase based on Node knob
+            float fm = 0.0f;
+            if (inputs[FM_INPUT].isConnected()) {
+                fm += inputs[FM_INPUT].getVoltage(c)*0.2f*params[FM_ATT_KNOB].getValue(); 
+            }
+            fm = clamp(fm, -3.0f, 3.0f);
+    
+            float multiply = params[MULTIPLY_KNOB].getValue();
+            if (inputs[MULTIPLY_INPUT].isConnected()) {
+                float multiplyIn = inputs[MULTIPLY_INPUT].getVoltage(c) * params[MULTIPLY_ATT_KNOB].getValue(); 
+                if (multiplyIn < 0.0f){
+                    if ( (multiplyIn + multiply) < 1.0 ){ 
+                        multiply = 1-0.1f*(multiplyIn + multiply);
+                    } else {
+                        multiply +=multiplyIn;
+                    }
                 } else {
-                    multiply +=multiplyIn;
+                    multiply += multiplyIn;
+                }
+            }    
+            multiply = clamp(multiply, 0.000001f, 10.0f);
+    
+            // Extract the integer part and the fractional part of multiply
+            float baseMultiple = int(multiply);
+            float remainder = multiply - baseMultiple;
+    
+            // Apply the non-linear adjustment based on the remainder
+            if (remainder < 0.5f) {
+                // If the remainder is less than 0.5, enhance its contribution non-linearly
+                multiply = baseMultiple + pow(remainder, 5.f);
+            } else {
+                // If the remainder is 0.5 or greater, non-linearly approach the next integer
+                multiply = (baseMultiple + 1) - pow(1.0f - remainder, 5.f);
+            }
+    
+            float rate = params[RATE_KNOB].getValue();
+            if (inputs[RATE_INPUT].isConnected()) {
+                rate += inputs[RATE_INPUT].getVoltage(c); 
+            }    
+            rate += fm; //add the FM to the computed rate
+            rate = clamp(rate, -4.0f, 4.0f); 
+        
+            rate = 261.625565 * pow(2.0, rate);
+    
+            float multi_rate = rate*multiply;
+    
+            float rotate = params[ROTATE_KNOB].getValue();
+            if (inputs[ROTATE_INPUT].isConnected()) {
+                rotate += inputs[ROTATE_INPUT].getVoltage(c) * 36.0f * params[ROTATE_ATT_KNOB].getValue(); 
+            }    
+    
+            float spread = params[SPREAD_KNOB].getValue();
+            if (inputs[SPREAD_INPUT].isConnected()) {
+                spread += inputs[SPREAD_INPUT].getVoltage(c) * 36.0f * params[SPREAD_ATT_KNOB].getValue(); 
+            }    
+    
+            float eat = params[POSITION_KNOB].getValue();
+            if (inputs[POSITION_INPUT].isConnected()) {
+                eat += inputs[POSITION_INPUT].getVoltage(c) * 36.0f * params[POSITION_ATT_KNOB].getValue(); 
+            }    
+    
+            float feedback = params[FEEDBACK_KNOB].getValue();
+            if (inputs[FEEDBACK_INPUT].isConnected()) {
+                feedback += inputs[FEEDBACK_INPUT].getVoltage(c) * 0.1f * params[FEEDBACK_ATT_KNOB].getValue(); 
+            }    
+            feedback = clamp(feedback, -1.0f, 1.0f);
+    
+            // Calculate target phase based on Node knob
+            float NodePosition = params[NODE_KNOB].getValue();
+            if (inputs[NODE_INPUT].isConnected()) {
+                NodePosition += inputs[NODE_INPUT].getVoltage(c)*params[NODE_ATT_KNOB].getValue(); 
+            }
+        
+            NodePosition += feedback*oscOutput[c][3];
+            NodePosition = fmod(NodePosition, 5.0f);
+            NodePosition = clamp(NodePosition, 0.0f, 5.0f); 
+    
+            // Gate/trigger to Phase Reset input
+            float PhaseResetInput=0.0f;
+     
+            bool manualResetPressed = params[RESET_BUTTON].getValue() > 0.0f;
+    
+            // If the current input is connected, use it and update lastConnectedInputVoltage
+            if (inputs[HARD_SYNC_INPUT].isConnected() || manualResetPressed) {
+                PhaseResetInput = inputs[HARD_SYNC_INPUT].getVoltage(c) + params[RESET_BUTTON].getValue(); 
+                lastConnectedInputVoltage[c] = PhaseResetInput;
+            } else {
+                lastConnectedInputVoltage[c] = PhaseResetInput;
+            }
+        
+            if (PhaseResetInput < 0.0001f){latch[c]= true; }
+            PhaseResetInput = clamp(PhaseResetInput, 0.0f, 10.0f);
+    
+            // Check if the envelope is rising or falling with hysteresis
+            if (risingState[c]) {
+                // If it was rising, look for a significant drop before considering it falling
+                if (PhaseResetInput < prevPhaseResetInput[c]) {
+                    risingState[c] = false; // Now it's falling
                 }
             } else {
-                multiply += multiplyIn;
+                // If it was falling, look for a significant rise before considering it rising
+                if (PhaseResetInput > prevPhaseResetInput[c]) {
+                    risingState[c] = true; // Now it's rising
+                }
             }
-        }    
-        multiply = clamp(multiply, 0.000001f, 10.0f);
-
-        // Extract the integer part and the fractional part of multiply
-        float baseMultiple = int(multiply);
-        float remainder = multiply - baseMultiple;
-
-        // Apply the non-linear adjustment based on the remainder
-        if (remainder < 0.5f) {
-            // If the remainder is less than 0.5, enhance its contribution non-linearly
-            multiply = baseMultiple + pow(remainder, 5.f);
-        } else {
-            // If the remainder is 0.5 or greater, non-linearly approach the next integer
-            multiply = (baseMultiple + 1) - pow(1.0f - remainder, 5.f);
-        }
-
-        float rate = params[RATE_KNOB].getValue();
-        if (inputs[RATE_INPUT].isConnected()) {
-            rate += inputs[RATE_INPUT].getVoltage(); 
-        }    
-        rate += fm; //add the FM to the computed rate
-        rate = clamp(rate, -4.0f, 4.0f); 
     
-        rate = 261.625565 * pow(2.0, rate);
-
-        float multi_rate = rate*multiply;
-
-        float rotate = params[ROTATE_KNOB].getValue();
-        if (inputs[ROTATE_INPUT].isConnected()) {
-            rotate += inputs[ROTATE_INPUT].getVoltage() * 36.0f * params[ROTATE_ATT_KNOB].getValue(); 
-        }    
-
-        float spread = params[SPREAD_KNOB].getValue();
-        if (inputs[SPREAD_INPUT].isConnected()) {
-            spread += inputs[SPREAD_INPUT].getVoltage() * 36.0f * params[SPREAD_ATT_KNOB].getValue(); 
-        }    
-
-        float eat = params[POSITION_KNOB].getValue();
-        if (inputs[POSITION_INPUT].isConnected()) {
-            eat += inputs[POSITION_INPUT].getVoltage() * 36.0f * params[POSITION_ATT_KNOB].getValue(); 
-        }    
-
-        float feedback = params[FEEDBACK_KNOB].getValue();
-        if (inputs[FEEDBACK_INPUT].isConnected()) {
-            feedback += inputs[FEEDBACK_INPUT].getVoltage() * 0.1f * params[FEEDBACK_ATT_KNOB].getValue(); 
-        }    
-        feedback = clamp(feedback, -1.0f, 1.0f);
-
-        // Calculate target phase based on Node knob
-        float NodePosition = params[NODE_KNOB].getValue();
-        if (inputs[NODE_INPUT].isConnected()) {
-            NodePosition += inputs[NODE_INPUT].getVoltage()*params[NODE_ATT_KNOB].getValue(); 
-        }
-    
-        NodePosition += feedback*oscOutput[3];
-        NodePosition = fmod(NodePosition, 5.0f);
-        NodePosition = clamp(NodePosition, 0.0f, 5.0f); 
-
-        // Gate/trigger to Phase Reset input
-        float PhaseResetInput=0.0f;
- 
-        bool manualResetPressed = params[RESET_BUTTON].getValue() > 0.0f;
-
-        // If the current input is connected, use it and update lastConnectedInputVoltage
-        if (inputs[HARD_SYNC_INPUT].isConnected() || manualResetPressed) {
-            PhaseResetInput = inputs[HARD_SYNC_INPUT].getVoltage() + params[RESET_BUTTON].getValue(); 
-            lastConnectedInputVoltage = PhaseResetInput;
-        } else {
-            lastConnectedInputVoltage = PhaseResetInput;
-        }
-    
-        if (PhaseResetInput < 0.0001f){latch= true; }
-        PhaseResetInput = clamp(PhaseResetInput, 0.0f, 10.0f);
-
-        // Check if the envelope is rising or falling with hysteresis
-        if (risingState) {
-            // If it was rising, look for a significant drop before considering it falling
-            if (PhaseResetInput < prevPhaseResetInput) {
-                risingState = false; // Now it's falling
+            //if we get a reset pulse then manually set latch and risingState
+            if (resetPulse[c].process(args.sampleTime)) {
+                latch[c] = true;
+                risingState[c] = true;
             }
-        } else {
-            // If it was falling, look for a significant rise before considering it rising
-            if (PhaseResetInput > prevPhaseResetInput) {
-                risingState = true; // Now it's rising
-            }
-        }
-
-        //if we get a reset pulse then manually set latch and risingState
-        if (resetPulse.process(args.sampleTime)) {
-            latch = true;
-            risingState = true;
-        }
-
-        for (int i = 0; i < 4; i++) {
-
-            /////////////////////
-            // NODE positioning logic
-            //
-        
-            float nodeOne = (rotate+spread/2)/360;
-            float nodeTwo = (rotate-spread/2)/360;
-            float nodeThree = eat/360;
-            float currentNode = 0.0;
-            if (i==0){currentNode = nodeOne;}
-            if (i==1){currentNode = nodeTwo;}
-            if (i==3){currentNode = nodeThree;}
-
-            float basePhase = currentNode;  
-            float targetPhase = basePhase; 
-        
-            if (NodePosition < 1.0f) {
-                // Unison
-                targetPhase = linearInterpolation(basePhase, 0.5f, NodePosition);
-            } else if (NodePosition < 2.0f) {
-                // Bimodal distribution
-                float bimodalPhase = fmod(currentNode, 2.0f) / 2.0f;
-                float dynamicFactor = -1.0f * (NodePosition - 1.0f) * ((currentNode + 1.0f) / 2.0f);
-                targetPhase = linearInterpolation(0.5f, bimodalPhase * dynamicFactor, NodePosition - 1.0f);
-            } else if (NodePosition < 3.0f) {
-                // Trimodal distribution
-                float bimodalPhase = fmod(currentNode, 2.0f) / 2.0f;
-                float dynamicFactor = -1.0f * (NodePosition - 1.0f) * ((currentNode + 1.0f) / 2.0f);
-                float trimodalPhase = fmod(currentNode, 3.0f) / 3.0f;
-
-                float blendFactor = NodePosition - 2.0f; // Gradually changes from 0 to 1 as NodePosition goes from 2.0 to 3.0
-                float adjustedTrimodalPhase = linearInterpolation(bimodalPhase * dynamicFactor, trimodalPhase, blendFactor * 1.0f);
-                targetPhase = adjustedTrimodalPhase;
-            } else if (NodePosition < 4.0f) {
-                float trimodalPhase = fmod(currentNode, 3.0f) / 3.0f;
-
-                // Smoothly map back to Unison
-                float blendFactor = NodePosition - 3.0f; // Gradually changes from 0 to 1 as NodePosition goes from 3.0 to 4.0
-                targetPhase = linearInterpolation(trimodalPhase, 0.5f, blendFactor);
-            } else {
-                // Map smoothly to the basePhase for 4-5
-                float blendFactor = NodePosition - 4.0f; // Gradually changes from 0 to 1 as NodePosition goes from 4.0 to 5.0
-                targetPhase = linearInterpolation(0.5f, basePhase, blendFactor);
-            }   
+    
+            for (int i = 0; i < 4; i++) {
+    
+                /////////////////////
+                // NODE positioning logic
+                //
             
-            targetPhase += place[i];
-        
-            if (i == 2) {
-                targetPhase = place[i];
-            }
-
-            targetPhase = fmod(targetPhase, 1.0f);
-
-            float phaseDiff = targetPhase - oscPhase[i];
-            phaseDiff -= roundf(phaseDiff);  // Ensures phaseDiff is in the range -0.5 to 0.5
-
-            //Phase returns to the correct spot, rate determined by PhaseGate
-            oscPhase[i] += phaseDiff*( 0.05f )  ;
-
-            if (i==3){
-                    // Update the LFO phase based on the rate
-                    oscPhase[i] += multi_rate * deltaTime ;        
-                    place[i] += multi_rate * deltaTime;
+                float nodeOne = (rotate+spread/2)/360;
+                float nodeTwo = (rotate-spread/2)/360;
+                float nodeThree = eat/360;
+                float currentNode = 0.0;
+                if (i==0){currentNode = nodeOne;}
+                if (i==1){currentNode = nodeTwo;}
+                if (i==3){currentNode = nodeThree;}
+    
+                float basePhase = currentNode;  
+                float targetPhase = basePhase; 
+            
+                if (NodePosition < 1.0f) {
+                    // Unison
+                    targetPhase = linearInterpolation(basePhase, 0.5f, NodePosition);
+                } else if (NodePosition < 2.0f) {
+                    // Bimodal distribution
+                    float bimodalPhase = fmod(currentNode, 2.0f) / 2.0f;
+                    float dynamicFactor = -1.0f * (NodePosition - 1.0f) * ((currentNode + 1.0f) / 2.0f);
+                    targetPhase = linearInterpolation(0.5f, bimodalPhase * dynamicFactor, NodePosition - 1.0f);
+                } else if (NodePosition < 3.0f) {
+                    // Trimodal distribution
+                    float bimodalPhase = fmod(currentNode, 2.0f) / 2.0f;
+                    float dynamicFactor = -1.0f * (NodePosition - 1.0f) * ((currentNode + 1.0f) / 2.0f);
+                    float trimodalPhase = fmod(currentNode, 3.0f) / 3.0f;
+    
+                    float blendFactor = NodePosition - 2.0f; // Gradually changes from 0 to 1 as NodePosition goes from 2.0 to 3.0
+                    float adjustedTrimodalPhase = linearInterpolation(bimodalPhase * dynamicFactor, trimodalPhase, blendFactor * 1.0f);
+                    targetPhase = adjustedTrimodalPhase;
+                } else if (NodePosition < 4.0f) {
+                    float trimodalPhase = fmod(currentNode, 3.0f) / 3.0f;
+    
+                    // Smoothly map back to Unison
+                    float blendFactor = NodePosition - 3.0f; // Gradually changes from 0 to 1 as NodePosition goes from 3.0 to 4.0
+                    targetPhase = linearInterpolation(trimodalPhase, 0.5f, blendFactor);
+                } else {
+                    // Map smoothly to the basePhase for 4-5
+                    float blendFactor = NodePosition - 4.0f; // Gradually changes from 0 to 1 as NodePosition goes from 4.0 to 5.0
+                    targetPhase = linearInterpolation(0.5f, basePhase, blendFactor);
+                }   
                 
-                    if (oscPhase[2]==0){
-                        oscPhase[3]=0;
-                        place[3]=0;
-                    }
-            } else {
-                    // Update the LFO phase based on the rate
-                    oscPhase[i] += rate * deltaTime ;           
-                    place[i] += rate * deltaTime;
+                targetPhase += place[c][i];
+            
+                if (i == 2) {
+                    targetPhase = place[c][i];
+                }
+    
+                targetPhase = fmod(targetPhase, 1.0f);
+    
+                float phaseDiff = targetPhase - oscPhase[c][i];
+                phaseDiff -= roundf(phaseDiff);  // Ensures phaseDiff is in the range -0.5 to 0.5
+    
+                //Phase returns to the correct spot, rate determined by PhaseGate
+                oscPhase[c][i] += phaseDiff*( 0.05f )  ;
+    
+                if (i==3){
+                        // Update the LFO phase based on the rate
+                        oscPhase[c][i] += multi_rate * deltaTime ;        
+                        place[c][i] += multi_rate * deltaTime;
+                    
+                        if (oscPhase[c][2]==0){
+                            oscPhase[c][3]=0;
+                            place[c][3]=0;
+                        }
+                } else {
+                        // Update the LFO phase based on the rate
+                        oscPhase[c][i] += rate * deltaTime ;           
+                        place[c][i] += rate * deltaTime;
+                }
+    
+                oscPhase[c][i] -= (int)oscPhase[c][i];
+    
+                if (place[c][i] >= 1.0f) place[c][i] -= 1.0f; // Wrap 
+    
+                // Reset LFO phase to 0 at the peak of the envelope
+                if ((risingState[c] && latch[c]) ) {
+                    oscPhase[c][0] = 0.0f;
+                    place[c][0] = 0.0f;
+                    oscPhase[c][1] = 0.0f;
+                    place[c][1] = 0.0f;
+                    oscPhase[c][2] = 0.0f;
+                    place[c][2] = 0.0f;
+                    latch[c]= false;
+                    risingState[c]= false;
+                    place[c][3] = 0.0f;
+                    oscPhase[c][3] = 0.0f;
+                } 
+    
+                ////////////
+                //COMPUTE the Oscillator Shape
+                oscOutput[c][i] = clamp(5.0f * sinf(twoPi * oscPhase[c][i]), -5.0f, 5.0f);
+    
+                if (i<2){
+                    //Output Voltage
+                    outputs[L_OUTPUT + i].setVoltage(oscOutput[c][i],c);
+                }    
+                              
+                prevPhaseResetInput[c]= PhaseResetInput;
             }
 
-            oscPhase[i] -= (int)oscPhase[i];
-
-            if (place[i] >= 1.0f) place[i] -= 1.0f; // Wrap 
-
-            // Reset LFO phase to 0 at the peak of the envelope
-            if ((risingState && latch) ) {
-                oscPhase[0] = 0.0f;
-                place[0] = 0.0f;
-                oscPhase[1] = 0.0f;
-                place[1] = 0.0f;
-                oscPhase[2] = 0.0f;
-                place[2] = 0.0f;
-                latch= false;
-                risingState= false;
-                place[3] = 0.0f;
-                oscPhase[3] = 0.0f;
-            } 
-
-            ////////////
-            //COMPUTE the Oscillator Shape
-            oscOutput[i] = clamp(5.0f * sinf(twoPi * oscPhase[i]), -5.0f, 5.0f);
-
-            if (i<2){
-                //Output Voltage
-                outputs[L_OUTPUT + i].setVoltage(oscOutput[i]);
-            }    
-                          
-            prevPhaseResetInput = PhaseResetInput;
-        }
-    
-        int sampleIndex = static_cast<int>(oscPhase[2] * 1024); 
-        if (sampleIndex < 0) sampleIndex = 0;
-        else if (sampleIndex > 1023) sampleIndex = 1023;
-        waveBuffers[0][sampleIndex] = outputs[L_OUTPUT].getVoltage();
-        waveBuffers[1][sampleIndex] = outputs[R_OUTPUT].getVoltage();
-        lastoscPhase[2] = oscPhase[2];
-    
-        // Handling for wrapping around 0
-        for (int i = 0; i < 4; i++) {
-            if (oscPhase[i] < lastoscPhase[i]) { // This means the phase has wrapped
-                lastoscPhase[i] = oscPhase[i]; // Update the last phase
+            lastoscPhase[c][2] = oscPhase[c][2];                
+            // Handling for wrapping around 0
+            for (int i = 0; i < 4; i++) {
+                if (oscPhase[c][i] < lastoscPhase[c][i]) { // This means the phase has wrapped
+                    lastoscPhase[c][i] = oscPhase[c][i]; // Update the last phase
+                }
             }
+            
         }
+        
+        int sampleIndex = static_cast<int>(oscPhase[0][2] * 1024); 
+        sampleIndex = clamp(sampleIndex, 0, 1023);
+        waveBuffers[0][sampleIndex] = outputs[L_OUTPUT].getVoltage(0);
+        waveBuffers[1][sampleIndex] = outputs[R_OUTPUT].getVoltage(0);
+         
        
     }//void process
      
@@ -449,7 +470,8 @@ struct PolarXYDisplay : TransparentWidget {
     static constexpr float twoPi = 2.0f * M_PI; // Precomputed constant for 2*pi
 
     void draw(const DrawArgs& args) override {
-        // Draw non-illuminating elements if any
+        // We do not need to clear the drawing area here if it is handled in drawLayer()
+        TransparentWidget::draw(args);
     }
 
     void drawLayer(const DrawArgs& args, int layer) override {
@@ -458,31 +480,63 @@ struct PolarXYDisplay : TransparentWidget {
         if (layer == 1) {
             centerX = box.size.x / 2.0f;
             centerY = box.size.y / 2.0f;
-            radiusScale = centerY / 5; // Calculate based on current center Y
+            radiusScale = centerY / 5; // Adjust scale factor for radius
 
-            drawWaveform(args, module->waveBuffers[0], nvgRGBAf(1, 0.4, 0, 0.8));
-            drawWaveform(args, module->waveBuffers[1], nvgRGBAf(0, 0.4, 1, 0.8));
+            // Clear the area before drawing the waveform
+            nvgBeginPath(args.vg);
+            nvgRect(args.vg, 0, 0, box.size.x, box.size.y);
+            nvgFillColor(args.vg, nvgRGBA(0, 0, 0, 0)); // Transparent background
+            nvgFill(args.vg);
+
+            // Draw waveforms
+            if (!waveBufferEmpty(module->waveBuffers[0])) {
+                drawWaveform(args, module->waveBuffers[0], nvgRGBAf(1, 0.4, 0, 0.8));
+            }
+
+            if (!waveBufferEmpty(module->waveBuffers[1])) {
+                drawWaveform(args, module->waveBuffers[1], nvgRGBAf(0, 0.4, 1, 0.8));
+            }
         }
 
         TransparentWidget::drawLayer(args, layer);
     }
 
+    bool waveBufferEmpty(const CircularBuffer<float, 1024>& waveBuffer) const {
+        // Check if the buffer has meaningful data; in this case, we'll assume
+        // that a buffer is "empty" if all values are zero (or some other criteria).
+        for (size_t i = 0; i < waveBuffer.size(); i++) {
+            if (waveBuffer[i] != 0.0f) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     void drawWaveform(const DrawArgs& args, const CircularBuffer<float, 1024>& waveBuffer, NVGcolor color) {
         nvgBeginPath(args.vg);
-        for (size_t i = 0; i < 1024; i++) {
+        bool firstPoint = true;
+
+        for (size_t i = 0; i < waveBuffer.size(); i++) {
             float theta = i * xScale; // Compute angle based on index
             float radius = waveBuffer[i] * radiusScale + centerY; // Adjust radius based on sample value
             Vec pos = polarToCartesian(theta, radius);
 
-            if (i == 0) nvgMoveTo(args.vg, pos.x, pos.y);
-            else nvgLineTo(args.vg, pos.x, pos.y);
+            if (firstPoint) {
+                nvgMoveTo(args.vg, pos.x, pos.y);
+                firstPoint = false;
+            } else {
+                nvgLineTo(args.vg, pos.x, pos.y);
+            }
         }
+
+        // Properly close the path to avoid any unintended lines
+        nvgClosePath(args.vg);
         nvgStrokeColor(args.vg, color); // Set the color for the waveform
         nvgStrokeWidth(args.vg, 1.0);
         nvgStroke(args.vg);
     }
 
-    Vec polarToCartesian(float theta, float radius) {
+    Vec polarToCartesian(float theta, float radius) const {
         // Normalize theta to be between -pi and pi
         theta = fmod(theta + M_PI, twoPi);
         if (theta < 0) theta += twoPi;
@@ -493,6 +547,7 @@ struct PolarXYDisplay : TransparentWidget {
         return Vec(x, y);
     }
 };
+
 
 
 struct OurosWidget : ModuleWidget {
