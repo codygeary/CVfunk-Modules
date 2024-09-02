@@ -39,6 +39,7 @@ struct Morta : Module {
     };
 
     float inputValue = 0.f;
+    float displayValue = 0.0f;
     DigitalDisplay* voltDisplay = nullptr;
 
     Morta() {
@@ -60,35 +61,67 @@ struct Morta : Module {
     }
 
     void process(const ProcessArgs &args) override {
-
-        // Override master knob value with input if input is connected
-        if (inputs[MAIN_INPUT].isConnected()) {
-            params[MASTER_KNOB].setValue(inputs[MAIN_INPUT].getVoltage());
+    
+        // Determine the number of channels based on the RANGE_CV_INPUT or MAIN_INPUT
+        int numChannels = std::max(inputs[RANGE_CV_INPUT].getChannels(), inputs[MAIN_INPUT].getChannels());
+        if (numChannels == 0) numChannels = 1;  // Default to mono if no inputs are connected
+    
+        // Set the output channels to match the input channels
+        for (int i = 0; i < 16; i++) {
+            outputs[OUTPUT_1_1 + i].setChannels(numChannels);
         }
-
-        // Handle range for the fourth column
-        float rangeCV = inputs[RANGE_CV_INPUT].isConnected() ? inputs[RANGE_CV_INPUT].getVoltage() : 0.0f;
-        float customRange = params[RANGE_KNOB].getValue() + rangeCV * params[RANGE_TRIMPOT].getValue();
-
-        inputValue = params[MASTER_KNOB].getValue(); 
-
-        // Compute the scaled values
-        float scaledValues[4][4] = {
-            {inputValue / 20.0f + 0.5f, inputValue / 4.0f + 2.5f, inputValue / 2.0f + 5.f, (inputValue / 20.0f + 0.5f) * customRange}, // Unipolar 0 to Max
-            {inputValue / 10.0f , inputValue / 2.0f , inputValue  , (inputValue / 10.0f) * customRange }, // Bipolar -Max to Max
-            {-inputValue / 10.0f, -inputValue / 2.0f , -inputValue , (-inputValue / 10.0f)  * customRange }, // Inverted Bipolar -Max to Max
-            {0.5f - inputValue / 20.0f, 2.5f - inputValue / 4.0f, 5.0f - inputValue / 2.0f, customRange - (inputValue / 20.0f + 0.5f) * customRange} // Positive Inverted Max to 0
-        };
-
-        // Update outputs
-        for (int row = 0; row < 4; row++) {
-            for (int col = 0; col < 4; col++) {
-                outputs[OUTPUT_1_1 + row * 4 + col].setVoltage(scaledValues[row][col]);
+        outputs[MAIN_OUTPUT].setChannels(numChannels);
+    
+        // Check if RANGE_CV_INPUT is monophonic
+        bool isRangeCVMonophonic = inputs[RANGE_CV_INPUT].isConnected() && (inputs[RANGE_CV_INPUT].getChannels() == 1);
+    
+        // Get the monophonic RANGE_CV value if applicable
+        float rangeCVMonoValue = isRangeCVMonophonic ? inputs[RANGE_CV_INPUT].getVoltage(0) : 0.0f;
+    
+        for (int c = 0; c < numChannels; c++) {
+    
+            // Override master knob value with input if input is connected
+            if (inputs[MAIN_INPUT].isConnected()) {
+                params[MASTER_KNOB].setValue(inputs[MAIN_INPUT].getVoltage(0));
+                displayValue = inputs[MAIN_INPUT].getVoltage(0);
+            } else {
+                displayValue = params[MASTER_KNOB].getValue();           
             }
+    
+            // Handle range for the fourth column, applying monophonic CV if applicable
+            float rangeCV = inputs[RANGE_CV_INPUT].isConnected() ? 
+                            (isRangeCVMonophonic ? rangeCVMonoValue : inputs[RANGE_CV_INPUT].getVoltage(c)) : 0.0f;
+            float customRange = params[RANGE_KNOB].getValue() + rangeCV * params[RANGE_TRIMPOT].getValue();
+
+
+            float inputValue = 0.0f;
+
+            if (inputs[MAIN_INPUT].isConnected()) {
+                inputValue = inputs[MAIN_INPUT].getVoltage(c);
+            } else {
+                inputValue = params[MASTER_KNOB].getValue();
+            }
+  
+            // Compute the scaled values for each mode
+            float scaledValues[4][4] = {
+                {inputValue / 20.0f + 0.5f, inputValue / 4.0f + 2.5f, inputValue / 2.0f + 5.f, (inputValue / 20.0f + 0.5f) * customRange}, // Unipolar 0 to Max
+                {inputValue / 10.0f , inputValue / 2.0f , inputValue  , (inputValue / 10.0f) * customRange }, // Bipolar -Max to Max
+                {-inputValue / 10.0f, -inputValue / 2.0f , -inputValue , (-inputValue / 10.0f)  * customRange }, // Inverted Bipolar -Max to Max
+                {0.5f - inputValue / 20.0f, 2.5f - inputValue / 4.0f, 5.0f - inputValue / 2.0f, customRange - (inputValue / 20.0f + 0.5f) * customRange} // Positive Inverted Max to 0
+            };
+    
+            // Update outputs for each channel
+            for (int row = 0; row < 4; row++) {
+                for (int col = 0; col < 4; col++) {
+                    outputs[OUTPUT_1_1 + row * 4 + col].setVoltage(scaledValues[row][col], c);
+                }
+            }
+    
+            // Set the main output for this channel
+            outputs[MAIN_OUTPUT].setVoltage(inputValue, c);
         }
-        
-        outputs[MAIN_OUTPUT].setVoltage(inputValue);
     }
+
 };
 
 struct MortaWidget : ModuleWidget {
@@ -140,11 +173,14 @@ struct MortaWidget : ModuleWidget {
         ModuleWidget::draw(args);
         Morta* module = dynamic_cast<Morta*>(this->module);
         if (!module) return;
-
+    
         // Update BPM and Swing displays
         if (module->voltDisplay) {
             char voltText[16];
-            snprintf(voltText, sizeof(voltText), "%.3f V", module->inputValue);
+            
+            // Display the input value for the top channel (channel 0)
+            snprintf(voltText, sizeof(voltText), "%.3f V", module->displayValue); 
+            
             module->voltDisplay->text = voltText;
         }
     }
