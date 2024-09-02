@@ -11,6 +11,10 @@
 
 #include "rack.hpp"
 #include "plugin.hpp"
+using simd::float_4;
+
+const float twoPi = 2.0f * M_PI;
+simd::float_4 twoPiSIMD = simd::float_4(twoPi);
 
 using namespace rack;
 
@@ -43,8 +47,6 @@ public:
         return Size;
     }
 };
-
-static const float twoPi = 2.0f * M_PI;
 
 struct Ouros : Module {
 
@@ -335,7 +337,14 @@ struct Ouros : Module {
                 latch[c] = true;
                 risingState[c] = true;
             }
-    
+
+
+            // Initialize SIMD variables
+            simd::float_4 phases, places;
+            simd::float_4 rateVec(rate), multi_rateVec(multi_rate);
+            simd::float_4 twoPiVec(2 * M_PI), fiveVec(5.0f);
+            simd::float_4 zeroVec(0.0f), oneVec(1.0f);
+
             for (int i = 0; i < 4; i++) {
     
                 /////////////////////
@@ -411,7 +420,7 @@ struct Ouros : Module {
                         place[c][i] += rate * deltaTime;
                 }
     
-                oscPhase[c][i] -= (int)oscPhase[c][i];
+                oscPhase[c][i] -= static_cast<int>(oscPhase[c][i]);
     
                 if (place[c][i] >= 1.0f) place[c][i] -= 1.0f; // Wrap 
     
@@ -428,17 +437,25 @@ struct Ouros : Module {
                     place[c][3] = 0.0f;
                     oscPhase[c][3] = 0.0f;
                 } 
-    
-                ////////////
-                //COMPUTE the Oscillator Shape
-                oscOutput[c][i] = clamp(5.0f * sinf(twoPi * oscPhase[c][i]), -5.0f, 5.0f);
-    
-                if (i<2){
-                    //Output Voltage
-                    outputs[L_OUTPUT + i].setVoltage(oscOutput[c][i],c);
-                }    
+ 
+                 // Store phase values in SIMD vectors
+                phases[i] = oscPhase[c][i];
+                places[i] = place[c][i];
                               
                 prevPhaseResetInput[c]= PhaseResetInput;
+            }
+
+            // Compute oscillator shape using SIMD
+            simd::float_4 phaseVector = phases * twoPiVec;
+            simd::float_4 sinValues = simd::sin(phaseVector);
+            simd::float_4 outputValues = clamp(fiveVec * sinValues, -5.0f, 5.0f);
+    
+            // Store results and output the voltages
+            for (int i = 0; i < 4; i++) {
+                oscOutput[c][i] = outputValues[i];
+                if (i < 2) {
+                    outputs[L_OUTPUT + i].setVoltage(oscOutput[c][i], c);
+                }
             }
 
             lastoscPhase[c][2] = oscPhase[c][2];                
@@ -455,8 +472,7 @@ struct Ouros : Module {
         sampleIndex = clamp(sampleIndex, 0, 1023);
         waveBuffers[0][sampleIndex] = outputs[L_OUTPUT].getVoltage(0);
         waveBuffers[1][sampleIndex] = outputs[R_OUTPUT].getVoltage(0);
-         
-       
+                
     }//void process
      
 };
