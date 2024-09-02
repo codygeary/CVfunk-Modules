@@ -43,6 +43,39 @@ public:
     }
 };
 
+#include "Filter6pButter.h"
+#define OVERSAMPLING_FACTOR 8 
+class OverSamplingShaper {
+public:
+    OverSamplingShaper() {
+        interpolatingFilter.setCutoffFreq(1.f / (OVERSAMPLING_FACTOR * 4));
+        decimatingFilter.setCutoffFreq(1.f / (OVERSAMPLING_FACTOR * 4));
+    }
+    float process(float input) {
+        float signal;
+        for (int i = 0; i < OVERSAMPLING_FACTOR; ++i) {
+            signal = (i == 0) ? input * OVERSAMPLING_FACTOR : 0.f;   
+            signal = interpolatingFilter.process(signal);
+            signal = processShape(signal);
+            signal = decimatingFilter.process(signal);
+        }
+        return signal;
+    }
+private:
+    virtual float processShape(float) = 0;
+    Filter6PButter interpolatingFilter;
+    Filter6PButter decimatingFilter;
+};
+
+// Define the OverSamplingShaper derived class
+class SimpleShaper : public OverSamplingShaper {
+private:
+    float processShape(float input) override {
+        // No additional shaping; just pass through
+        return input;
+    }
+};
+
 struct StepWave : Module {
     enum ParamIds {
         STEP_1_VAL, STEP_2_VAL, STEP_3_VAL, STEP_4_VAL,
@@ -101,7 +134,7 @@ struct StepWave : Module {
     dsp::SchmittTrigger onOffTrigger;
     dsp::SchmittTrigger onOffButtonTrigger;
 
-    bool sequenceRunning = true;
+    bool sequenceRunning = false;  //default sequence run to off
 
     // For each stage
     int currentStage[2] = {0,0};
@@ -124,6 +157,12 @@ struct StepWave : Module {
     //For the display
     CircularBuffer<float, 1024> waveBuffers[3];
     float oscPhase[2] = {0.0f}; // Current oscillator phase for each channel
+
+    // Initialize Butterworth filter with appropriate cutoff frequency
+    SimpleShaper shaper;  // Instance of the oversampling and shaping processor
+    Filter6PButter butterworthFilter;  // Butterworth filter instance
+
+//     butterworthFilter.setCutoffFreq(1.f / 44.1f);
 
     // For the output
     dsp::SlewLimiter slewLimiterA; 
@@ -192,7 +231,6 @@ struct StepWave : Module {
             SyncInterval[1] = (float)json_real_value(SyncInterval1J);
         }
     }
-
 
     StepWave() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
@@ -629,43 +667,57 @@ struct StepWave : Module {
                 }
             }
         
-            //Compute Slew and output CV voltages
-            float slewRate = clamp(params[SLEW_PARAM].getValue() + inputs[SLEW_INPUT].getVoltage()/10.f, 0.f, 1.f); 
-    
-            if (slewRate >0){    
+            // Compute Slew and output CV voltages
+            float slewRate = clamp(params[SLEW_PARAM].getValue() + inputs[SLEW_INPUT].getVoltage() / 10.f, 0.f, 1.f);
+
+            // Check if the signal is at audio rate by comparing stageDuration[j]
+            float audioRateThreshold = 0.05f; // 20Hz threshold for anti-aliasing
+            bool isSupersamplingEnabled = (stageDuration[j] < audioRateThreshold);
+
+            if (slewRate > 0) {
                 // Calculate the absolute voltage difference from the last target
                 float voltageDifference = fabs(finalCV[j] - lastTargetVoltage[j]);
-        
+
                 // Adjust slewSpeed based on the voltage difference and trigger interval
-                // Ensure triggerInterval is non-zero to avoid division by zero
-                float adjustedTriggerInterval = fmax( stageDuration[j], 1e-8f);
+                float adjustedTriggerInterval = fmax(stageDuration[j], 1e-8f);
                 float slewSpeed = voltageDifference / adjustedTriggerInterval; // Voltage difference per second
-        
-                // Apply the SLEW_PARAM knob to scale the slewSpeed, adding 1e-6 to avoid division by zero
+
+                // Apply the SLEW_PARAM knob to scale the slewSpeed
                 slewSpeed *= 1.0f / (slewRate + 1e-8f);
-                if (j==0){
-                    // Set the rise and fall speeds of the slew limiter to the calculated slew speed
+
+                // Set the rise and fall speeds of the slew limiter to the calculated slew speed
+                if (j == 0) {
                     slewLimiterA.setRiseFall(slewSpeed, slewSpeed);
-            
-                    // Process the target voltage through the slew limiter
                     slewedVoltage[j] = slewLimiterA.process(args.sampleTime, finalCV[j]);
                 } else {
-                    // Set the rise and fall speeds of the slew limiter to the calculated slew speed
                     slewLimiterB.setRiseFall(slewSpeed, slewSpeed);
-            
-                    // Process the target voltage through the slew limiter
                     slewedVoltage[j] = slewLimiterB.process(args.sampleTime, finalCV[j]);
                 }
-                if (j==1){
+            } else {
+                // If no slew rate is applied, directly set the slewed voltage to the final CV
+                slewedVoltage[j] = finalCV[j];
+            }
+
+            if (j == 1) {
+                if (isSupersamplingEnabled) {
+                    // Use the oversampling shaper for the signal
+                    float outputValue = shaper.process(slewedVoltage[j]);
+
+                    // Output the processed value
+                    outputs[CV_OUTPUT].setVoltage(outputValue);
+                } else {
+                    // If supersampling is not enabled, output the slewed voltage directly
                     outputs[CV_OUTPUT].setVoltage(slewedVoltage[j]);
                 }
-                lastTargetVoltage[j] = slewedVoltage[j];    
+
+                // Update last target voltage after setting the output
+                lastTargetVoltage[j] = slewedVoltage[j];
             } else {
-                if (j==1){
-                    outputs[CV_OUTPUT].setVoltage(finalCV[j]);        
-                }
-                lastTargetVoltage[j] = finalCV[j];            
+                // Update last target voltage even if no output is set
+                lastTargetVoltage[j] = slewedVoltage[j];
             }
+        
+
             
             //Main Gate Output
     
