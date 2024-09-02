@@ -242,7 +242,7 @@ struct HexMod : Module {
             rate = clamp(rate, -10.f, 10.0f); 
             rate = 261.625565 * pow(2.0, rate);
         } else {
-            rate = clamp(rate, 0.01f, 10.0f); 
+            rate = clamp(rate, 0.0001f, 10.0f); 
         }
     
         float NodePosition = params[NODE_KNOB].getValue();
