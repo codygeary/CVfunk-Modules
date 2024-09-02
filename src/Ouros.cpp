@@ -215,32 +215,53 @@ struct Ouros : Module {
      }
 
     void process(const ProcessArgs &args) override {    
-
+    
         int numChannels = std::max(inputs[RATE_INPUT].getChannels(), 1);
         outputs[L_OUTPUT].setChannels(numChannels);
         outputs[R_OUTPUT].setChannels(numChannels);
-
-        for (int c = 0; c < numChannels; c++) {
         
+        // Check if each input is monophonic
+        bool isFMMonophonic = inputs[FM_INPUT].isConnected() && (inputs[FM_INPUT].getChannels() == 1);
+        bool isMultiplyMonophonic = inputs[MULTIPLY_INPUT].isConnected() && (inputs[MULTIPLY_INPUT].getChannels() == 1);
+        bool isRateMonophonic = inputs[RATE_INPUT].isConnected() && (inputs[RATE_INPUT].getChannels() == 1);
+        bool isRotateMonophonic = inputs[ROTATE_INPUT].isConnected() && (inputs[ROTATE_INPUT].getChannels() == 1);
+        bool isSpreadMonophonic = inputs[SPREAD_INPUT].isConnected() && (inputs[SPREAD_INPUT].getChannels() == 1);
+        bool isEatMonophonic = inputs[POSITION_INPUT].isConnected() && (inputs[POSITION_INPUT].getChannels() == 1);
+        bool isFeedbackMonophonic = inputs[FEEDBACK_INPUT].isConnected() && (inputs[FEEDBACK_INPUT].getChannels() == 1);
+        bool isNodeMonophonic = inputs[NODE_INPUT].isConnected() && (inputs[NODE_INPUT].getChannels() == 1);
+    
+        // Get the monophonic input values
+        float fmMonoValue = isFMMonophonic ? inputs[FM_INPUT].getVoltage(0) : 0.0f;
+        float multiplyMonoValue = isMultiplyMonophonic ? inputs[MULTIPLY_INPUT].getVoltage(0) : 0.0f;
+        float rateMonoValue = isRateMonophonic ? inputs[RATE_INPUT].getVoltage(0) : 0.0f;
+        float rotateMonoValue = isRotateMonophonic ? inputs[ROTATE_INPUT].getVoltage(0) : 0.0f;
+        float spreadMonoValue = isSpreadMonophonic ? inputs[SPREAD_INPUT].getVoltage(0) : 0.0f;
+        float eatMonoValue = isEatMonophonic ? inputs[POSITION_INPUT].getVoltage(0) : 0.0f;
+        float feedbackMonoValue = isFeedbackMonophonic ? inputs[FEEDBACK_INPUT].getVoltage(0) : 0.0f;
+        float nodeMonoValue = isNodeMonophonic ? inputs[NODE_INPUT].getVoltage(0) : 0.0f;
+    
+        for (int c = 0; c < numChannels; c++) {
+            
             float deltaTime = args.sampleTime; 
-    
-            //PROCESS INPUTS
-    
-            // Calculate target phase based on Node knob
+        
+            // Process FM input
             float fm = 0.0f;
             if (inputs[FM_INPUT].isConnected()) {
-                fm += inputs[FM_INPUT].getVoltage(c)*0.2f*params[FM_ATT_KNOB].getValue(); 
+                fm += isFMMonophonic ? fmMonoValue : inputs[FM_INPUT].getVoltage(c);
+                fm *= 0.2f * params[FM_ATT_KNOB].getValue();
             }
             fm = clamp(fm, -3.0f, 3.0f);
     
+            // Process Multiply input
             float multiply = params[MULTIPLY_KNOB].getValue();
             if (inputs[MULTIPLY_INPUT].isConnected()) {
-                float multiplyIn = inputs[MULTIPLY_INPUT].getVoltage(c) * params[MULTIPLY_ATT_KNOB].getValue(); 
-                if (multiplyIn < 0.0f){
-                    if ( (multiplyIn + multiply) < 1.0 ){ 
-                        multiply = 1-0.1f*(multiplyIn + multiply);
+                float multiplyIn = isMultiplyMonophonic ? multiplyMonoValue : inputs[MULTIPLY_INPUT].getVoltage(c);
+                multiplyIn *= params[MULTIPLY_ATT_KNOB].getValue(); 
+                if (multiplyIn < 0.0f) {
+                    if ((multiplyIn + multiply) < 1.0) { 
+                        multiply = 1 - 0.1f * (multiplyIn + multiply);
                     } else {
-                        multiply +=multiplyIn;
+                        multiply += multiplyIn;
                     }
                 } else {
                     multiply += multiplyIn;
@@ -248,96 +269,88 @@ struct Ouros : Module {
             }    
             multiply = clamp(multiply, 0.000001f, 10.0f);
     
-            // Extract the integer part and the fractional part of multiply
+            // Apply non-linear adjustment to Multiply
             float baseMultiple = int(multiply);
             float remainder = multiply - baseMultiple;
+            multiply = (remainder < 0.5f) ? baseMultiple + pow(remainder, 5.f)
+                                          : (baseMultiple + 1) - pow(1.0f - remainder, 5.f);
     
-            // Apply the non-linear adjustment based on the remainder
-            if (remainder < 0.5f) {
-                // If the remainder is less than 0.5, enhance its contribution non-linearly
-                multiply = baseMultiple + pow(remainder, 5.f);
-            } else {
-                // If the remainder is 0.5 or greater, non-linearly approach the next integer
-                multiply = (baseMultiple + 1) - pow(1.0f - remainder, 5.f);
-            }
-    
+            // Process Rate input
             float rate = params[RATE_KNOB].getValue();
             if (inputs[RATE_INPUT].isConnected()) {
-                rate += inputs[RATE_INPUT].getVoltage(c); 
+                rate += isRateMonophonic ? rateMonoValue : inputs[RATE_INPUT].getVoltage(c);
             }    
-            rate += fm; //add the FM to the computed rate
+            rate += fm;
             rate = clamp(rate, -4.0f, 4.0f); 
-        
             rate = 261.625565 * pow(2.0, rate);
     
-            float multi_rate = rate*multiply;
+            float multi_rate = rate * multiply;
     
+            // Process Rotate input
             float rotate = params[ROTATE_KNOB].getValue();
             if (inputs[ROTATE_INPUT].isConnected()) {
-                rotate += inputs[ROTATE_INPUT].getVoltage(c) * 36.0f * params[ROTATE_ATT_KNOB].getValue(); 
+                rotate += (isRotateMonophonic ? rotateMonoValue : inputs[ROTATE_INPUT].getVoltage(c)) * 36.0f * params[ROTATE_ATT_KNOB].getValue(); 
             }    
     
+            // Process Spread input
             float spread = params[SPREAD_KNOB].getValue();
             if (inputs[SPREAD_INPUT].isConnected()) {
-                spread += inputs[SPREAD_INPUT].getVoltage(c) * 36.0f * params[SPREAD_ATT_KNOB].getValue(); 
+                spread += (isSpreadMonophonic ? spreadMonoValue : inputs[SPREAD_INPUT].getVoltage(c)) * 36.0f * params[SPREAD_ATT_KNOB].getValue(); 
             }    
     
+            // Process Eat/Position input
             float eat = params[POSITION_KNOB].getValue();
             if (inputs[POSITION_INPUT].isConnected()) {
-                eat += inputs[POSITION_INPUT].getVoltage(c) * 36.0f * params[POSITION_ATT_KNOB].getValue(); 
+                eat += (isEatMonophonic ? eatMonoValue : inputs[POSITION_INPUT].getVoltage(c)) * 36.0f * params[POSITION_ATT_KNOB].getValue(); 
             }    
     
+            // Process Feedback input
             float feedback = params[FEEDBACK_KNOB].getValue();
             if (inputs[FEEDBACK_INPUT].isConnected()) {
-                feedback += inputs[FEEDBACK_INPUT].getVoltage(c) * 0.1f * params[FEEDBACK_ATT_KNOB].getValue(); 
+                feedback += (isFeedbackMonophonic ? feedbackMonoValue : inputs[FEEDBACK_INPUT].getVoltage(c)) * 0.1f * params[FEEDBACK_ATT_KNOB].getValue(); 
             }    
             feedback = clamp(feedback, -1.0f, 1.0f);
     
-            // Calculate target phase based on Node knob
+            // Process Node input
             float NodePosition = params[NODE_KNOB].getValue();
             if (inputs[NODE_INPUT].isConnected()) {
-                NodePosition += inputs[NODE_INPUT].getVoltage(c)*params[NODE_ATT_KNOB].getValue(); 
+                NodePosition += (isNodeMonophonic ? nodeMonoValue : inputs[NODE_INPUT].getVoltage(c)) * params[NODE_ATT_KNOB].getValue(); 
             }
-        
-            NodePosition += feedback*oscOutput[c][3];
+            
+            NodePosition += feedback * oscOutput[c][3];
             NodePosition = fmod(NodePosition, 5.0f);
-            NodePosition = clamp(NodePosition, 0.0f, 5.0f); 
+            NodePosition = clamp(NodePosition, 0.0f, 5.0f);
     
-            // Gate/trigger to Phase Reset input
-            float PhaseResetInput=0.0f;
-     
+            // Phase Reset input logic
+            float PhaseResetInput = 0.0f;
             bool manualResetPressed = params[RESET_BUTTON].getValue() > 0.0f;
     
-            // If the current input is connected, use it and update lastConnectedInputVoltage
             if (inputs[HARD_SYNC_INPUT].isConnected() || manualResetPressed) {
                 PhaseResetInput = inputs[HARD_SYNC_INPUT].getVoltage(c) + params[RESET_BUTTON].getValue(); 
                 lastConnectedInputVoltage[c] = PhaseResetInput;
             } else {
                 lastConnectedInputVoltage[c] = PhaseResetInput;
             }
-        
-            if (PhaseResetInput < 0.0001f){latch[c]= true; }
+    
+            if (PhaseResetInput < 0.0001f) { latch[c] = true; }
             PhaseResetInput = clamp(PhaseResetInput, 0.0f, 10.0f);
     
-            // Check if the envelope is rising or falling with hysteresis
+            // Rising/falling state logic
             if (risingState[c]) {
-                // If it was rising, look for a significant drop before considering it falling
                 if (PhaseResetInput < prevPhaseResetInput[c]) {
-                    risingState[c] = false; // Now it's falling
+                    risingState[c] = false;
                 }
             } else {
-                // If it was falling, look for a significant rise before considering it rising
                 if (PhaseResetInput > prevPhaseResetInput[c]) {
-                    risingState[c] = true; // Now it's rising
+                    risingState[c] = true;
                 }
             }
     
-            //if we get a reset pulse then manually set latch and risingState
+            // Handle reset pulse
             if (resetPulse[c].process(args.sampleTime)) {
                 latch[c] = true;
                 risingState[c] = true;
             }
-
 
             // Initialize SIMD variables
             simd::float_4 phases, places;
