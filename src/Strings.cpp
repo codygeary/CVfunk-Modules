@@ -365,18 +365,25 @@ struct Strings : Module {
         configInput(WHAMMY_BAR_CV, "Whammy Bar");
 
         // Initialize outputs
-        for (int i = STRING_CV_OUT_1; i <= STRING_CV_OUT_6; i++) {
-            configOutput(i, "String " + std::to_string(i - STRING_CV_OUT_1 + 1) + " V/oct");
-        }
+        configOutput(STRING_CV_OUT_1, "String 1 V/oct / Poly");
+        configOutput(STRING_CV_OUT_2, "String 2 V/oct");
+        configOutput(STRING_CV_OUT_3, "String 3 V/oct");
+        configOutput(STRING_CV_OUT_4, "String 4 V/oct");
+        configOutput(STRING_CV_OUT_5, "String 5 V/oct");
+        configOutput(STRING_CV_OUT_6, "String 6 V/oct");
+        
         configOutput(ROOT_NOTE_CV_OUT, "Root Note V/oct");      
         configOutput(TRIGGER_OUT, "Chord Change Trigger");      
 
 		configParam(BARRE_CHORD_BUTTON, 0.0, 1.0, 0.0, "Chord Bank I Button" );
 		configParam(ALT_CHORD_BUTTON, 0.0, 1.0, 0.0, "Chord Bank II Button" );
 
-        for (int i = MUTE_OUT_1; i <= MUTE_OUT_6; i++) {
-            configOutput(i, "Mute " + std::to_string(i - MUTE_OUT_1 + 1));
-        }
+        configOutput(MUTE_OUT_1, "Mute 1 / Poly");
+        configOutput(MUTE_OUT_2, "Mute 2");
+        configOutput(MUTE_OUT_3, "Mute 3");
+        configOutput(MUTE_OUT_4, "Mute 4");
+        configOutput(MUTE_OUT_5, "Mute 5");
+        configOutput(MUTE_OUT_6, "Mute 6");
 
         barreLatched = false;
         altLatched = false; 
@@ -578,26 +585,93 @@ struct Strings : Module {
             // Use the modified gate states to choose the fingering version
             int fingeringVersion = getFingeringVersion(barreGateActive, altGateActive);
 
+            // Determine the connection state of the outputs
+            bool firstOutputConnected = outputs[STRING_CV_OUT_1].isConnected();
+            bool multipleOutputsConnected = false;
+            bool firstMuteOutputConnected = outputs[MUTE_OUT_1].isConnected();
+            bool multipleMuteOutputsConnected = false;
+            
+            for (int i = 1; i < 6; ++i) {
+                if (outputs[STRING_CV_OUT_1 + i].isConnected()) {
+                    multipleOutputsConnected = true;
+                    break;
+                }
+            }
+            
+            for (int i = 1; i < 6; ++i) {
+                if (outputs[MUTE_OUT_1 + i].isConnected()) {
+                    multipleMuteOutputsConnected = true;
+                    break;
+                }
+            }
+            
+            // Adjust the polyphony of the first outputs based on the current connection state
+            if (firstOutputConnected && multipleOutputsConnected) {
+                // If the first output was polyphonic and additional outputs are now connected, reset it to mono
+                outputs[STRING_CV_OUT_1].setChannels(1);
+            }
+            if (firstMuteOutputConnected && multipleMuteOutputsConnected) {
+                // If the first mute output was polyphonic and additional mute outputs are now connected, reset it to mono
+                outputs[MUTE_OUT_1].setChannels(1);
+            }
+            
             // Iterate over strings to set voltages
             for (int stringIdx = 0; stringIdx < 6; ++stringIdx) {
                 // Convert fingering string to semitone shifts
                 auto semitoneShifts = fingeringToSemitoneShifts(currentChords[currentChordIndex][fingeringVersion]);
-
-                PitchBend[stringIdx]=(0.1f/12.f) * (inputs[ENVELOPE_IN_1 + stringIdx].isConnected() ? inputs[ENVELOPE_IN_1 + stringIdx].getVoltage() : 0);
-                PitchBend[stringIdx]= abs(PitchBend[stringIdx]);
-
-                // Process each string
+            
+                PitchBend[stringIdx] = (0.1f / 12.f) * (inputs[ENVELOPE_IN_1 + stringIdx].isConnected() ? inputs[ENVELOPE_IN_1 + stringIdx].getVoltage() : 0);
+                PitchBend[stringIdx] = abs(PitchBend[stringIdx]);
+            
+                // Calculate pitch voltage
+                float pitchVoltage;
+                float muteVoltage;
                 if (semitoneShifts[stringIdx] >= 0) {
-                    // Calculate pitch voltage
-                    float pitchVoltage = baseFrequencies[stringIdx] + (semitoneShifts[stringIdx] * (1.0f / 12.0f)) + whammyBarEffect + CapoAmount + PitchBend[stringIdx];
-                    outputs[STRING_CV_OUT_1 + stringIdx].setVoltage(pitchVoltage);
-                    outputs[MUTE_OUT_1 + stringIdx].setVoltage(0.0);
+                    pitchVoltage = baseFrequencies[stringIdx] + (semitoneShifts[stringIdx] * (1.0f / 12.0f)) + whammyBarEffect + CapoAmount + PitchBend[stringIdx];
+                    muteVoltage = 0.0f; // Not muted
                 } else {
-                    // Mute this string             
-                    outputs[STRING_CV_OUT_1 + stringIdx].setVoltage(currentRoots[currentChordIndex] + CapoAmount - 1.0f);  //set muted string to the root note, just incase you don't mute it
-                    outputs[MUTE_OUT_1 + stringIdx].setVoltage(5.0);
+                    // Mute this string
+                    pitchVoltage = currentRoots[currentChordIndex] + CapoAmount - 1.0f;  // set muted string to the root note, just in case you don't mute it
+                    muteVoltage = 5.0f; // Muted
+                }
+            
+                // Handle STRING_CV_OUT output routing
+                if (firstOutputConnected && !multipleOutputsConnected) {
+                    // Only the first output is connected, send polyphonic output
+                    outputs[STRING_CV_OUT_1].setChannels(6);
+                    outputs[STRING_CV_OUT_1].setVoltage(pitchVoltage, stringIdx);
+                } else {
+                    // Multiple outputs are connected, send monophonic output per string
+                    outputs[STRING_CV_OUT_1 + stringIdx].setVoltage(pitchVoltage);
+                }
+            
+                // Handle MUTE_OUT output routing
+                if (firstMuteOutputConnected && !multipleMuteOutputsConnected) {
+                    // Only the first mute output is connected, send polyphonic mute output
+                    outputs[MUTE_OUT_1].setChannels(6);
+                    outputs[MUTE_OUT_1].setVoltage(muteVoltage, stringIdx);
+                } else {
+                    // Multiple mute outputs are connected, send monophonic mute output per string
+                    outputs[MUTE_OUT_1 + stringIdx].setVoltage(muteVoltage);
                 }
             }
+            
+            // If only the first STRING_CV_OUT is connected, clear the other outputs to avoid unintended voltages
+            if (firstOutputConnected && !multipleOutputsConnected) {
+                for (int i = 1; i < 6; ++i) {
+                    outputs[STRING_CV_OUT_1 + i].setVoltage(0.0f); // Ensure other outputs are silent
+                    outputs[STRING_CV_OUT_1 + i].setChannels(1); // Set these channels to monophonic
+                }
+            }
+            
+            // If only the first MUTE_OUT is connected, clear the other mute outputs to avoid unintended voltages
+            if (firstMuteOutputConnected && !multipleMuteOutputsConnected) {
+                for (int i = 1; i < 6; ++i) {
+                    outputs[MUTE_OUT_1 + i].setVoltage(0.0f); // Ensure other mute outputs are silent
+                    outputs[MUTE_OUT_1 + i].setChannels(1); // Set these channels to monophonic
+                }
+            }
+
             if(display_count>display_skip){
                 display_count=0;        
 
