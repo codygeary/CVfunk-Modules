@@ -63,6 +63,7 @@ struct PressedDuck : Module {
         VCA_CV1_INPUT, VCA_CV2_INPUT, VCA_CV3_INPUT, VCA_CV4_INPUT, VCA_CV5_INPUT, VCA_CV6_INPUT, VCA_SIDECHAIN_INPUT,
         PAN_CV1_INPUT, PAN_CV2_INPUT, PAN_CV3_INPUT, PAN_CV4_INPUT, PAN_CV5_INPUT, PAN_CV6_INPUT,  
         SIDECHAIN_INPUT_L, SIDECHAIN_INPUT_R, DUCK_CV, PRESS_CV_INPUT, FEEDBACK_CV, MASTER_VOL_CV,
+        MUTE_1_INPUT, MUTE_2_INPUT, MUTE_3_INPUT, MUTE_4_INPUT, MUTE_5_INPUT, MUTE_6_INPUT,
         NUM_INPUTS
     };
     enum OutputIds {
@@ -268,8 +269,8 @@ struct PressedDuck : Module {
         configParam(PRESS_ATT, -1.f, 1.f, 0.0f, "Press Attenuation");
 
         // Configure inputs for each channel
-        configInput(AUDIO_1L_INPUT, "Channel 1 L");
-        configInput(AUDIO_1R_INPUT, "Channel 1 R");
+        configInput(AUDIO_1L_INPUT, "Channel 1 L / Poly");
+        configInput(AUDIO_1R_INPUT, "Channel 1 R / Poly");
         configInput(AUDIO_2L_INPUT, "Channel 2 L");
         configInput(AUDIO_2R_INPUT, "Channel 2 R");
         configInput(AUDIO_3L_INPUT, "Channel 3 L");
@@ -281,7 +282,7 @@ struct PressedDuck : Module {
         configInput(AUDIO_6L_INPUT, "Channel 6 L");
         configInput(AUDIO_6R_INPUT, "Channel 6 R");
 
-        configInput(VCA_CV1_INPUT, "Channel 1 VCA CV ");
+        configInput(VCA_CV1_INPUT, "Channel 1 VCA CV / Poly");
         configInput(VCA_CV2_INPUT, "Channel 2 VCA CV");
         configInput(VCA_CV3_INPUT, "Channel 3 VCA CV");
         configInput(VCA_CV4_INPUT, "Channel 4 VCA CV");
@@ -289,12 +290,19 @@ struct PressedDuck : Module {
         configInput(VCA_CV6_INPUT, "Channel 6 VCA CV");
         configInput(VCA_SIDECHAIN_INPUT, "Sidechain VCA CV");
 
-        configInput(PAN_CV1_INPUT, "Channel 1 Pan CV");
+        configInput(PAN_CV1_INPUT, "Channel 1 Pan CV / Poly");
         configInput(PAN_CV2_INPUT, "Channel 2 Pan CV");
         configInput(PAN_CV3_INPUT, "Channel 3 Pan CV");
         configInput(PAN_CV4_INPUT, "Channel 4 Pan CV");
         configInput(PAN_CV5_INPUT, "Channel 5 Pan CV");
         configInput(PAN_CV6_INPUT, "Channel 6 Pan CV");
+
+        configInput(MUTE_1_INPUT, "Channel 1 Mute CV / Poly");
+        configInput(MUTE_2_INPUT, "Channel 2 Mute CV");
+        configInput(MUTE_3_INPUT, "Channel 2 Mute CV");
+        configInput(MUTE_4_INPUT, "Channel 2 Mute CV");
+        configInput(MUTE_5_INPUT, "Channel 2 Mute CV");
+        configInput(MUTE_6_INPUT, "Channel 2 Mute CV");
 
         // Side and saturation CV inputs
         configInput(SIDECHAIN_INPUT_L, "Sidechain L");
@@ -332,14 +340,30 @@ struct PressedDuck : Module {
         float compressionAmountR = 0.0f;
         float inputCount = 0.0f;
 
+		// Check if the first channel has polyphonic input
+		int polyChannels = inputs[AUDIO_1L_INPUT].getChannels();
+		int vcaCvChannels = inputs[VCA_CV1_INPUT].getChannels();
+		int panChannels = inputs[PAN_CV1_INPUT].getChannels();
+		int muteChannels = inputs[MUTE_1_INPUT].getChannels();
+
         // Process each of the six main channels
         for (int i = 0; i < 6; i++) {
            
             // Initially check connection and set initial input values
             bool isConnectedL = inputs[AUDIO_1L_INPUT + 2 * i].isConnected();
             bool isConnectedR = inputs[AUDIO_1R_INPUT + 2 * i].isConnected();
-            inputL[i] = isConnectedL ? inputs[AUDIO_1L_INPUT + 2 * i].getVoltage() : 0.0f;
-            inputR[i] = isConnectedR ? inputs[AUDIO_1R_INPUT + 2 * i].getVoltage() : 0.0f;
+ 
+			// Handle polyphonic inputs on the first channel
+			if (i < polyChannels) {
+				inputL[i] = inputs[AUDIO_1L_INPUT].getPolyVoltage(i);
+				inputR[i] = inputs[AUDIO_1R_INPUT].getPolyVoltage(i);
+				isConnectedL = true;
+				isConnectedR = true;
+			} else {
+				inputL[i] = isConnectedL ? inputs[AUDIO_1L_INPUT + 2 * i].getVoltage() : 0.0f;
+				inputR[i] = isConnectedR ? inputs[AUDIO_1R_INPUT + 2 * i].getVoltage() : 0.0f;
+			}
+
 
             // Handle mono to stereo routing
             if (!isConnectedL && isConnectedR) {
@@ -358,18 +382,45 @@ struct PressedDuck : Module {
                 filteredEnvelopeR[i] = 0.0f;
                 filteredEnvelope[i] = 0.0f;
             }
-
-            // Mute logic
-            if (params[MUTE1_PARAM + i].getValue() > 0.5f) {
-                if (!muteLatch[i]) {
-                    muteLatch[i] = true;
-                    muteState[i] = !muteState[i];
-                    transitionCount[i] = transitionSamples;  // Reset the transition count
-                }
-            } else {
-                muteLatch[i] = false;
-            }
-
+	  
+	        /////////////
+	        //// Deal with polyphonic Mute inputs
+	        
+			bool buttonMute = params[MUTE1_PARAM + i].getValue() > 0.5f;
+			bool inputMute = false;
+		
+			// Check if mute is triggered by the polyphonic input
+			if (i < muteChannels) {
+				// Polyphonic mute logic
+				inputMute = inputs[MUTE_1_INPUT].getPolyVoltage(i) > 0.5f;
+			} else {
+				// Monophonic mute logic for individual inputs
+				if (inputs[MUTE_1_INPUT + i].isConnected()) {
+					inputMute = inputs[MUTE_1_INPUT + i].getVoltage() > 0.5f;
+				}
+			}
+		
+			// Determine final mute state
+			if (muteChannels > 1 || inputMute) {
+				// If CV is connected or if it's poly CV, ignore the button
+				muteState[i] = inputMute;
+				muteLatch[i] = false; // Reset the latch
+			} else {
+				// If no CV is connected, use the button for muting
+				if (buttonMute) {
+					if (!muteLatch[i]) {
+						muteLatch[i] = true;
+						muteState[i] = !muteState[i];
+						transitionCount[i] = transitionSamples;  // Reset the transition count
+					}
+				} else {
+					muteLatch[i] = false; // Release latch if button is not pressed
+				}
+				
+				// Ensure the mute state is handled
+				muteState[i] = muteState[i];
+			}
+        
             if (transitionCount[i] > 0) {
                 float fadeStep = (muteState[i] ? -1.0f : 1.0f) / transitionSamples;
                 fadeLevel[i] += fadeStep;
@@ -386,10 +437,15 @@ struct PressedDuck : Module {
             inputR[i] *= fadeLevel[i];
 
             // Apply VCA control and volume
-            if (inputs[VCA_CV1_INPUT + i].isConnected()) {
-                inputL[i] *= clamp(inputs[VCA_CV1_INPUT + i].getVoltage() / 10.f, 0.f, 2.f);
-                inputR[i] *= clamp(inputs[VCA_CV1_INPUT + i].getVoltage() / 10.f, 0.f, 2.f);
-            }
+			if (i < vcaCvChannels) {
+				inputL[i] *= clamp(inputs[VCA_CV1_INPUT].getPolyVoltage(i) / 10.f, 0.f, 2.f);
+				inputR[i] *= clamp(inputs[VCA_CV1_INPUT].getPolyVoltage(i) / 10.f, 0.f, 2.f);
+			} else {
+				if (inputs[VCA_CV1_INPUT + i].isConnected()) {
+					inputL[i] *= clamp(inputs[VCA_CV1_INPUT + i].getVoltage() / 10.f, 0.f, 2.f);
+					inputR[i] *= clamp(inputs[VCA_CV1_INPUT + i].getVoltage() / 10.f, 0.f, 2.f);
+				}
+			}
 
             float vol = params[VOLUME1_PARAM + i].getValue();
             inputL[i] *= vol;
@@ -412,9 +468,15 @@ struct PressedDuck : Module {
 
             // Apply panning
             float pan = params[PAN1_PARAM + i].getValue();
-            if (inputs[PAN_CV1_INPUT + i].isConnected()) {
-                pan += inputs[PAN_CV1_INPUT + i].getVoltage() / 5.f; // Scale CV influence
-            }
+ 
+			if (i < panChannels) {
+				pan += inputs[PAN_CV1_INPUT].getPolyVoltage(i) / 5.f;
+			} else {
+			    if (inputs[PAN_CV1_INPUT + i].isConnected()) {
+					pan += inputs[PAN_CV1_INPUT + i].getVoltage() / 5.f; // Scale CV influence
+				}
+			}
+
             pan = clamp(pan, -1.f, 1.f);
 
             // Convert pan range from -1...1 to 0...1 for sinusoidal calculations
@@ -798,13 +860,15 @@ struct PressedDuckWidget : ModuleWidget {
             addParam(createParamCentered<RoundBlackKnob>(Vec(xPos, yPos), module, PressedDuck::PAN1_PARAM + i));
 
             // Pan CV input
-            yPos += 1.5*Spacing;
+            yPos += Spacing;
             addInput(createInputCentered<ThemedPJ301MPort>(Vec(xPos, yPos), module, PressedDuck::PAN_CV1_INPUT + i));
 
             // Mute
-            yPos = channelOffset.y + 4*Spacing + 170;
+            yPos += 1.2*Spacing;
             addParam(createParamCentered<LEDButton>           (Vec(xPos, yPos), module, PressedDuck::MUTE1_PARAM + i));
             addChild(createLightCentered<SmallLight<RedLight>>(Vec(xPos, yPos), module, PressedDuck::MUTE1_LIGHT + i));
+            yPos += 0.8*Spacing;
+            addInput(createInputCentered<ThemedPJ301MPort> (Vec(xPos, yPos), module, PressedDuck::MUTE_1_INPUT + i));
 
             // Reset yPos for next channel
             yPos = channelOffset.y;
@@ -821,7 +885,6 @@ struct PressedDuckWidget : ModuleWidget {
         addLightsAroundKnob(module, xPos, yPos, PressedDuck::PRESS_LIGHT1R, 20, 31.f);
         addLightsAroundKnob(module, xPos, yPos, PressedDuck::PRESS_LIGHT1L, 20, 35.f);
 
- 
         // Saturation ceiling attenuator
         yPos += 1.5*Spacing ;
         xPos -= .5*sliderX; // Shift to the right of the last channel
@@ -840,7 +903,6 @@ struct PressedDuckWidget : ModuleWidget {
         // Add Ring of Lights
         addLightsAroundKnob(module, xPos, yPos, PressedDuck::FEED_LIGHT1R, 20, 22.5f);
         addLightsAroundKnob(module, xPos, yPos, PressedDuck::FEED_LIGHT1L, 20, 26.5f);
-
 
         // FEEDBACK attenuator
         yPos += 1.3*Spacing;
