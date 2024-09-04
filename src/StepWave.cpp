@@ -76,6 +76,27 @@ private:
     }
 };
 
+struct DiscreteRoundBlackKnob : RoundBlackKnob {
+    void onChange(const ChangeEvent &e) override {
+        ParamQuantity* paramQuantity = getParamQuantity();
+        if (paramQuantity) {
+            // Get the raw value from the knob
+            float rawValue = paramQuantity->getValue();
+            
+            // Round the value to the nearest integer
+            float discreteValue = round(rawValue);
+
+            // Set the value only if it's different from the current value
+            if (discreteValue != paramQuantity->getValue()) {
+                paramQuantity->setValue(discreteValue);
+            }
+        }
+        
+        // Call the base class implementation to ensure proper knob behavior
+        RoundBlackKnob::onChange(e);
+    }
+};
+
 struct StepWave : Module {
     enum ParamIds {
         STEP_1_VAL, STEP_2_VAL, STEP_3_VAL, STEP_4_VAL,
@@ -158,11 +179,9 @@ struct StepWave : Module {
     CircularBuffer<float, 1024> waveBuffers[3];
     float oscPhase[2] = {0.0f}; // Current oscillator phase for each channel
 
-    // Initialize Butterworth filter with appropriate cutoff frequency
+    // Initialize Butterworth filter for oversampling
     SimpleShaper shaper;  // Instance of the oversampling and shaping processor
     Filter6PButter butterworthFilter;  // Butterworth filter instance
-
-//     butterworthFilter.setCutoffFreq(1.f / 44.1f);
 
     // For the output
     dsp::SlewLimiter slewLimiterA; 
@@ -271,6 +290,39 @@ struct StepWave : Module {
         configParam(STEP_7_8_DISPLACE, -5.f, 5.f, 0.0f, "Rhythmic Displacement 7-8");
 
         configParam(SLEW_PARAM, 0.f, 1.f, 0.0f, "Slew");
+
+        configInput(CLOCK_INPUT, "Clock");
+        configInput(STEP_1_IN_VAL, "Stage 1 Value");
+        configInput(STEP_2_IN_VAL, "Stage 2 Value");
+        configInput(STEP_3_IN_VAL, "Stage 3 Value");
+        configInput(STEP_4_IN_VAL, "Stage 4 Value");
+        configInput(STEP_5_IN_VAL, "Stage 5 Value");
+        configInput(STEP_6_IN_VAL, "Stage 6 Value");
+        configInput(STEP_7_IN_VAL, "Stage 7 Value");
+        configInput(STEP_8_IN_VAL, "Stage 8 Value");
+        configInput(STEP_1_2_DISPLACE_IN, "Rhythmic Displacement 1-2");
+        configInput(STEP_2_3_DISPLACE_IN, "Rhythmic Displacement 2-3");
+        configInput(STEP_3_4_DISPLACE_IN, "Rhythmic Displacement 3-4");
+        configInput(STEP_4_5_DISPLACE_IN, "Rhythmic Displacement 4-5");
+        configInput(STEP_5_6_DISPLACE_IN, "Rhythmic Displacement 5-6");
+        configInput(STEP_6_7_DISPLACE_IN, "Rhythmic Displacement 6-7");
+        configInput(STEP_7_8_DISPLACE_IN, "Rhythmic Displacement 7-8");
+        configInput(SLEW_INPUT, "Slew CV");
+        configInput(ON_OFF_INPUT, "ON/OFF");
+        configInput(RESET_INPUT, "Reset");
+        configInput(LINK_INPUT, "Link Beats to Step");
+        configInput(TRACK_INPUT, "Track Stage Value CV");
+ 
+        configOutput(CV_OUTPUT, "Sequencer CV");
+        configOutput(GATE_OUTPUT, "Sequencer Gate");
+        configOutput(STEP_1_GATE_OUT, "Stage 1 Gate");
+        configOutput(STEP_2_GATE_OUT, "Stage 2 Gate");
+        configOutput(STEP_3_GATE_OUT, "Stage 3 Gate");
+        configOutput(STEP_4_GATE_OUT, "Stage 4 Gate");
+        configOutput(STEP_5_GATE_OUT, "Stage 5 Gate");
+        configOutput(STEP_6_GATE_OUT, "Stage 6 Gate");
+        configOutput(STEP_7_GATE_OUT, "Stage 7 Gate");
+        configOutput(STEP_8_GATE_OUT, "Stage 8 Gate");
 
     }
 
@@ -705,6 +757,12 @@ struct StepWave : Module {
 
                     // Output the processed value
                     outputs[CV_OUTPUT].setVoltage(outputValue);
+                    
+// 					for (int i=0; i<8; i++){
+// 						lights[STEP_1_GATE_LIGHT + i].setBrightness(1.0); // At audio rates light all the gates so they don't flicker
+// 					}
+                   
+                    
                 } else {
                     // If supersampling is not enabled, output the slewed voltage directly
                     outputs[CV_OUTPUT].setVoltage(slewedVoltage[j]);
@@ -777,7 +835,7 @@ struct WaveDisplay : TransparentWidget {
             centerY = box.size.y / 2.0f;
             heightScale = centerY / 5; // Calculate based on current center Y
 
-            drawWaveform(args, module->waveBuffers[0], nvgRGBAf(1, 0.4, 0, 0.8));
+            drawWaveform(args, module->waveBuffers[0], nvgRGBAf(0.3, 0.3, 0.3, 0.8));
             drawWaveform(args, module->waveBuffers[1], nvgRGBAf(0, 0.4, 1, 0.8));
             drawWaveform(args, module->waveBuffers[2], nvgRGBAf(0.5, 0.5, 0.6, 0.8));
             
@@ -871,7 +929,8 @@ struct StepWaveWidget : ModuleWidget {
 
             // Beats knob
             yPos += Spacing + 10;
-            addParam(createParamCentered<RoundBlackKnob>(Vec(xPos, yPos), module, StepWave::STEP_1_BEATS + i));
+            addParam(createParamCentered<DiscreteRoundBlackKnob>(Vec(xPos, yPos), module, StepWave::STEP_1_BEATS + i));
+
 
             // Stage Gate and Button
             yPos += Spacing;
