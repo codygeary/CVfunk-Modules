@@ -44,6 +44,7 @@ struct EnvelopeArray : Module {
         TIME6_ATTEN_PARAM,
         TIME1_RANGE_BUTTON,  
         TIME6_RANGE_BUTTON,
+        TRIGGER_BUTTON,
 
         /////////////////////
         //SECRET_PARAM, //hidden param for tuning variables        
@@ -143,7 +144,8 @@ struct EnvelopeArray : Module {
  
         configParam(TIME1_RANGE_BUTTON, 0.0, 1.0, 0.0, "First Width Range" );
         configParam(TIME6_RANGE_BUTTON, 0.0, 1.0, 0.0, "Last Width Range" );
-       
+        configParam(TRIGGER_BUTTON, 0.0, 1.0, 0.0, "Manual Trigger" );
+     
         /////////////////////
         //configParam(SECRET_PARAM,-5.0, 10.0f, 4.7f, "Mapping to a test knob"); //only used for calibration
         /////////////////////
@@ -330,6 +332,10 @@ struct EnvelopeArray : Module {
                 else if (part > 0 && trig[part - 1]) {
                     in_trig[part] = 10.0f; // Assuming 10.0f is the voltage that indicates a trigger
                 }
+                
+                if (part==0){
+                    in_trig[0] += params[TRIGGER_BUTTON].getValue();
+                }
  
                 // Set gate for the current part
                 if ( Trigger[part].process(in_trig[part]) ) {
@@ -456,7 +462,8 @@ struct EnvelopeArrayWidget : ModuleWidget {
         addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(47.525, 50.194)), module, EnvelopeArray::CURVE_INPUT));
         addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(11.228, 53.715)), module, EnvelopeArray::TIME1_INPUT));
         addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(65.323, 53.715)), module, EnvelopeArray::TIME6_INPUT));
-        
+
+        addParam(createParamCentered<TL1105>    (mm2px(Vec(7.1   , 70.815)), module, EnvelopeArray::TRIGGER_BUTTON));
         addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(7.1   , 78.815)), module, EnvelopeArray::_1_INPUT));
         addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(19.459, 78.815)), module, EnvelopeArray::_2_INPUT));
         addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(31.818, 78.815)), module, EnvelopeArray::_3_INPUT));
