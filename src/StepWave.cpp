@@ -197,6 +197,7 @@ struct StepWave : Module {
     bool trackButtonPressed = false;
     bool trackLatched = false;
     bool trackGateActive = false;
+    bool isSupersamplingEnabled = false;
     
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
@@ -342,6 +343,9 @@ struct StepWave : Module {
             }
         } 
 
+		// Check if the signal is at audio rate by comparing stageDuration[j]
+		isSupersamplingEnabled = (SyncInterval[1] < 0.05f);
+
         // Process timers
         float deltaTimeA = args.sampleTime; //for the display clock
         float deltaTimeB = args.sampleTime; //for the synced clock
@@ -373,7 +377,7 @@ struct StepWave : Module {
         // Determine gate states based on latched states and external gate presence
         linkGateActive = inputs[LINK_INPUT].isConnected() ? linkLatched ^ (inputs[LINK_INPUT].getVoltage() > 0.05f) : linkLatched;
 
-        // Update lights based on latched state or external gate activity
+        // Update link light based on latched state or external gate activity
         lights[LINK_LIGHT].setBrightness(linkGateActive ? 1.0 : 0.0);
         if (linkGateActive) {linkShapeBeats = true;} else { linkShapeBeats = false;}
 
@@ -390,7 +394,7 @@ struct StepWave : Module {
         // Determine gate states based on latched states and external gate presence
         trackGateActive = inputs[TRACK_INPUT].isConnected() ? trackLatched ^ (inputs[TRACK_INPUT].getVoltage() > 0.05f) : trackLatched;
 
-        // Update lights based on latched state or external gate activity
+        // Update tracking light based on latched state or external gate activity
         lights[TRACK_LIGHT].setBrightness(trackGateActive ? 1.0 : 0.0);
         if (trackGateActive) {trackCV = true;} else { trackCV = false;}
 
@@ -440,39 +444,27 @@ struct StepWave : Module {
             const float minStageDuration = 0.0001f; // Minimum value to prevent division by zero
             stageDuration[j] = fmax(stageDuration[j], minStageDuration);
     
+            // Clock the stages and track progress through each stage
             if (j==0){        
                 ClockTimerA.process(deltaTimeA);
-                currentTime[j] = ClockTimerA.time;
-                normallizedStageProgress[j] = currentTime[j]/stageDuration[j];
+                currentTime[0] = ClockTimerA.time;
+                normallizedStageProgress[0] = currentTime[0]/stageDuration[0];
             } else {
                 ClockTimerB.process(deltaTimeB);
-                currentTime[j] = ClockTimerB.time;
-                normallizedStageProgress[j] = currentTime[j]/stageDuration[j];        
+                currentTime[1] = ClockTimerB.time;
+                normallizedStageProgress[1] = currentTime[1]/stageDuration[1];        
             }
-
-
-            if (j==1 && resetPulse && currentStage[1]==7) { //require a reset pulse to loop sequence
-                resetPulse = false;
-                ClockTimerB.reset();
-                currentStage[1] += 1; 
-            } else if (j==1 && currentStage[1]<7){
-                resetPulse = false;
-            }
-
-            
+        
             if (currentTime[j] >= stageDuration[j]){
                 if (j==0){
                     ClockTimerA.reset();  //Reset master channel
                 } else {
-                    ClockTimerB.reset();
+                    ClockTimerB.reset();  //Reset the sequencer channel
                 }
                                 
-                if (j==0){
-                    currentStage[j] += 1; //always advance the display layer
-                } else if (j==1 && currentStage[1]<7){
-                    currentStage[j] += 1;
-                }
+				currentStage[j] += 1; //always advance the display layer
                 
+                // Wrap the stage back to 0 at the end of the sequence
                 if (currentStage[j] > 7) {currentStage[j] = 0;} 
                 
                 sampledStepValue[currentStage[j]] = stepValues[currentStage[j]];
@@ -516,31 +508,40 @@ struct StepWave : Module {
                         
                         stageDuration[j] = ((displacementCurrent / 10.f) - (displacementPrevious / 10.f) + 1) * SyncInterval[j];
             
-                        ClockTimerB.reset();                        
                     }
                 }
             }
-    
-            if (j==1){ //only output stage lights for the synced clock
+  
+            if (j==1){ //update stage lights based on only the sequencer clock
                 // Stage Lights
                 for (int i=0; i<8; i++){
                     if (currentStage[j] == i && sequenceRunning){
                         outputs[STEP_1_GATE_OUT + i ].setVoltage(5.0);
-                        lights[STEP_1_GATE_LIGHT + i].setBrightness(1.0);
-                        lights[STEP_1_VAL_LIGHT + i].setBrightness(1.0);                
+                        if (!isSupersamplingEnabled){
+                            lights[STEP_1_GATE_LIGHT + i].setBrightness(1.0);
+                            lights[STEP_1_VAL_LIGHT + i].setBrightness(1.0);  
+                        }              
                     } else if (currentStage[j] == i){
                         outputs[STEP_1_GATE_OUT + i ].setVoltage(0.0);
-                        lights[STEP_1_GATE_LIGHT + i].setBrightness(0.5);
-                        lights[STEP_1_VAL_LIGHT + i].setBrightness(0.25);
+                        if (!isSupersamplingEnabled){
+							lights[STEP_1_GATE_LIGHT + i].setBrightness(0.5);
+							lights[STEP_1_VAL_LIGHT + i].setBrightness(0.25);
+						}
                     } else {
                         outputs[STEP_1_GATE_OUT + i ].setVoltage(0.0);
-                        lights[STEP_1_GATE_LIGHT + i].setBrightness(0.0);
-                        lights[STEP_1_VAL_LIGHT + i].setBrightness(0.25);            
+                        if (!isSupersamplingEnabled){
+							lights[STEP_1_GATE_LIGHT + i].setBrightness(0.0);
+							lights[STEP_1_VAL_LIGHT + i].setBrightness(0.25); 
+						}           
+                    }
+                    
+                    if (isSupersamplingEnabled){
+                        lights[STEP_1_GATE_LIGHT + i].setBrightness(0.5);
+                        lights[STEP_1_VAL_LIGHT + i].setBrightness(0.5);                        
                     }
                 }
             }    
             
-
             //CV and Gate computation
             if (linkShapeBeats){
                 numBeats = floor( params[STEP_1_BEATS + currentStage[j]].getValue() );     
@@ -722,10 +723,6 @@ struct StepWave : Module {
             // Compute Slew and output CV voltages
             float slewRate = clamp(params[SLEW_PARAM].getValue() + inputs[SLEW_INPUT].getVoltage() / 10.f, 0.f, 1.f);
 
-            // Check if the signal is at audio rate by comparing stageDuration[j]
-            float audioRateThreshold = 0.05f; // 20Hz threshold for anti-aliasing
-            bool isSupersamplingEnabled = (stageDuration[j] < audioRateThreshold);
-
             if (slewRate > 0) {
                 // Calculate the absolute voltage difference from the last target
                 float voltageDifference = fabs(finalCV[j] - lastTargetVoltage[j]);
@@ -756,12 +753,7 @@ struct StepWave : Module {
                     float outputValue = shaper.process(slewedVoltage[j]);
 
                     // Output the processed value
-                    outputs[CV_OUTPUT].setVoltage(outputValue);
-                    
-// 					for (int i=0; i<8; i++){
-// 						lights[STEP_1_GATE_LIGHT + i].setBrightness(1.0); // At audio rates light all the gates so they don't flicker
-// 					}
-                   
+                    outputs[CV_OUTPUT].setVoltage(outputValue);                   
                     
                 } else {
                     // If supersampling is not enabled, output the slewed voltage directly
@@ -774,11 +766,8 @@ struct StepWave : Module {
                 // Update last target voltage even if no output is set
                 lastTargetVoltage[j] = slewedVoltage[j];
             }
-        
-
-            
-            //Main Gate Output
-    
+                   
+            //Main Gate Output   
             numBeats = floor( params[STEP_1_BEATS + currentStage[j]].getValue() );                
             frameLength[j] = stageDuration[j]/numBeats;
             splitTime[j] = currentTime[j];
