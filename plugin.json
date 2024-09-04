@@ -99,7 +99,8 @@
       "name": "Ouros",
       "description": "A stereo phase injection oscillator, with polar waveform display.",
       "tags": [
-        "Oscillator"
+        "Oscillator",
+        "Polyphonic"
       ]
     },
   {
