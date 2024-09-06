@@ -77,25 +77,25 @@ private:
 };
 
 struct DiscreteRoundBlackKnob : RoundBlackKnob {
-    void onChange(const ChangeEvent &e) override {
+    void onDragEnd(const DragEndEvent& e) override {
         ParamQuantity* paramQuantity = getParamQuantity();
+        
         if (paramQuantity) {
             // Get the raw value from the knob
             float rawValue = paramQuantity->getValue();
             
             // Round the value to the nearest integer
             float discreteValue = round(rawValue);
-
-            // Set the value only if it's different from the current value
-            if (discreteValue != paramQuantity->getValue()) {
-                paramQuantity->setValue(discreteValue);
-            }
+            
+            // Set the snapped value
+            paramQuantity->setValue(discreteValue);
         }
         
-        // Call the base class implementation to ensure proper knob behavior
-        RoundBlackKnob::onChange(e);
+        // Call the base class implementation to ensure proper behavior
+        RoundBlackKnob::onDragEnd(e);
     }
 };
+
 
 struct StepWave : Module {
     enum ParamIds {
@@ -155,7 +155,7 @@ struct StepWave : Module {
     dsp::SchmittTrigger onOffTrigger;
     dsp::SchmittTrigger onOffButtonTrigger;
 
-    bool sequenceRunning = false;  //default sequence run to off
+    bool sequenceRunning = true;  //default sequence run to on
 
     // For each stage
     int currentStage[2] = {0,0};
@@ -178,6 +178,7 @@ struct StepWave : Module {
     //For the display
     CircularBuffer<float, 1024> waveBuffers[3];
     float oscPhase[2] = {0.0f}; // Current oscillator phase for each channel
+    float sequenceProgress = 0.0f;
 
     // Initialize Butterworth filter for oversampling
     SimpleShaper shaper;  // Instance of the oversampling and shaping processor
@@ -335,7 +336,7 @@ struct StepWave : Module {
 
             if (SyncTrigger.process(SyncInputVoltage)) {
                 if (!firstClockPulse) {
-                     SyncInterval[1] = SyncTimer.time; // Get the accumulated time since the last reset                         }
+                     SyncInterval[1] = SyncTimer.time; // Get the accumulated time since the last reset                         
                 }
                 SyncTimer.reset(); // Reset the timer for the next trigger interval measurement
                 resetPulse = true;
@@ -350,7 +351,7 @@ struct StepWave : Module {
         float deltaTimeA = args.sampleTime; //for the display clock
         float deltaTimeB = args.sampleTime; //for the synced clock
 
-        SyncTimer.process(deltaTimeB);
+        SyncTimer.process(deltaTimeB); //measures the synced clock
 
         // Check for on/off input or on/off button
         bool onOffCondition = false;
@@ -400,7 +401,7 @@ struct StepWave : Module {
 
         if (!sequenceRunning) {
             deltaTimeB = 0.f;
-            ClockTimerB.reset();
+           // ClockTimerB.reset(); //don't reset the individual stage clock when the sequence is paused
             firstClockPulse = true;
         }
 
@@ -409,6 +410,7 @@ struct StepWave : Module {
         if (resetCondition) {
             ClockTimerB.reset();
             currentStage[1] = 0;
+            sequenceProgress = 0.f;
         } 
             
         for (int j=0; j<2; j++){ //Cycle through the two different clock layers
@@ -427,17 +429,26 @@ struct StepWave : Module {
                 }
             }
             
+            float displacementZero = 0.0f;
+            float displacementOne = 0.0f;
+            float displacementTwo = 0.0f;
+            float displacementLast = 0.0f;
+            float stageStart = 0.0f; //track the position of the beginning of the current stage over 0...8
+       
             //Compute rhythmic offsets
             if (currentStage[j] == 0){
-                float displacementZero = clamp ( params[STEP_1_2_DISPLACE].getValue() + inputs[STEP_1_2_DISPLACE_IN].getVoltage(), -5.f, 5.f);
+                displacementZero = clamp ( params[STEP_1_2_DISPLACE].getValue() + inputs[STEP_1_2_DISPLACE_IN].getVoltage(), -5.f, 5.f);
                 stageDuration[j] = ((displacementZero / 10.f) + 1) * SyncInterval[j];
+                if (j==1){ stageStart = 0.0f; }
             } else if (currentStage[j] > 0 && currentStage[j] < 7) {
-                float displacementOne = clamp ( params[STEP_1_2_DISPLACE + currentStage[j]].getValue() + inputs[STEP_1_2_DISPLACE_IN + currentStage[j]].getVoltage(), -5.f, 5.f);
-                float displacementTwo = clamp ( params[STEP_1_2_DISPLACE + currentStage[j] - 1].getValue() + inputs[STEP_1_2_DISPLACE_IN + currentStage[j] - 1].getVoltage(), -5.f, 5.f);        
+                displacementOne = clamp ( params[STEP_1_2_DISPLACE + currentStage[j]].getValue() + inputs[STEP_1_2_DISPLACE_IN + currentStage[j]].getVoltage(), -5.f, 5.f);
+                displacementTwo = clamp ( params[STEP_1_2_DISPLACE + currentStage[j] - 1].getValue() + inputs[STEP_1_2_DISPLACE_IN + currentStage[j] - 1].getVoltage(), -5.f, 5.f);        
                 stageDuration[j] = ((displacementOne / 10.f ) - (displacementTwo / 10.f ) + 1) * SyncInterval[j];
+                if (j==1){ stageStart = currentStage[j] + (displacementTwo / 10.f);}
             } else {
-                float displacementLast = clamp ( params[STEP_7_8_DISPLACE].getValue() + inputs[STEP_7_8_DISPLACE_IN].getVoltage(), -5.f, 5.f);
+                displacementLast = clamp ( params[STEP_7_8_DISPLACE].getValue() + inputs[STEP_7_8_DISPLACE_IN].getVoltage(), -5.f, 5.f);
                 stageDuration[j] = SyncInterval[j] * (1 - displacementLast / 10.f );
+                if (j==1){ stageStart = currentStage[j] + (displacementLast / 10.0f);}
             }        
 
             // Ensure stageDuration[j] does not become too small
@@ -445,14 +456,15 @@ struct StepWave : Module {
             stageDuration[j] = fmax(stageDuration[j], minStageDuration);
     
             // Clock the stages and track progress through each stage
-            if (j==0){        
+            if (j==0){ //display clock
                 ClockTimerA.process(deltaTimeA);
                 currentTime[0] = ClockTimerA.time;
                 normallizedStageProgress[0] = currentTime[0]/stageDuration[0];
-            } else {
+            } else {  //sequence clock
                 ClockTimerB.process(deltaTimeB);
                 currentTime[1] = ClockTimerB.time;
-                normallizedStageProgress[1] = currentTime[1]/stageDuration[1];        
+                normallizedStageProgress[1] = currentTime[1]/stageDuration[1];     
+                sequenceProgress = stageStart + currentTime[1]/SyncInterval[1];
             }
         
             if (currentTime[j] >= stageDuration[j]){
@@ -465,7 +477,10 @@ struct StepWave : Module {
 				currentStage[j] += 1; //always advance the display layer
                 
                 // Wrap the stage back to 0 at the end of the sequence
-                if (currentStage[j] > 7) {currentStage[j] = 0;} 
+                if (currentStage[j] > 7) {
+                    currentStage[j] = 0;
+                    sequenceProgress = 0.f;
+                } 
                 
                 sampledStepValue[currentStage[j]] = stepValues[currentStage[j]];
                 currentShape[j] = params[STEP_1_SHAPE + currentStage[j]].getValue();
@@ -507,7 +522,8 @@ struct StepWave : Module {
                         float displacementPrevious = (currentStage[j] > 0) ? clamp(params[STEP_1_2_DISPLACE + currentStage[j] - 1].getValue() + inputs[STEP_1_2_DISPLACE_IN + currentStage[j] - 1].getVoltage(), -5.f, 5.f) : 0.f;
                         
                         stageDuration[j] = ((displacementCurrent / 10.f) - (displacementPrevious / 10.f) + 1) * SyncInterval[j];
-            
+                        
+                        sequenceProgress = currentStage[j] - (displacementPrevious/10.f + 1);
                     }
                 }
             }
@@ -824,10 +840,21 @@ struct WaveDisplay : TransparentWidget {
             centerY = box.size.y / 2.0f;
             heightScale = centerY / 5; // Calculate based on current center Y
 
+			if (!module->isSupersamplingEnabled) {
+				// Draw the sequence progress bar
+				float progressBarX = box.size.x * (module->sequenceProgress / 8.0f); // X position of the progress bar
+				float progressBarWidth = 1.0f;  // Width of the progress bar
+	
+				// Draw a vertical rectangle as the progress bar
+				nvgBeginPath(args.vg);
+				nvgRect(args.vg, progressBarX, -box.size.y*0.2, progressBarWidth, box.size.y * 1.39); // Full height of the widget
+				nvgFillColor(args.vg, nvgRGBAf(0.5f, 0.5f, 0.5f, 0.8f)); // Light grey color
+				nvgFill(args.vg); // Fill the progress bar
+			}
+
             drawWaveform(args, module->waveBuffers[0], nvgRGBAf(0.3, 0.3, 0.3, 0.8));
             drawWaveform(args, module->waveBuffers[1], nvgRGBAf(0, 0.4, 1, 0.8));
-            drawWaveform(args, module->waveBuffers[2], nvgRGBAf(0.5, 0.5, 0.6, 0.8));
-            
+            drawWaveform(args, module->waveBuffers[2], nvgRGBAf(0.5, 0.5, 0.6, 0.8));            
         }
 
         TransparentWidget::drawLayer(args, layer);
@@ -870,7 +897,7 @@ struct StepWaveWidget : ModuleWidget {
 
         addInput(createInputCentered<ThemedPJ301MPort>(Vec(25, 30), module, StepWave::CLOCK_INPUT));
         addParam(createParamCentered<TL1105>              (Vec(25, 110), module, StepWave::ON_OFF_BUTTON));
-        addChild(createLightCentered<MediumLight<YellowLight>>(Vec(25, 85), module, StepWave::ON_OFF_LIGHT ));
+        addChild(createLightCentered<MediumLight<YellowLight>>(Vec(25, 110), module, StepWave::ON_OFF_LIGHT ));
         addInput(createInputCentered<ThemedPJ301MPort>    (Vec(25, 85), module, StepWave::ON_OFF_INPUT));
 
         addParam(createParamCentered<LEDButton>(Vec(48, 157), module, StepWave::TRACK_BUTTON));
