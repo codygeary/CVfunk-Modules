@@ -102,33 +102,41 @@ struct EnvelopeArray : Module {
 
     int processSkipCounter = 0;
     int processSkipRate = 10;  // Skip some cycles to save CPU
+    bool prevEnablePolyOut = false;  // Track the previous state
 
     bool retrigEnabled = false;
+    bool enablePolyOut = false;
 
     // Serialization method to save module state
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
-
+    
         // Save the state of time1Range and time6Range
         json_object_set_new(rootJ, "time1Range", json_integer(time1Range));
         json_object_set_new(rootJ, "time6Range", json_integer(time6Range));
         json_object_set_new(rootJ, "retrigEnabled", json_boolean(retrigEnabled));
-
+        json_object_set_new(rootJ, "enablePolyOut", json_boolean(enablePolyOut)); // New field for polyphonic output
+    
         return rootJ;
     }
-
+    
     // Deserialization method to load module state
     void dataFromJson(json_t* rootJ) override {
         // Load the state of time1Range
         json_t* time1RangeJ = json_object_get(rootJ, "time1Range");
         if (time1RangeJ) time1Range = static_cast<SpeedRange>(json_integer_value(time1RangeJ));
-
+    
         // Load the state of time6Range
         json_t* time6RangeJ = json_object_get(rootJ, "time6Range");
         if (time6RangeJ) time6Range = static_cast<SpeedRange>(json_integer_value(time6RangeJ));
-
+    
+        // Load the state of retrigEnabled
         json_t* retrigEnabledJ = json_object_get(rootJ, "retrigEnabled");
         if (retrigEnabledJ) retrigEnabled = json_is_true(retrigEnabledJ);
+    
+        // Load the state of enablePolyOut (New Field)
+        json_t* enablePolyOutJ = json_object_get(rootJ, "enablePolyOut");
+        if (enablePolyOutJ) enablePolyOut = json_is_true(enablePolyOutJ);
     }
     
     EnvelopeArray() {
@@ -413,20 +421,63 @@ struct EnvelopeArray : Module {
                 //Compute next interpolation chunk
                 next_chunk[part] = (out[part] - current_out[part]);
 
-
                 lights[_1_LIGHT + part].setBrightness(out[part] / 10.0);
                 lights[_1_LIGHT + 6 + part].setBrightness(gate_no_output[part] / 10.0);
 
             } // for (int part, ... )
         }//if (++processSkipCounter...        
 
-        //Process OUTPUTS    
+        // Detect if the enablePolyOut state has changed
+        if (enablePolyOut != prevEnablePolyOut) {
+            if (enablePolyOut) {
+                // Update tooltips to reflect polyphonic output
+                configOutput(_1_OUTPUT, "OUT 1 - Polyphonic");
+                configOutput(EOF1_OUTPUT, "GATE 1 - Polyphonic");
+            } else {
+                // Revert tooltips to reflect monophonic output
+                configOutput(_1_OUTPUT, "OUT 1");
+                configOutput(EOF1_OUTPUT, "GATE 1");
+            }
+        
+            // Update the previous state to the current state
+            prevEnablePolyOut = enablePolyOut;
+        }
+   
+        // Process OUTPUTS    
         for (int part = 0; part < 6; part++) {
-                current_out[part] += next_chunk[part] * 1/processSkipRate;
-                // Set the voltage for the outputs
-                outputs[_1_OUTPUT + part].setVoltage(current_out[part]);
-                outputs[_1_OUTPUT + part + 6].setVoltage(gate_no_output[part]);                
-        }        
+            // Accumulate output for the current part
+            current_out[part] += next_chunk[part] * 1 / processSkipRate;
+        
+            // Check if polyphonic output is enabled for the first output jack
+            if (enablePolyOut) {
+                // Set the polyphonic voltage for the first output (_1_OUTPUT)
+                outputs[_1_OUTPUT].setChannels(6);  // Set the number of channels to 6
+                outputs[_1_OUTPUT].setVoltage(current_out[part], part);  // Set voltage for each polyphonic channel
+        
+                // Set the polyphonic gate output 
+                outputs[_1_OUTPUT + 6].setChannels(6);  // Set the number of channels to 6 for the gate output
+                outputs[_1_OUTPUT + 6].setVoltage(gate_no_output[part], part);  // Set gate voltage for each polyphonic channel
+            } else {
+                // If polyphonic output is disabled, set the first output and gate to monophonic
+                outputs[_1_OUTPUT].setChannels(1);  // Set the number of channels to 1 (monophonic)
+                outputs[_1_OUTPUT].setVoltage(current_out[0]);  // Output only the first part's voltage
+        
+                // Set the gate output to monophonic as well
+                outputs[_1_OUTPUT + 6].setChannels(1);  // Set the number of channels to 1 (monophonic)
+                outputs[_1_OUTPUT + 6].setVoltage(gate_no_output[0]);  // Output only the first part's gate voltage
+            }
+        
+            // Set the remaining outputs (monophonic) for each part
+            if (part > 0) {
+                outputs[_1_OUTPUT + part].setChannels(1);  // Ensure monophonic output for the other voltage outputs
+                outputs[_1_OUTPUT + part].setVoltage(current_out[part]);  // Set monophonic voltage for remaining parts
+        
+                // Ensure monophonic gate outputs for the remaining parts
+                outputs[_1_OUTPUT + part + 6].setChannels(1);  // Ensure monophonic gate output
+                outputs[_1_OUTPUT + part + 6].setVoltage(gate_no_output[part]);  // Set gate voltage for remaining parts
+            }
+        }
+     
     }//void
 };//module
 
@@ -518,13 +569,13 @@ struct EnvelopeArrayWidget : ModuleWidget {
     
     void appendContextMenu(Menu* menu) override {
         ModuleWidget::appendContextMenu(menu);
-
+    
         EnvelopeArray* envelopeArrayModule = dynamic_cast<EnvelopeArray*>(module);
         assert(envelopeArrayModule); // Ensure the cast succeeds
-
+    
         // Separator for visual grouping in the context menu
         menu->addChild(new MenuSeparator());
-
+    
         // Retriggering enabled/disabled menu item
         struct RetrigEnabledItem : MenuItem {
             EnvelopeArray* envelopeArrayModule;
@@ -536,11 +587,28 @@ struct EnvelopeArrayWidget : ModuleWidget {
                 MenuItem::step();
             }
         };
-
+    
         RetrigEnabledItem* retrigItem = new RetrigEnabledItem();
         retrigItem->text = "Enable Retriggering";
-        retrigItem->envelopeArrayModule = envelopeArrayModule; // Ensure we're setting the module
+        retrigItem->envelopeArrayModule = envelopeArrayModule;
         menu->addChild(retrigItem);
+    
+        // Polyphonic output enabled/disabled menu item
+        struct PolyOutEnabledItem : MenuItem {
+            EnvelopeArray* envelopeArrayModule;
+            void onAction(const event::Action& e) override {
+                envelopeArrayModule->enablePolyOut = !envelopeArrayModule->enablePolyOut;
+            }
+            void step() override {
+                rightText = envelopeArrayModule->enablePolyOut ? "✔" : "";
+                MenuItem::step();
+            }
+        };
+    
+        PolyOutEnabledItem* polyOutItem = new PolyOutEnabledItem();
+        polyOutItem->text = "Enable Polyphonic Output to Channel 1";
+        polyOutItem->envelopeArrayModule = envelopeArrayModule;
+        menu->addChild(polyOutItem);
     }
     
 };
