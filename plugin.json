@@ -117,6 +117,20 @@
       ]
     },
   {
+      "slug": "PreeeeeeeeeeessedDuck",
+      "name": "Preeeeeeeeeeessed Duck",
+      "description": "A stereo sixteen-channel dynamic compressing mixer with side-chain ducking, tanh saturation and ADAA.",
+      "tags": [
+        "Mixer",
+        "Compressor",
+        "Dynamics",
+        "Distortion",
+        "Panning",
+        "Voltage-controlled Amplifier"
+      ]
+    },
+
+  {
       "slug": "FlowerPatch",
       "name": "Flower Patch",
       "description": "A 12-tone scale polar visualizer with FFT analysis.",

@@ -299,10 +299,10 @@ struct PressedDuck : Module {
 
         configInput(MUTE_1_INPUT, "Channel 1 Mute CV / Poly");
         configInput(MUTE_2_INPUT, "Channel 2 Mute CV");
-        configInput(MUTE_3_INPUT, "Channel 2 Mute CV");
-        configInput(MUTE_4_INPUT, "Channel 2 Mute CV");
-        configInput(MUTE_5_INPUT, "Channel 2 Mute CV");
-        configInput(MUTE_6_INPUT, "Channel 2 Mute CV");
+        configInput(MUTE_3_INPUT, "Channel 3 Mute CV");
+        configInput(MUTE_4_INPUT, "Channel 4 Mute CV");
+        configInput(MUTE_5_INPUT, "Channel 5 Mute CV");
+        configInput(MUTE_6_INPUT, "Channel 6 Mute CV");
 
         // Side and saturation CV inputs
         configInput(SIDECHAIN_INPUT_L, "Sidechain L");
@@ -357,8 +357,8 @@ struct PressedDuck : Module {
 			if (i < polyChannels) {
 				inputL[i] = inputs[AUDIO_1L_INPUT].getPolyVoltage(i);
 				inputR[i] = inputs[AUDIO_1R_INPUT].getPolyVoltage(i);
-				isConnectedL = true;
-				isConnectedR = true;
+				isConnectedL = inputs[AUDIO_1L_INPUT].isConnected(); 
+				isConnectedR = inputs[AUDIO_1R_INPUT].isConnected(); 
 			} else {
 				inputL[i] = isConnectedL ? inputs[AUDIO_1L_INPUT + 2 * i].getVoltage() : 0.0f;
 				inputR[i] = isConnectedR ? inputs[AUDIO_1R_INPUT + 2 * i].getVoltage() : 0.0f;
