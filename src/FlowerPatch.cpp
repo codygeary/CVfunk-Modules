@@ -460,9 +460,9 @@ struct FlowerDisplay : TransparentWidget {
                 }
 
                 case FlowerPatch::WATERFALL_MODE: {
-                    const float barWidth = (totalWidth != 0.0f) ? (totalWidth / 76.0f) : 1.0f;
+                    const float barWidth = (totalWidth != 0.0f) ? (totalWidth / 72.0f) : 1.0f;
                     const float fadeFactor = 0.95f; // Fading coefficient
-                    const int numBars = 76; // Number of bars across the width
+                    const int numBars = 72; // Number of bars across the width
                     const float maxDrift = totalHeight * 0.6f; // Increased vertical drift for old spectra
                 
                     // Knob settings
