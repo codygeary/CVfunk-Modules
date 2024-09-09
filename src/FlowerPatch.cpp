@@ -87,7 +87,7 @@ struct FlowerPatch : Module {
     float waveBuffer[BUFFER_SIZE] = {0.0f}; // To store the waveform shape
 
     // Frame history buffer
-    float frameHistory[MAX_HISTORY_FRAMES][BUFFER_SIZE] = {0}; // Store history for waveform frames
+    float frameHistory[MAX_HISTORY_FRAMES][BUFFER_SIZE] = {{0}}; // Store history for waveform frames
     int currentFrame = 0; // Index for the current frame
 
    
@@ -460,7 +460,7 @@ struct FlowerDisplay : TransparentWidget {
                 }
 
                 case FlowerPatch::WATERFALL_MODE: {
-                    const float barWidth = totalWidth / 76.0f; // Number of bars across the width
+                    const float barWidth = (totalWidth != 0.0f) ? (totalWidth / 76.0f) : 1.0f;
                     const float fadeFactor = 0.95f; // Fading coefficient
                     const int numBars = 76; // Number of bars across the width
                     const float maxDrift = totalHeight * 0.6f; // Increased vertical drift for old spectra
@@ -492,9 +492,9 @@ struct FlowerDisplay : TransparentWidget {
                         if (opacity < 0.05f) continue; // Skip frames that are too faded
                 
                         // Calculate vertical drift and horizontal scale based on age
-                        float drift = (i / static_cast<float>(FlowerPatch::MAX_HISTORY_FRAMES)) * maxDrift;
-                        float scale = 1.0f + (i / static_cast<float>(FlowerPatch::MAX_HISTORY_FRAMES)) * (flowerKnob - 1.0f);
-                
+                        float drift = (FlowerPatch::MAX_HISTORY_FRAMES != 0) ? (i / static_cast<float>(FlowerPatch::MAX_HISTORY_FRAMES)) * maxDrift : 0.0f;
+                        float scale = (FlowerPatch::MAX_HISTORY_FRAMES != 0) ? 1.0f + (i / static_cast<float>(FlowerPatch::MAX_HISTORY_FRAMES)) * (flowerKnob - 1.0f) : 1.0f;
+           
                         // Begin drawing path for the faded frame
                         nvgBeginPath(args.vg);
                 
@@ -506,6 +506,9 @@ struct FlowerDisplay : TransparentWidget {
                             float centerX = padding + bar * barWidth * scale - drift*(flowerKnob) + drift;
                             float centerY = padding + totalHeight - drift;
                             float intensity = module->frameHistory[frameIndex][scaleIndex * 12 + note];
+                            if (std::isnan(intensity) || std::isinf(intensity)) { // avoid rendering errors
+                                intensity = 1.0f; // Set a fallback value
+                            }
                             float barHeight = intensity * totalHeight * 0.4f * powerKnob; // Apply scaling to height
                 
                             // Ensure we don't draw outside the visible bounds
@@ -566,6 +569,7 @@ struct FlowerDisplay : TransparentWidget {
                     const float fadeFactor = 0.92f;  // Adjust for fading effect
                     const int maxHistoryFrames = FlowerPatch::MAX_HISTORY_FRAMES;
                     const float maxDrift = totalHeight * 0.6f;
+                    
                     float hueKnob = module->params[FlowerPatch::HUE_PARAM].getValue();
                     if (module->inputs[FlowerPatch::HUE_INPUT].isConnected()) {
                         hueKnob += module->params[FlowerPatch::HUE_ATT_PARAM].getValue() * module->inputs[FlowerPatch::HUE_INPUT].getVoltage();
@@ -598,7 +602,7 @@ struct FlowerDisplay : TransparentWidget {
                     nvgScissor(args.vg, padding, padding, totalWidth, totalHeight);
                 
                     // Draw previous frames with fading
-                    for (int i = 0; i < maxHistoryFrames; i++) {
+                    for (int i = 0; i < maxHistoryFrames; i++) { //also avoids div/zero if maxHistoryFrames is zero
                         int frameIndex = (module->currentFrame - i + maxHistoryFrames) % maxHistoryFrames;
                         float opacity = powf(fadeFactor, i) * fillKnob;
                 
@@ -606,7 +610,7 @@ struct FlowerDisplay : TransparentWidget {
                 
                         float drift = (i / static_cast<float>(maxHistoryFrames)) * maxDrift;
                         float scale = 1.0f + (i / static_cast<float>(maxHistoryFrames));
-                
+             
                         nvgBeginPath(args.vg);
                         bool isFirstSegment = true;
                 
@@ -618,6 +622,11 @@ struct FlowerDisplay : TransparentWidget {
                         for (int j = 0; j < lastSample; j++) {
                             int bufferIndex = j % (lastSample / 2); // Handle wrapping around
                             float sample = frameData[bufferIndex];
+               
+                            // Avoid NaN or inf values
+                            if (std::isnan(sample) || std::isinf(sample)) {
+                                sample = 0.0f; // Fallback to zero
+                            }
                 
                             float angle = 2.0f * twoPi * (float(j) / lastSample); // 720° rotation
                             float radius = maxRadius * (0.5f + 0.5f * sample * (0.5f / fmax(module->maxVal, 0.15f)));
@@ -647,11 +656,16 @@ struct FlowerDisplay : TransparentWidget {
                     nvgBeginPath(args.vg);
                     bool isFirstSegment = true;
                     float freq = Scales[selectedFlower / 12][selectedFlower % 12];
-                    int lastSample = static_cast<int>(4 * (module->sampleRate / freq)); // Draw 2x as many samples
-                
+                    int lastSample = std::max(static_cast<int>(4 * (module->sampleRate / freq)), 1); // Ensure valid sample count, Use 2X so it goes around twice
+      
                     for (int i = 0; i < lastSample; i++) {
                         int bufferIndex = (i + module->phaseOffset) % (lastSample / 2); // Handle wrapping around
                         float sample = module->waveBuffer[bufferIndex];
+               
+                        // Avoid NaN or inf values
+                        if (std::isnan(sample) || std::isinf(sample)) {
+                            sample = 0.0f; // Fallback to zero
+                        }
                 
                         float angle = 2.0f * twoPi * (float(i) / lastSample); // 720° rotation
                         float radius = maxRadius * (0.5f + 0.5f * sample * (0.5f / fmax(module->maxVal, 0.15f)));
