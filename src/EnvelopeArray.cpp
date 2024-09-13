@@ -115,7 +115,7 @@ struct EnvelopeArray : Module {
         json_object_set_new(rootJ, "time1Range", json_integer(time1Range));
         json_object_set_new(rootJ, "time6Range", json_integer(time6Range));
         json_object_set_new(rootJ, "retrigEnabled", json_boolean(retrigEnabled));
-        json_object_set_new(rootJ, "enablePolyOut", json_boolean(enablePolyOut)); // New field for polyphonic output
+        json_object_set_new(rootJ, "enablePolyOut", json_boolean(enablePolyOut)); 
     
         return rootJ;
     }
@@ -134,7 +134,7 @@ struct EnvelopeArray : Module {
         json_t* retrigEnabledJ = json_object_get(rootJ, "retrigEnabled");
         if (retrigEnabledJ) retrigEnabled = json_is_true(retrigEnabledJ);
     
-        // Load the state of enablePolyOut (New Field)
+        // Load the state of enablePolyOut
         json_t* enablePolyOutJ = json_object_get(rootJ, "enablePolyOut");
         if (enablePolyOutJ) enablePolyOut = json_is_true(enablePolyOutJ);
     }

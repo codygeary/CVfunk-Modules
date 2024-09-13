@@ -111,6 +111,8 @@ struct HexMod : Module {
     int LEDprocessCounter = 0; // Counter to track process cycles
     int SINprocessCounter = 0; // Counter to track process cycles
     int SkipProcesses = 4; //Number of process cycles to skip for the big calculation
+    bool prevEnablePolyOut = false;  // Track the previous state
+    bool enablePolyOut = false;
 
     float SyncInterval = 2; //default to 2hz
 
@@ -123,6 +125,8 @@ struct HexMod : Module {
         json_object_set_new(rootJ, "synclinkEnabled", json_boolean(synclinkEnabled));
         json_object_set_new(rootJ, "SyncInterval", json_real(SyncInterval));
         json_object_set_new(rootJ, "voctEnabled", json_boolean(voctEnabled));
+        json_object_set_new(rootJ, "enablePolyOut", json_boolean(enablePolyOut));
+
 
         // Serialize lfoOutput array
         json_t* lfoOutputJ = json_array();
@@ -192,7 +196,12 @@ struct HexMod : Module {
                     place[i] = json_number_value(valueJ);
                 }
             }
-        }                        
+        } 
+        
+        // Load the state of enablePolyOut
+        json_t* enablePolyOutJ = json_object_get(rootJ, "enablePolyOut");
+        if (enablePolyOutJ) enablePolyOut = json_is_true(enablePolyOutJ);
+                                       
     }
 
     HexMod() {
@@ -275,6 +284,21 @@ struct HexMod : Module {
                 rate = 1 / SyncInterval;
             }
         }
+
+        // Detect if the enablePolyOut state has changed
+        if (enablePolyOut != prevEnablePolyOut) {
+            if (enablePolyOut) {
+                // Update tooltips to reflect polyphonic output
+                configOutput(LFO_OUTPUT_1, "LFO 1 - Polyphonic");
+            } else {
+                // Revert tooltips to reflect monophonic output
+                configOutput(LFO_OUTPUT_1, "LFO 1");
+            }
+        
+            // Update the previous state to the current state
+            prevEnablePolyOut = enablePolyOut;
+        }
+
     
         for (int i = 0; i < 6; i++) {
             float currentInputVoltage = 0.0f;
@@ -397,12 +421,24 @@ struct HexMod : Module {
             }
     
             prevPhaseResetInput[i] = PhaseResetInput;
-        }
+        }//LFO layers
     
         if (LEDprocessCounter > 1500) { LEDprocessCounter = 0; }
         if (SINprocessCounter > SkipProcesses) { SINprocessCounter = 0; }
         clockSyncPulse = false;
-    }
+    
+        
+        // Process poly-OUTPUTS    
+        if (enablePolyOut) {
+            // Set the polyphonic voltage for the first output (_1_OUTPUT)
+            outputs[LFO_OUTPUT_1].setChannels(6);  // Set the number of channels to 6
+            for ( int part = 1; part < 5; part++) {
+                outputs[LFO_OUTPUT_1].setVoltage(outputs[LFO_OUTPUT_1 + part].getVoltage(), part);  // Set voltage for the polyphonic channels
+            }
+        } 
+        
+   }//process
+    
 
 };
 
@@ -611,6 +647,25 @@ struct HexModWidget : ModuleWidget {
         voctItem->text = "Rate input take v/oct (for audio rate)"; 
         voctItem->hexMod = hexMod;
         menu->addChild(voctItem);
+
+
+        // Polyphonic output enabled/disabled menu item
+        struct PolyOutEnabledItem : MenuItem {
+            HexMod* hexMod;
+            void onAction(const event::Action& e) override {
+                hexMod->enablePolyOut = !hexMod->enablePolyOut;
+            }
+            void step() override {
+                rightText = hexMod->enablePolyOut ? "✔" : "";
+                MenuItem::step();
+            }
+        };
+    
+        PolyOutEnabledItem* polyOutItem = new PolyOutEnabledItem();
+        polyOutItem->text = "Enable Polyphonic Output to Channel 1";
+        polyOutItem->hexMod = hexMod;
+        menu->addChild(polyOutItem);
+
 
     }
     
