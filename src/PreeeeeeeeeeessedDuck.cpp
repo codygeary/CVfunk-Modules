@@ -442,40 +442,117 @@ struct PreeeeeeeeeeessedDuck : Module {
         float compressionAmountR = 0.0f;
         float inputCount = 0.0f;
 
-		// Check if the first channel has polyphonic input
-		int polyChannels = inputs[AUDIO_1L_INPUT].getChannels();
-		int vcaCvChannels = inputs[VCA_CV1_INPUT].getChannels();
-		int panChannels = inputs[PAN_CV1_INPUT].getChannels();
-		int muteChannels = inputs[MUTE_1_INPUT].getChannels();
+		// Check if the channel has polyphonic input
+		int audioChannels[16] = {0}; // Number of polyphonic channels for AUDIO inputs
+		int lChannels[16] = {0}; int rChannels[16] = {0};
+		bool isConnectedL[16] = {false}; bool isConnectedR[16] = {false};
+		int vcaChannels[16] = {0}; // Number of polyphonic channels for VCA CV inputs
+		int panChannels[16] = {0};   // Number of polyphonic channels for PAN CV inputs
+		int muteChannels[16] = {0};  // Number of polyphonic channels for MUTE inputs
+		
+		// Arrays to store the current input signals and connectivity status
+		int activeAudio[16] = {-1};        // Stores the number of the previous active channel for the AUDIO inputs
+		int activeVcaChannel[16] = {-1}; // Stores the number of the previous active channel for the VCA CV 
+		int activePanChannel[16] = {-1};   // Stores the number of the previous active channel for the PAN CV 
+		int activeMuteChannel[16] = {-1};  // Stores the number of the previous active channel for the MUTE
+		//initialize all active channels with -1, indicating nothing connected.
 
-        // Process each of the sixteen main channels
-        for (int i = 0; i < 16; i++) {
-           
-            // Initially check connection and set initial input values
-            bool isConnectedL = inputs[AUDIO_1L_INPUT + 2 * i].isConnected();
-            bool isConnectedR = inputs[AUDIO_1R_INPUT + 2 * i].isConnected();
- 
-			// Handle polyphonic inputs on the first channel
-			if (i < polyChannels) {
-				inputL[i] = inputs[AUDIO_1L_INPUT].getPolyVoltage(i);
-				inputR[i] = inputs[AUDIO_1R_INPUT].getPolyVoltage(i);
-				isConnectedL = inputs[AUDIO_1L_INPUT].isConnected(); 
-				isConnectedR = inputs[AUDIO_1R_INPUT].isConnected(); 
-			} else {
-				inputL[i] = isConnectedL ? inputs[AUDIO_1L_INPUT + 2 * i].getVoltage() : 0.0f;
-				inputR[i] = isConnectedR ? inputs[AUDIO_1R_INPUT + 2 * i].getVoltage() : 0.0f;
+		// Scan all inputs to determine the polyphony
+		for (int i = 0; i < 16; i++) {
+		
+			// Check if L input is connected and get its number of channels
+			if (inputs[AUDIO_1L_INPUT + 2 * i].isConnected()) {
+				lChannels[i] = inputs[AUDIO_1L_INPUT + 2 * i].getChannels();
+			}
+		
+			// Check if R input is connected and get its number of channels
+			if (inputs[AUDIO_1R_INPUT + 2 * i].isConnected()) {
+				rChannels[i] = inputs[AUDIO_1R_INPUT + 2 * i].getChannels();
+			}
+		
+			// Determine the maximum number of channels between L and R
+			audioChannels[i] = std::max(lChannels[i], rChannels[i]);
+			
+			// If a CV is connected to either L or R we make the current channel the active channel since any input breaks the input chain from left to right.
+			if (audioChannels[i] > 0){ 
+			    activeAudio[i] = i;
+			} else if (i > 0){
+			        activeAudio[i] = activeAudio[i-1]; //For all but the first channel carry over the active channel to the next channel
+			                                           //If we are at the first channel and nothing is connected, we leave it as -1 to indicate unplugged
+			}
+		
+			// Update the VCA CV channels
+			if (inputs[VCA_CV1_INPUT + i].isConnected()) {
+				vcaChannels[i] = inputs[VCA_CV1_INPUT + i].getChannels();
+				activeVcaChannel[i] = i;
+			} else if (i > 0){
+				activeVcaChannel[i] = activeVcaChannel[i-1]; // Carry over the active channel	
+			}
+		
+			// Update the PAN CV channels
+			if (inputs[PAN_CV1_INPUT + i].isConnected()) {
+				panChannels[i] = inputs[PAN_CV1_INPUT + i].getChannels();
+				activePanChannel[i] = i;
+			} else if (i > 0){
+				activePanChannel[i] = activePanChannel[i-1]; // Carry over the active channel		
+			}
+		
+			// Update the MUTE channels
+			if (inputs[MUTE_1_INPUT + i].isConnected()) {
+				muteChannels[i] = inputs[MUTE_1_INPUT + i].getChannels();
+				activeMuteChannel[i] = i;
+			} else if (i > 0){
+				activeMuteChannel[i] = activeMuteChannel[i-1]; // Carry over the active channel		
+			}
+		}
+
+		// Process each of the sixteen main channels
+		for (int i = 0; i < 16; i++) {
+
+            bool inputActive = false;
+
+			// Determine if the current channel's input is connected
+			isConnectedL[i] = inputs[AUDIO_1L_INPUT + 2 * i].isConnected();
+			isConnectedR[i] = inputs[AUDIO_1R_INPUT + 2 * i].isConnected();
+
+		    //if something is connected to any audio input we use the top value of that input. Normalizing if we only have 1 connection in either L or R.
+			if (activeAudio[i] == i) { 
+			    inputActive = true;
+				// Handle mono to stereo routing
+				if (!isConnectedR[i] && isConnectedL[i]) { //Left only
+					inputL[i]=inputs[AUDIO_1L_INPUT + 2 * i].getPolyVoltage(0);
+					inputR[i]=inputs[AUDIO_1L_INPUT + 2 * i].getPolyVoltage(0); //Normalize L to R
+				} 
+				if (!isConnectedL[i] && isConnectedR[i]) { //Right only
+					inputL[i]=inputs[AUDIO_1R_INPUT + 2 * i].getPolyVoltage(0); //Normalize R to L
+					inputR[i]=inputs[AUDIO_1R_INPUT + 2 * i].getPolyVoltage(0);
+				}
+				if (isConnectedR[i] && isConnectedL[i]) { //Both
+					inputL[i]=inputs[AUDIO_1L_INPUT + 2 * i].getPolyVoltage(0);
+					inputR[i]=inputs[AUDIO_1R_INPUT + 2 * i].getPolyVoltage(0);
+				} 
+			} else if (activeAudio[i] > -1){ //If channel is not active, then we look at activeAudio[i] to get the previous active channel number
+			    // Now we compute which channel we need to grab
+			    int diffBetween = i - activeAudio[i];
+			    int currentChannelMax =  audioChannels[activeAudio[i]] ;	
+			    if (currentChannelMax - diffBetween > 0){    //If we are before the last poly channel
+			        inputActive = true;
+					// Handle mono to stereo routing
+					if (!isConnectedR[ activeAudio[i] ] && isConnectedL[ activeAudio[i] ]) { //Left only
+						inputL[i]=inputs[AUDIO_1L_INPUT + 2 * activeAudio[i]].getPolyVoltage(diffBetween);
+						inputR[i]=inputs[AUDIO_1L_INPUT + 2 * activeAudio[i]].getPolyVoltage(diffBetween); //Normalize L to R
+					} 
+					if (!isConnectedL[ activeAudio[i] ] && isConnectedR[ activeAudio[i] ]) { //Right only
+						inputL[i]=inputs[AUDIO_1R_INPUT + 2 * activeAudio[i]].getPolyVoltage(diffBetween); //Normalize R to L
+						inputR[i]=inputs[AUDIO_1R_INPUT + 2 * activeAudio[i]].getPolyVoltage(diffBetween);
+					}
+					if (isConnectedR[ activeAudio[i] ] && isConnectedL[ activeAudio[i] ]) { //Both
+						inputL[i]=inputs[AUDIO_1L_INPUT + 2 * activeAudio[i]].getPolyVoltage(diffBetween);
+						inputR[i]=inputs[AUDIO_1R_INPUT + 2 * activeAudio[i]].getPolyVoltage(diffBetween);
+					} 
+				} 
 			}
 
-
-            // Handle mono to stereo routing
-            if (!isConnectedL && isConnectedR) {
-                inputL[i] = inputR[i];
-            }
-            if (!isConnectedR && isConnectedL) {
-                inputR[i] = inputL[i];
-            } 
-
-            bool inputActive = isConnectedL || isConnectedR;
             if (inputActive) {
                 inputCount += 1.0f;
             } else {
@@ -491,19 +568,20 @@ struct PreeeeeeeeeeessedDuck : Module {
 			bool buttonMute = params[MUTE1_PARAM + i].getValue() > 0.5f;
 			bool inputMute = false;
 		
-			// Check if mute is triggered by the polyphonic input
-			if (i < muteChannels) {
-				// Polyphonic mute logic
-				inputMute = inputs[MUTE_1_INPUT].getPolyVoltage(i) > 0.5f;
-			} else {
-				// Monophonic mute logic for individual inputs
-				if (inputs[MUTE_1_INPUT + i].isConnected()) {
-					inputMute = inputs[MUTE_1_INPUT + i].getVoltage() > 0.5f;
+			// Check if mute is triggered by the input or previous poly input
+			if (activeMuteChannel[i] == i) { //if there's an input here
+				inputMute = inputs[MUTE_1_INPUT + i].getPolyVoltage(0) > 0.5f;
+			} else if (activeMuteChannel[i] > -1) { //otherwise check the previous channel
+			    // Now we compute which channel we need to grab
+			    int diffBetween = i - activeMuteChannel[i];
+			    int currentChannelMax =  muteChannels[activeMuteChannel[i]] ;	
+			    if (currentChannelMax - diffBetween > 0) {    //If we are before the last poly channel
+					inputMute = inputs[ MUTE_1_INPUT + activeMuteChannel[i] ].getPolyVoltage(diffBetween) > 0.5f;
 				}
-			}
+		    }
 		
 			// Determine final mute state
-			if (muteChannels > 1 || inputMute) {
+			if (activeMuteChannel[i] > -1) {
 				// If CV is connected or if it's poly CV, ignore the button
 				muteState[i] = inputMute;
 				muteLatch[i] = false; // Reset the latch
@@ -539,13 +617,16 @@ struct PreeeeeeeeeeessedDuck : Module {
             inputR[i] *= fadeLevel[i];
 
             // Apply VCA control and volume
-			if (i < vcaCvChannels) {
-				inputL[i] *= clamp(inputs[VCA_CV1_INPUT].getPolyVoltage(i) / 10.f, 0.f, 2.f);
-				inputR[i] *= clamp(inputs[VCA_CV1_INPUT].getPolyVoltage(i) / 10.f, 0.f, 2.f);
-			} else {
-				if (inputs[VCA_CV1_INPUT + i].isConnected()) {
-					inputL[i] *= clamp(inputs[VCA_CV1_INPUT + i].getVoltage() / 10.f, 0.f, 2.f);
-					inputR[i] *= clamp(inputs[VCA_CV1_INPUT + i].getVoltage() / 10.f, 0.f, 2.f);
+			if (activeVcaChannel[i] == i) {
+				inputL[i] *= clamp(inputs[VCA_CV1_INPUT].getPolyVoltage(0) / 10.f, 0.f, 2.f);
+				inputR[i] *= clamp(inputs[VCA_CV1_INPUT].getPolyVoltage(0) / 10.f, 0.f, 2.f);
+			} else if (activeVcaChannel[i] > -1) {
+				// Now we compute which channel we need to grab
+				int diffBetween = i - activeVcaChannel[i];
+				int currentChannelMax =  vcaChannels[activeVcaChannel[i]] ;	
+				if (currentChannelMax - diffBetween > 0) {    //If we are before the last poly channel
+					inputL[i] *= clamp(inputs[VCA_CV1_INPUT + activeVcaChannel[i]].getPolyVoltage(diffBetween) / 10.f, 0.f, 2.f);
+					inputR[i] *= clamp(inputs[VCA_CV1_INPUT + activeVcaChannel[i]].getPolyVoltage(diffBetween) / 10.f, 0.f, 2.f);
 				}
 			}
 
@@ -571,11 +652,14 @@ struct PreeeeeeeeeeessedDuck : Module {
             // Apply panning
             float pan = params[PAN1_PARAM + i].getValue();
  
-			if (i < panChannels) {
-				pan += inputs[PAN_CV1_INPUT].getPolyVoltage(i) / 5.f;
-			} else {
-			    if (inputs[PAN_CV1_INPUT + i].isConnected()) {
-					pan += inputs[PAN_CV1_INPUT + i].getVoltage() / 5.f; // Scale CV influence
+			if (activePanChannel[i]==i) {
+				pan += inputs[PAN_CV1_INPUT].getPolyVoltage(0) / 5.f;
+			} else if (activePanChannel[i] > -1){
+				// Now we compute which channel we need to grab
+				int diffBetween = i - activePanChannel[i];
+				int currentChannelMax =  panChannels[activePanChannel[i]] ;	
+				if (currentChannelMax - diffBetween > 0) {    //If we are before the last poly channel
+					pan += inputs[PAN_CV1_INPUT + activePanChannel[i]].getPolyVoltage(diffBetween) / 5.f; 
 				}
 			}
 
