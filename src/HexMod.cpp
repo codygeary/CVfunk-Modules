@@ -284,22 +284,7 @@ struct HexMod : Module {
                 rate = 1 / SyncInterval;
             }
         }
-
-        // Detect if the enablePolyOut state has changed
-        if (enablePolyOut != prevEnablePolyOut) {
-            if (enablePolyOut) {
-                // Update tooltips to reflect polyphonic output
-                configOutput(LFO_OUTPUT_1, "LFO 1 - Polyphonic");
-            } else {
-                // Revert tooltips to reflect monophonic output
-                configOutput(LFO_OUTPUT_1, "LFO 1");
-            }
-        
-            // Update the previous state to the current state
-            prevEnablePolyOut = enablePolyOut;
-        }
-
-    
+ 
         for (int i = 0; i < 6; i++) {
             float currentInputVoltage = 0.0f;
             bool foundConnected = false;
@@ -426,7 +411,20 @@ struct HexMod : Module {
         if (LEDprocessCounter > 1500) { LEDprocessCounter = 0; }
         if (SINprocessCounter > SkipProcesses) { SINprocessCounter = 0; }
         clockSyncPulse = false;
-    
+  
+        // Detect if the enablePolyOut state has changed
+        if (enablePolyOut != prevEnablePolyOut) {
+            if (enablePolyOut) {
+                // Update tooltips to reflect polyphonic output
+                configOutput(LFO_OUTPUT_1, "LFO 1 - Polyphonic");
+            } else {
+                // Revert tooltips to reflect monophonic output
+                configOutput(LFO_OUTPUT_1, "LFO 1");
+            }
+        
+            // Update the previous state to the current state
+            prevEnablePolyOut = enablePolyOut;
+        }  
         
         // Process poly-OUTPUTS    
         if (enablePolyOut) {
@@ -435,7 +433,9 @@ struct HexMod : Module {
             for ( int part = 1; part < 5; part++) {
                 outputs[LFO_OUTPUT_1].setVoltage(outputs[LFO_OUTPUT_1 + part].getVoltage(), part);  // Set voltage for the polyphonic channels
             }
-        } 
+        } else {
+            outputs[LFO_OUTPUT_1].setChannels(1);  // Set the number of channels to 1        
+        }
         
    }//process
     

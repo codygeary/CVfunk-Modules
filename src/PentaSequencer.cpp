@@ -68,7 +68,6 @@ struct PentaSequencer : Module {
     int STAR_CCW_map[5] =  {0, 2, 4, 1, 3}; 
 
     // Variables for internal logic
-    int step = 0; // Current step in the sequence
     int mode = 0; // Operation mode: 0 = CW_CIRC, 1 = CCW_CIRC, 2 = CW_STAR, 3 = CCW_STAR
     float lastTriggerTime = 0; // Time of the last trigger input
     float triggerInterval = 100;
@@ -84,6 +83,33 @@ struct PentaSequencer : Module {
     int* currentMapping = defaultMapping;
 
     dsp::SlewLimiter slewLimiters[5]; // One per output (A-E)
+
+    bool prevEnablePolyOut = false;  // Track the previous state
+    bool enablePolyOut = false;
+    int step = 0; // Current step in the sequence
+
+    // Serialization method to save module state
+    json_t* dataToJson() override {
+        json_t* rootJ = json_object();
+
+        json_object_set_new(rootJ, "enablePolyOut", json_boolean(enablePolyOut));
+        json_object_set_new(rootJ, "step", json_integer(step));
+
+        return rootJ;
+    }
+
+    // Deserialization method to load module state
+    void dataFromJson(json_t* rootJ) override {
+         
+        // Load the state of enablePolyOut
+        json_t* enablePolyOutJ = json_object_get(rootJ, "enablePolyOut");
+        if (enablePolyOutJ) enablePolyOut = json_is_true(enablePolyOutJ);
+
+        // Load the state of step  
+        json_t* stepJ = json_object_get(rootJ, "step");
+        if (stepJ) step = json_integer_value(stepJ);
+                                  
+    }
 
     PentaSequencer() {
         config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
@@ -129,7 +155,6 @@ struct PentaSequencer : Module {
             adjustedSlewInput = clamp (adjustedSlewInput, 0.f, 1.f );
             params[SLEW_PARAM].setValue(adjustedSlewInput);
         }
-
 
         // Process reset input
         if (inputs[RESET_INPUT].isConnected() || manualResetPressed){
@@ -359,6 +384,34 @@ struct PentaSequencer : Module {
                     break;
             }
         }
+ 
+        // Detect if the enablePolyOut state has changed
+        if (enablePolyOut != prevEnablePolyOut) {
+            if (enablePolyOut) {
+                // Update tooltips to reflect polyphonic output
+                configOutput(A_OUTPUT, "A - Polyphonic");
+            } else {
+                // Revert tooltips to reflect monophonic output
+                configOutput(A_OUTPUT, "A");
+            }
+        
+            // Update the previous state to the current state
+            prevEnablePolyOut = enablePolyOut;
+        }
+      
+        // Process poly-OUTPUTS    
+        if (enablePolyOut) {
+            // Set the polyphonic voltage for the first output (A_OUTPUT)
+            outputs[A_OUTPUT].setChannels(5);  // Set the number of channels to 5
+            for ( int part = 1; part < 5; part++) {
+                outputs[A_OUTPUT].setVoltage(outputs[A_OUTPUT + part].getVoltage(), part);  // Set voltage for the polyphonic channels
+            }
+        } else {
+            outputs[A_OUTPUT].setChannels(1);  // Set the number of channels to 1
+        }
+        
+        
+        
     }//void
 };//module
 
@@ -447,6 +500,35 @@ struct PentaSequencerWidget : ModuleWidget {
         addChild(createLightCentered<MediumLight<YellowLight>>(mm2px(Vec(65.979, 36.066)), module, PentaSequencer::OUTERD_LIGHT));
         addChild(createLightCentered<MediumLight<YellowLight>>(mm2px(Vec(55.34, 67.448)), module, PentaSequencer::OUTERE_LIGHT));
     }
+    
+    void appendContextMenu(Menu* menu) override {
+        ModuleWidget::appendContextMenu(menu);
+
+        PentaSequencer* pentaSequencer = dynamic_cast<PentaSequencer*>(module);
+        assert(pentaSequencer);
+
+        // Separator for visual grouping in the context menu
+        menu->addChild(new MenuSeparator);
+
+        // Polyphonic output enabled/disabled menu item
+        struct PolyOutEnabledItem : MenuItem {
+            PentaSequencer* pentaSequencer;
+            void onAction(const event::Action& e) override {
+                pentaSequencer->enablePolyOut = !pentaSequencer->enablePolyOut;
+            }
+            void step() override {
+                rightText = pentaSequencer->enablePolyOut ? "✔" : "";
+                MenuItem::step();
+            }
+        };
+    
+        PolyOutEnabledItem* polyOutItem = new PolyOutEnabledItem();
+        polyOutItem->text = "Enable Polyphonic Output to Channel A";
+        polyOutItem->pentaSequencer = pentaSequencer;
+        menu->addChild(polyOutItem);
+
+    }   
+    
 };
 
 Model* modelPentaSequencer = createModel<PentaSequencer, PentaSequencerWidget>("PentaSequencer");
