@@ -370,37 +370,60 @@ struct PressedDuck : Module {
 		
 			// Determine the maximum number of channels between L and R
 			audioChannels[i] = std::max(lChannels[i], rChannels[i]);
-			
-			// If a CV is connected to either L or R we make the current channel the active channel since any input breaks the input chain from left to right.
-			if (audioChannels[i] > 0){ 
-			    activeAudio[i] = i;
-			} else if (i > 0){
-			        activeAudio[i] = activeAudio[i-1]; //For all but the first channel carry over the active channel to the next channel
-			                                           //If we are at the first channel and nothing is connected, we leave it as -1 to indicate unplugged
+		
+			// Handle polyphonic AUDIO input distribution
+			if (audioChannels[i] > 0) { 
+				activeAudio[i] = i;
+			} else if (i > 0 && activeAudio[i-1] != -1) {
+				if (audioChannels[activeAudio[i-1]] >= (i - activeAudio[i-1])) {
+					activeAudio[i] = activeAudio[i-1]; // Carry over the active channel
+				} else {
+					activeAudio[i] = -1; // No valid polyphonic channel to carry over
+				}
+			} else {
+				activeAudio[i] = -1; // Explicitly reset if not connected
 			}
 		
 			// Update the VCA CV channels
 			if (inputs[VCA_CV1_INPUT + i].isConnected()) {
 				vcaChannels[i] = inputs[VCA_CV1_INPUT + i].getChannels();
 				activeVcaChannel[i] = i;
-			} else if (i > 0){
-				activeVcaChannel[i] = activeVcaChannel[i-1]; // Carry over the active channel	
+			} else if (i > 0 && activeVcaChannel[i-1] != -1) {
+				if (vcaChannels[activeVcaChannel[i-1]] >= (i - activeVcaChannel[i-1])) {
+					activeVcaChannel[i] = activeVcaChannel[i-1]; // Carry over the active channel
+				} else {
+					activeVcaChannel[i] = -1; // No valid polyphonic channel to carry over
+				}
+			} else {
+				activeVcaChannel[i] = -1; // Explicitly reset if not connected
 			}
 		
 			// Update the PAN CV channels
 			if (inputs[PAN_CV1_INPUT + i].isConnected()) {
 				panChannels[i] = inputs[PAN_CV1_INPUT + i].getChannels();
 				activePanChannel[i] = i;
-			} else if (i > 0){
-				activePanChannel[i] = activePanChannel[i-1]; // Carry over the active channel		
+			} else if (i > 0 && activePanChannel[i-1] != -1) {
+				if (panChannels[activePanChannel[i-1]] >= (i - activePanChannel[i-1])) {
+					activePanChannel[i] = activePanChannel[i-1]; // Carry over the active channel
+				} else {
+					activePanChannel[i] = -1; // No valid polyphonic channel to carry over
+				}
+			} else {
+				activePanChannel[i] = -1; // Explicitly reset if not connected
 			}
 		
-			// Update the MUTE channels
+			// Update the MUTE channels (your original fix)
 			if (inputs[MUTE_1_INPUT + i].isConnected()) {
 				muteChannels[i] = inputs[MUTE_1_INPUT + i].getChannels();
 				activeMuteChannel[i] = i;
-			} else if (i > 0){
-				activeMuteChannel[i] = activeMuteChannel[i-1]; // Carry over the active channel		
+			} else if (i > 0 && activeMuteChannel[i-1] != -1) {
+				if (muteChannels[activeMuteChannel[i-1]] > (i - activeMuteChannel[i-1])) {
+					activeMuteChannel[i] = activeMuteChannel[i-1];
+				} else {
+					activeMuteChannel[i] = -1; // No valid polyphonic channel to carry over
+				}
+			} else {
+				activeMuteChannel[i] = -1; // Explicitly reset if not connected
 			}
 		}
 
@@ -516,8 +539,8 @@ struct PressedDuck : Module {
 
             // Apply VCA control and volume
 			if (activeVcaChannel[i] == i) {
-				inputL[i] *= clamp(inputs[VCA_CV1_INPUT].getPolyVoltage(0) / 10.f, 0.f, 2.f);
-				inputR[i] *= clamp(inputs[VCA_CV1_INPUT].getPolyVoltage(0) / 10.f, 0.f, 2.f);
+				inputL[i] *= clamp(inputs[VCA_CV1_INPUT + i].getPolyVoltage(0) / 10.f, 0.f, 2.f);
+				inputR[i] *= clamp(inputs[VCA_CV1_INPUT + i].getPolyVoltage(0) / 10.f, 0.f, 2.f);
 			} else if (activeVcaChannel[i] > -1) {
 				// Now we compute which channel we need to grab
 				int diffBetween = i - activeVcaChannel[i];
@@ -551,7 +574,7 @@ struct PressedDuck : Module {
             float pan = params[PAN1_PARAM + i].getValue();
  
 			if (activePanChannel[i]==i) {
-				pan += inputs[PAN_CV1_INPUT].getPolyVoltage(0) / 5.f;
+				pan += inputs[PAN_CV1_INPUT + i].getPolyVoltage(0) / 5.f;
 			} else if (activePanChannel[i] > -1){
 				// Now we compute which channel we need to grab
 				int diffBetween = i - activePanChannel[i];

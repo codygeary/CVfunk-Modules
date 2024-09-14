@@ -430,7 +430,7 @@ struct HexMod : Module {
         if (enablePolyOut) {
             // Set the polyphonic voltage for the first output (_1_OUTPUT)
             outputs[LFO_OUTPUT_1].setChannels(6);  // Set the number of channels to 6
-            for ( int part = 1; part < 5; part++) {
+            for ( int part = 1; part < 6; part++) {
                 outputs[LFO_OUTPUT_1].setVoltage(outputs[LFO_OUTPUT_1 + part].getVoltage(), part);  // Set voltage for the polyphonic channels
             }
         } else {

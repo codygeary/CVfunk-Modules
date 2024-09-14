@@ -97,19 +97,26 @@ struct Signals : Module {
 
         int currentBufferSize = int((MAX_BUFFER_SIZE / MAX_TIME) * currentTimeSetting * range);
 
-		// Scan all inputs to determine the polyphony
-		for (int i = 0; i < 6; i++) {		
-	        scopeChannels[i] = 0;  // Number of polyphonic channels for Scope inputs
-		    activeScopeChannel[i] = -1;  // Stores the number of the previous active channel for the Scope
-
-			// Update the Scope channels
-			if (inputs[ENV1_INPUT + i].isConnected()) {
-				scopeChannels[i] = inputs[ENV1_INPUT + i].getChannels();
-				activeScopeChannel[i] = i;
-			} else if ((i > 0) && (scopeChannels[activeScopeChannel[i-1]] >= i-activeScopeChannel[i-1]) ){
-				activeScopeChannel[i] = activeScopeChannel[i-1]; // Carry over the active channel		
-			}
-		}
+        // Scan all inputs to determine the polyphony
+        for (int i = 0; i < 6; i++) {		
+            scopeChannels[i] = 0;  // Number of polyphonic channels for Scope inputs
+            activeScopeChannel[i] = -1;  // Stores the number of the previous active channel for the Scope
+        
+            // Update the Scope channels
+            if (inputs[ENV1_INPUT + i].isConnected()) {
+                scopeChannels[i] = inputs[ENV1_INPUT + i].getChannels();
+                activeScopeChannel[i] = i;
+            } else if (i > 0 && activeScopeChannel[i-1] != -1) {
+                // Use >= to carry over the active polyphonic channel correctly
+                if (scopeChannels[activeScopeChannel[i-1]] >= (i - activeScopeChannel[i-1])) {
+                    activeScopeChannel[i] = activeScopeChannel[i-1]; // Carry over the active channel
+                } else {
+                    activeScopeChannel[i] = -1; // No valid polyphonic channel to carry over
+                }
+            } else {
+                activeScopeChannel[i] = -1; // Explicitly reset if not connected
+            }
+        }
 
         for (int i = 0; i < 6; ++i) { //for the 6 wave inputs
  

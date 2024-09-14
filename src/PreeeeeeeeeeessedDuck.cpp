@@ -359,16 +359,16 @@ struct PreeeeeeeeeeessedDuck : Module {
         configInput(VCA_CV4_INPUT, "Channel 4 VCA CV");
         configInput(VCA_CV5_INPUT, "Channel 5 VCA CV");
         configInput(VCA_CV6_INPUT, "Channel 6 VCA CV");
-        configInput(VCA_CV6_INPUT, "Channel 7 VCA CV");
-        configInput(VCA_CV6_INPUT, "Channel 8 VCA CV");
-        configInput(VCA_CV6_INPUT, "Channel 9 VCA CV");
-        configInput(VCA_CV6_INPUT, "Channel 10 VCA CV");
-        configInput(VCA_CV6_INPUT, "Channel 11 VCA CV");
-        configInput(VCA_CV6_INPUT, "Channel 12 VCA CV");
-        configInput(VCA_CV6_INPUT, "Channel 13 VCA CV");
-        configInput(VCA_CV6_INPUT, "Channel 14 VCA CV");
-        configInput(VCA_CV6_INPUT, "Channel 15 VCA CV");
-        configInput(VCA_CV6_INPUT, "Channel 16 VCA CV");
+        configInput(VCA_CV7_INPUT, "Channel 7 VCA CV");
+        configInput(VCA_CV8_INPUT, "Channel 8 VCA CV");
+        configInput(VCA_CV9_INPUT, "Channel 9 VCA CV");
+        configInput(VCA_CV10_INPUT, "Channel 10 VCA CV");
+        configInput(VCA_CV11_INPUT, "Channel 11 VCA CV");
+        configInput(VCA_CV12_INPUT, "Channel 12 VCA CV");
+        configInput(VCA_CV13_INPUT, "Channel 13 VCA CV");
+        configInput(VCA_CV14_INPUT, "Channel 14 VCA CV");
+        configInput(VCA_CV14_INPUT, "Channel 15 VCA CV");
+        configInput(VCA_CV16_INPUT, "Channel 16 VCA CV");
 
         configInput(VCA_SIDECHAIN_INPUT, "Sidechain VCA CV");
 
@@ -378,16 +378,16 @@ struct PreeeeeeeeeeessedDuck : Module {
         configInput(PAN_CV4_INPUT, "Channel 4 Pan CV");
         configInput(PAN_CV5_INPUT, "Channel 5 Pan CV");
         configInput(PAN_CV6_INPUT, "Channel 6 Pan CV");
-        configInput(PAN_CV6_INPUT, "Channel 7 Pan CV");
-        configInput(PAN_CV6_INPUT, "Channel 8 Pan CV");
-        configInput(PAN_CV6_INPUT, "Channel 9 Pan CV");
-        configInput(PAN_CV6_INPUT, "Channel 10 Pan CV");
-        configInput(PAN_CV6_INPUT, "Channel 11 Pan CV");
-        configInput(PAN_CV6_INPUT, "Channel 12 Pan CV");
-        configInput(PAN_CV6_INPUT, "Channel 13 Pan CV");
-        configInput(PAN_CV6_INPUT, "Channel 14 Pan CV");
-        configInput(PAN_CV6_INPUT, "Channel 15 Pan CV");
-        configInput(PAN_CV6_INPUT, "Channel 16 Pan CV");
+        configInput(PAN_CV7_INPUT, "Channel 7 Pan CV");
+        configInput(PAN_CV8_INPUT, "Channel 8 Pan CV");
+        configInput(PAN_CV9_INPUT, "Channel 9 Pan CV");
+        configInput(PAN_CV10_INPUT, "Channel 10 Pan CV");
+        configInput(PAN_CV11_INPUT, "Channel 11 Pan CV");
+        configInput(PAN_CV12_INPUT, "Channel 12 Pan CV");
+        configInput(PAN_CV13_INPUT, "Channel 13 Pan CV");
+        configInput(PAN_CV14_INPUT, "Channel 14 Pan CV");
+        configInput(PAN_CV15_INPUT, "Channel 15 Pan CV");
+        configInput(PAN_CV16_INPUT, "Channel 16 Pan CV");
 
         configInput(MUTE_1_INPUT, "Channel 1 Mute CV / Poly");
         configInput(MUTE_2_INPUT, "Channel 2 Mute CV");
@@ -458,6 +458,7 @@ struct PreeeeeeeeeeessedDuck : Module {
 		//initialize all active channels with -1, indicating nothing connected.
 
 		// Scan all inputs to determine the polyphony
+		// Scan all inputs to determine the polyphony
 		for (int i = 0; i < 16; i++) {
 		
 			// Check if L input is connected and get its number of channels
@@ -472,39 +473,63 @@ struct PreeeeeeeeeeessedDuck : Module {
 		
 			// Determine the maximum number of channels between L and R
 			audioChannels[i] = std::max(lChannels[i], rChannels[i]);
-			
-			// If a CV is connected to either L or R we make the current channel the active channel since any input breaks the input chain from left to right.
-			if (audioChannels[i] > 0){ 
-			    activeAudio[i] = i;
-			} else if (i > 0){
-			        activeAudio[i] = activeAudio[i-1]; //For all but the first channel carry over the active channel to the next channel
-			                                           //If we are at the first channel and nothing is connected, we leave it as -1 to indicate unplugged
+		
+			// Handle polyphonic AUDIO input distribution
+			if (audioChannels[i] > 0) { 
+				activeAudio[i] = i;
+			} else if (i > 0 && activeAudio[i-1] != -1) {
+				if (audioChannels[activeAudio[i-1]] >= (i - activeAudio[i-1])) {
+					activeAudio[i] = activeAudio[i-1]; // Carry over the active channel
+				} else {
+					activeAudio[i] = -1; // No valid polyphonic channel to carry over
+				}
+			} else {
+				activeAudio[i] = -1; // Explicitly reset if not connected
 			}
 		
 			// Update the VCA CV channels
 			if (inputs[VCA_CV1_INPUT + i].isConnected()) {
 				vcaChannels[i] = inputs[VCA_CV1_INPUT + i].getChannels();
 				activeVcaChannel[i] = i;
-			} else if (i > 0){
-				activeVcaChannel[i] = activeVcaChannel[i-1]; // Carry over the active channel	
+			} else if (i > 0 && activeVcaChannel[i-1] != -1) {
+				if (vcaChannels[activeVcaChannel[i-1]] >= (i - activeVcaChannel[i-1])) {
+					activeVcaChannel[i] = activeVcaChannel[i-1]; // Carry over the active channel
+				} else {
+					activeVcaChannel[i] = -1; // No valid polyphonic channel to carry over
+				}
+			} else {
+				activeVcaChannel[i] = -1; // Explicitly reset if not connected
 			}
 		
 			// Update the PAN CV channels
 			if (inputs[PAN_CV1_INPUT + i].isConnected()) {
 				panChannels[i] = inputs[PAN_CV1_INPUT + i].getChannels();
 				activePanChannel[i] = i;
-			} else if (i > 0){
-				activePanChannel[i] = activePanChannel[i-1]; // Carry over the active channel		
+			} else if (i > 0 && activePanChannel[i-1] != -1) {
+				if (panChannels[activePanChannel[i-1]] >= (i - activePanChannel[i-1])) {
+					activePanChannel[i] = activePanChannel[i-1]; // Carry over the active channel
+				} else {
+					activePanChannel[i] = -1; // No valid polyphonic channel to carry over
+				}
+			} else {
+				activePanChannel[i] = -1; // Explicitly reset if not connected
 			}
 		
-			// Update the MUTE channels
+			// Update the MUTE channels (your original fix)
 			if (inputs[MUTE_1_INPUT + i].isConnected()) {
 				muteChannels[i] = inputs[MUTE_1_INPUT + i].getChannels();
 				activeMuteChannel[i] = i;
-			} else if (i > 0){
-				activeMuteChannel[i] = activeMuteChannel[i-1]; // Carry over the active channel		
+			} else if (i > 0 && activeMuteChannel[i-1] != -1) {
+				if (muteChannels[activeMuteChannel[i-1]] > (i - activeMuteChannel[i-1])) {
+					activeMuteChannel[i] = activeMuteChannel[i-1];
+				} else {
+					activeMuteChannel[i] = -1; // No valid polyphonic channel to carry over
+				}
+			} else {
+				activeMuteChannel[i] = -1; // Explicitly reset if not connected
 			}
 		}
+
 
 		// Process each of the sixteen main channels
 		for (int i = 0; i < 16; i++) {
@@ -565,7 +590,6 @@ struct PreeeeeeeeeeessedDuck : Module {
 	        /////////////
 	        //// Deal with polyphonic Mute inputs
 	        
-			bool buttonMute = params[MUTE1_PARAM + i].getValue() > 0.5f;
 			bool inputMute = false;
 		
 			// Check if mute is triggered by the input or previous poly input
@@ -578,7 +602,7 @@ struct PreeeeeeeeeeessedDuck : Module {
 			    if (currentChannelMax - diffBetween > 0) {    //If we are before the last poly channel
 					inputMute = inputs[ MUTE_1_INPUT + activeMuteChannel[i] ].getPolyVoltage(diffBetween) > 0.5f;
 				}
-		    }
+		    } 
 		
 			// Determine final mute state
 			if (activeMuteChannel[i] > -1) {
@@ -587,14 +611,14 @@ struct PreeeeeeeeeeessedDuck : Module {
 				muteLatch[i] = false; // Reset the latch
 			} else {
 				// If no CV is connected, use the button for muting
-				if (buttonMute) {
+				if (params[MUTE1_PARAM + i].getValue() > 0.5f) {
 					if (!muteLatch[i]) {
 						muteLatch[i] = true;
 						muteState[i] = !muteState[i];
 						transitionCount[i] = transitionSamples;  // Reset the transition count
 					}
 				} else {
-					muteLatch[i] = false; // Release latch if button is not Preeeeeeeeeeessed
+					muteLatch[i] = false; // Release latch if button 
 				}
 				
 				// Ensure the mute state is handled
@@ -618,8 +642,8 @@ struct PreeeeeeeeeeessedDuck : Module {
 
             // Apply VCA control and volume
 			if (activeVcaChannel[i] == i) {
-				inputL[i] *= clamp(inputs[VCA_CV1_INPUT].getPolyVoltage(0) / 10.f, 0.f, 2.f);
-				inputR[i] *= clamp(inputs[VCA_CV1_INPUT].getPolyVoltage(0) / 10.f, 0.f, 2.f);
+				inputL[i] *= clamp(inputs[VCA_CV1_INPUT + i].getPolyVoltage(0) / 10.f, 0.f, 2.f);
+				inputR[i] *= clamp(inputs[VCA_CV1_INPUT + i].getPolyVoltage(0) / 10.f, 0.f, 2.f);
 			} else if (activeVcaChannel[i] > -1) {
 				// Now we compute which channel we need to grab
 				int diffBetween = i - activeVcaChannel[i];
@@ -653,7 +677,7 @@ struct PreeeeeeeeeeessedDuck : Module {
             float pan = params[PAN1_PARAM + i].getValue();
  
 			if (activePanChannel[i]==i) {
-				pan += inputs[PAN_CV1_INPUT].getPolyVoltage(0) / 5.f;
+				pan += inputs[PAN_CV1_INPUT + i].getPolyVoltage(0) / 5.f;
 			} else if (activePanChannel[i] > -1){
 				// Now we compute which channel we need to grab
 				int diffBetween = i - activePanChannel[i];
