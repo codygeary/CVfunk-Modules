@@ -950,8 +950,8 @@ struct StepWaveWidget : ModuleWidget {
 
             // Stage Gate and Button
             yPos += Spacing;
-            addParam(createParamCentered<LEDButton>(Vec(xPos, yPos), module, StepWave::STEP_1_BUTTON + i));
-            addChild(createLightCentered<LargeLight<RedLight>>(Vec(xPos, yPos), module, StepWave::STEP_1_GATE_LIGHT + i ));
+            addParam(createParamCentered<LEDButton>(Vec(xPos, yPos - 4), module, StepWave::STEP_1_BUTTON + i));
+            addChild(createLightCentered<LargeLight<RedLight>>(Vec(xPos, yPos - 4), module, StepWave::STEP_1_GATE_LIGHT + i ));
 
             yPos += Spacing - 10;
             addOutput(createOutputCentered<ThemedPJ301MPort>(Vec(xPos, yPos), module, StepWave::STEP_1_GATE_OUT + i));
