@@ -14,6 +14,46 @@
 #include "digital_display.hpp" // Include the DigitalDisplay header
 using namespace rack;
 
+struct DiscreteTrimpot : Trimpot { 
+    void onDragEnd(const DragEndEvent& e) override {
+        ParamQuantity* paramQuantity = getParamQuantity();
+        
+        if (paramQuantity) {
+            // Get the raw value from the knob
+            float rawValue = paramQuantity->getValue();
+            
+            // Round the value to the nearest integer
+            float discreteValue = round(rawValue);
+            
+            // Set the snapped value
+            paramQuantity->setValue(discreteValue);
+        }
+        
+        // Call the base class implementation to ensure proper behavior
+        Trimpot::onDragEnd(e);
+    }
+};
+
+struct DiscreteRoundBlackKnob : RoundBlackKnob { 
+    void onDragEnd(const DragEndEvent& e) override {
+        ParamQuantity* paramQuantity = getParamQuantity();
+        
+        if (paramQuantity) {
+            // Get the raw value from the knob
+            float rawValue = paramQuantity->getValue();
+            
+            // Round the value to the nearest integer
+            float discreteValue = round(rawValue);
+            
+            // Set the snapped value
+            paramQuantity->setValue(discreteValue);
+        }
+        
+        // Call the base class implementation to ensure proper behavior
+        RoundBlackKnob::onDragEnd(e);
+    }
+};
+
 struct Syncro : Module {
     enum ParamIds {
         CLOCK_KNOB, CLOCK_ATT,
@@ -169,13 +209,13 @@ struct Syncro : Module {
         configParam(MULTIPLY_KNOB_7, 0.0f, 128.0f, 1.0f, "Multiply 7");
         configParam(MULTIPLY_KNOB_8, 0.0f, 128.0f, 1.0f, "Multiply 8");
         configParam(DIVIDE_KNOB_1, 1.0f, 256.0f, 1.0f, "Divide 1");
-        configParam(DIVIDE_KNOB_2, 1.0f, 256.0f, 2.0f, "Divide 2");
-        configParam(DIVIDE_KNOB_3, 1.0f, 256.0f, 4.0f, "Divide 3");
-        configParam(DIVIDE_KNOB_4, 1.0f, 256.0f, 8.0f, "Divide 4");
-        configParam(DIVIDE_KNOB_5, 1.0f, 256.0f, 16.0f, "Divide 5");
-        configParam(DIVIDE_KNOB_6, 1.0f, 256.0f, 32.0f, "Divide 6");
-        configParam(DIVIDE_KNOB_7, 1.0f, 256.0f, 64.0f, "Divide 7");
-        configParam(DIVIDE_KNOB_8, 1.0f, 256.0f, 128.0f, "Divide 8");
+        configParam(DIVIDE_KNOB_2, 1.0f, 256.0f, 1.0f, "Divide 2");
+        configParam(DIVIDE_KNOB_3, 1.0f, 256.0f, 1.0f, "Divide 3");
+        configParam(DIVIDE_KNOB_4, 1.0f, 256.0f, 1.0f, "Divide 4");
+        configParam(DIVIDE_KNOB_5, 1.0f, 256.0f, 1.0f, "Divide 5");
+        configParam(DIVIDE_KNOB_6, 1.0f, 256.0f, 1.0f, "Divide 6");
+        configParam(DIVIDE_KNOB_7, 1.0f, 256.0f, 1.0f, "Divide 7");
+        configParam(DIVIDE_KNOB_8, 1.0f, 256.0f, 1.0f, "Divide 8");
         configParam(FILL_KNOB, 0.0f, 8.0f, 3.0f, "Fill");
         configParam(FILL_ATT, -1.0f, 1.0f, 0.0f, "Fill Attenuvertor");
         configParam(WIDTH_KNOB, 0.0f, 1.0f, 0.5f, "Gate Width");
@@ -544,7 +584,7 @@ struct SyncroWidget : ModuleWidget {
             addChild(createLight<SmallLight<RedLight>>(Vec(42 + i * 10, 120 ), module, Syncro::FILL_LIGHT_1 + i));
         }
 
-        addParam(createParamCentered<RoundBlackKnob>  (Vec(55,     145), module, Syncro::FILL_KNOB));
+        addParam(createParamCentered<DiscreteRoundBlackKnob>  (Vec(55,     145), module, Syncro::FILL_KNOB));
         addParam(createParamCentered<Trimpot>         (Vec(81.25,  145), module, Syncro::FILL_ATT));
         addInput(createInputCentered<ThemedPJ301MPort>(Vec(103.58, 145), module, Syncro::FILL_INPUT));
 
@@ -571,8 +611,8 @@ struct SyncroWidget : ModuleWidget {
 
         for (int i = 0; i < 8; i++) {
             // Add Multiply and Divide Knobs
-            addParam(createParamCentered<Trimpot>             (Vec( 165, 35 + 38 + i * 38 ), module, Syncro::MULTIPLY_KNOB_1 + i));
-            addParam(createParamCentered<Trimpot>             (Vec( 190, 35 + 38 + i * 38 ), module, Syncro::DIVIDE_KNOB_1 + i));
+            addParam(createParamCentered<DiscreteTrimpot>             (Vec( 165, 35 + 38 + i * 38 ), module, Syncro::MULTIPLY_KNOB_1 + i));
+            addParam(createParamCentered<DiscreteTrimpot>             (Vec( 190, 35 + 38 + i * 38 ), module, Syncro::DIVIDE_KNOB_1 + i));
 
             addParam(createParamCentered<TL1105>              (Vec(280, 35 + 38 + i * 38 ), module, Syncro::FILL_BUTTON_1 + i));
             addChild(createLightCentered<SmallLight<YellowLight>>    (Vec(280, 35 + 38 + i * 38 ), module, Syncro::FILL_INDICATE_1 + i ));

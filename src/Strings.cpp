@@ -43,6 +43,26 @@ std::array<int, 6> fingeringToSemitoneShifts(const std::string& fingering) {
     return semitoneShifts;
 }
 
+struct DiscreteRoundBlackKnob : RoundBlackKnob { 
+    void onDragEnd(const DragEndEvent& e) override {
+        ParamQuantity* paramQuantity = getParamQuantity();
+        
+        if (paramQuantity) {
+            // Get the raw value from the knob
+            float rawValue = paramQuantity->getValue();
+            
+            // Round the value to the nearest integer
+            float discreteValue = round(rawValue);
+            
+            // Set the snapped value
+            paramQuantity->setValue(discreteValue);
+        }
+        
+        // Call the base class implementation to ensure proper behavior
+        RoundBlackKnob::onDragEnd(e);
+    }
+};
+
 struct Strings : Module {
 
     enum ParamIds {
@@ -460,10 +480,20 @@ struct Strings : Module {
                 //param chord_selector has no effect in V/Oct mode
                 float chordInputVal = (inputs[CHORD_SELECTOR_CV].isConnected() ? inputs[CHORD_SELECTOR_CV].getVoltage() : 0);
 
-                if (chordInputVal >= 1) { octavesDifference = 1.0f; }
-                else if (chordInputVal < 0) { octavesDifference = 0.0f; }
-                if (chordInputVal >= 2) { octavesDifference = 2.0f; }
-           
+                if (chordInputVal >= 2.0f) {
+                    octavesDifference = 2.0f;  // 2 octaves up
+                } else if (chordInputVal >= 1.0f) {
+                    octavesDifference = 1.0f;  // 1 octave up
+                } else if (chordInputVal >= 0.0f) {
+                    octavesDifference = 0.0f;  // No octave shift
+                } else if (chordInputVal >= -1.0f) {
+                    octavesDifference = -1.0f; // 1 octave down
+                } else if (chordInputVal >= -2.0f) {
+                    octavesDifference = -2.0f; // 2 octaves down
+                } else if (chordInputVal < -2.0f) {
+                    octavesDifference = -2.0f; // max is 2 octaves down
+                }       
+                
                 int noteIndex = static_cast<int>(round(chordInputVal * 12)); // Total semitones from C
                 int noteRelativeToC = (noteIndex % 12 + 12) % 12; // Ensuring a positive result
 
@@ -729,15 +759,23 @@ struct Strings : Module {
 
                         int capoAmountInt = static_cast<int>(floor(CapoAmount*12)); // Round to the nearest whole number if necessary
                         std::string capoAmountStr = std::to_string(capoAmountInt); // Convert the integer to a string
-                
+
+                        // Compute the note name of the capoed root
+                        float pitchVoltage = currentRoots[currentChordIndex] + CapoAmount;
+                        double fractionalPart = fmod(pitchVoltage, 1.0);
+                        int semitone = round(fractionalPart * 12);
+                        semitone = (semitone % 12 + 12) % 12;
+                        const char* noteNames[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+                        const char* noteName = noteNames[semitone];
+
                         if (CapoAmount ==0){
                             fingeringDisplay->text = currentFingeringPattern;
                         } else {
                             // Update the fingering display text with the current fingering pattern and capo setting
-                            if (CapoAmount>-0.01){
-                                fingeringDisplay->text = currentFingeringPattern + " +" + capoAmountStr;    
+                            if (CapoAmount > -0.01){
+                                fingeringDisplay->text = currentFingeringPattern + " +" + capoAmountStr + " " + noteName;    
                             } else {
-                                fingeringDisplay->text = currentFingeringPattern + "  " + capoAmountStr;    
+                                fingeringDisplay->text = currentFingeringPattern + "  " + capoAmountStr + " " + noteName;    
                             }
                         }
                 
@@ -888,13 +926,13 @@ struct StringsWidget : ModuleWidget {
         addChild(createWidget<ThemedScrew>(Vec(box.size.x - 5 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 
         // Knobs
-        addParam(createParamCentered<RoundBlackKnob>(Vec(30,  30), module, Strings::CHORD_SELECTOR_PARAM));
+        addParam(createParamCentered<DiscreteRoundBlackKnob>(Vec(30,  30), module, Strings::CHORD_SELECTOR_PARAM));
         addInput(createInputCentered<ThemedPJ301MPort>(Vec(30,   65), module, Strings::CHORD_SELECTOR_CV));
 
-        addParam(createParamCentered<RoundBlackKnob>(Vec(30, 40+80), module, Strings::ROW_SELECTOR_PARAM));
+        addParam(createParamCentered<DiscreteRoundBlackKnob>(Vec(30, 40+80), module, Strings::ROW_SELECTOR_PARAM));
         addInput(createInputCentered<ThemedPJ301MPort>(Vec(30,  75+80), module, Strings::ROW_SELECTOR_CV));
 
-        addParam(createParamCentered<RoundBlackKnob>(Vec(270, 30), module, Strings::CAPO_PARAM));
+        addParam(createParamCentered<DiscreteRoundBlackKnob>(Vec(270, 30), module, Strings::CAPO_PARAM));
         addInput(createInputCentered<ThemedPJ301MPort>(Vec(270,  65), module, Strings::CAPO_CV));
 
         // CV Mode Indicator

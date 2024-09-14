@@ -404,7 +404,7 @@ struct PressedDuck : Module {
 			}
 		}
 
-		// Process each of the sixteen main channels
+		// Process each of the six main channels
 		for (int i = 0; i < 6; i++) {
 
             bool inputActive = false;

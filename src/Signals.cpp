@@ -47,9 +47,12 @@ struct Signals : Module {
     std::array<float, 6> lastTriggerTime = {}; 
     bool retriggerEnabled = false; 
     bool retriggerToggleProcessed = false;
-    std::array<bool, 6> forceRetriggerFlags = {};
     double displayUpdateTime = 0.1; 
     double timeSinceLastUpdate = 0.0;
+    float scopeInput[6] = {0.0f};
+    int scopeChannels[6] = {0};  // Number of polyphonic channels for Scope inputs
+    int activeScopeChannel[6] = {-1};  // Stores the number of the previous active channel for the Scope
+
 
     FramebufferWidget* fbWidget = nullptr;
 
@@ -94,37 +97,74 @@ struct Signals : Module {
 
         int currentBufferSize = int((MAX_BUFFER_SIZE / MAX_TIME) * currentTimeSetting * range);
 
+		// Reset the arrays for storing polyphony
+		for (int count = 0; count<6; count++){
+	        scopeChannels[count] = 0;  // Number of polyphonic channels for Scope inputs
+		    activeScopeChannel[count] = -1;  // Stores the number of the previous active channel for the Scope
+		}
+		//initialize all active channels with -1, indicating nothing connected.
+
+		// Scan all inputs to determine the polyphony
+		for (int i = 0; i < 6; i++) {		
+			// Update the Scope channels
+			if (inputs[ENV1_INPUT + i].isConnected()) {
+				scopeChannels[i] = inputs[ENV1_INPUT + i].getChannels();
+				activeScopeChannel[i] = i;
+			} else if (i > 0){
+				activeScopeChannel[i] = activeScopeChannel[i-1]; // Carry over the active channel		
+			}
+		}
+
         for (int i = 0; i < 6; ++i) { //for the 6 wave inputs
-            if (inputs[i].isConnected()) {
-                float inputVoltage = clamp(inputs[i].getVoltage(), -10.f, 10.f);
-
-                if (forceRetriggerFlags[i]) {
-                    std::fill(envelopeBuffers[i].begin(), envelopeBuffers[i].end(), 0.0f);
-                    writeIndices[i] = 0;
-                    lastTriggerTime[i] = 0.0f;
-                    forceRetriggerFlags[i] = false;
-                }
-
+ 
+ 
+ 			if (activeScopeChannel[i] == i) {
+				scopeInput[i] = clamp(inputs[ENV1_INPUT + i].getPolyVoltage(0) , -10.f, 10.f);
+				
                 lastTriggerTime[i] += args.sampleTime;
 
-                if (retriggerEnabled && inputVoltage > 1.0f 
-                    && lastInputs[i] <= 1.0f 
+                if (retriggerEnabled && scopeInput[i] > 0.0f 
+                    && lastInputs[i] <= 0.0f 
                     && lastTriggerTime[i] >= ( range  * currentTimeSetting ) ) {
                         writeIndices[i] = 0;
                         lastTriggerTime[i] = 0.0f;
-                        forceRetriggerFlags[i] = false;
                 } else {
-                    envelopeBuffers[i][writeIndices[i]] = inputVoltage;
+                    envelopeBuffers[i][writeIndices[i]] = scopeInput[i];
                     writeIndices[i] = (writeIndices[i] + 1) % currentBufferSize;
                 }
 
-                lastInputs[i] = inputVoltage;
-            } else if (lastInputs[i] != 0.0f) {
+                lastInputs[i] = scopeInput[i];
+				
+			} else if (activeScopeChannel[i] > -1) {
+				// Now we compute which channel we need to grab
+				int diffBetween = i - activeScopeChannel[i];
+				int currentChannelMax =  scopeChannels[activeScopeChannel[i]] ;	
+				if (currentChannelMax - diffBetween > 0) {    //If we are before the last poly channel
+					scopeInput[i] = clamp(inputs[ENV1_INPUT + activeScopeChannel[i]].getPolyVoltage(diffBetween), -10.f, 10.f);
+					
+                    lastTriggerTime[i] += args.sampleTime;
+    
+                    if (retriggerEnabled && scopeInput[i] > 0.0f 
+                        && lastInputs[i] <= 0.0f 
+                        && lastTriggerTime[i] >= ( range  * currentTimeSetting ) ) {
+                            writeIndices[i] = 0;
+                            lastTriggerTime[i] = 0.0f;
+                    } else {
+                        envelopeBuffers[i][writeIndices[i]] = scopeInput[i];
+                        writeIndices[i] = (writeIndices[i] + 1) % currentBufferSize;
+                    }
+    
+                    lastInputs[i] = scopeInput[i];
+									
+				}
+			} else if (lastInputs[i] != 0.0f) {
                 std::fill(envelopeBuffers[i].begin(), envelopeBuffers[i].end(), 0.0f);
                 writeIndices[i] = 0;
                 lastInputs[i] = 0.0f;
                 lastTriggerTime[i] = 0.0f;
             }
+ 
+ 
         }
 
         if (params[TRIGGER_ON_PARAM].getValue() > 0.5f && !retriggerToggleProcessed) {
@@ -163,7 +203,6 @@ struct Signals : Module {
     }
 };
 
-
 struct WaveformDisplay : TransparentWidget {
     Signals* module;
     int channelId;
@@ -181,7 +220,7 @@ struct WaveformDisplay : TransparentWidget {
         std::vector<Vec> points;
 
         float firstSampleY = box.size.y;
-        if (module->inputs[Signals::ENV1_INPUT + channelId].isConnected() && !buffer.empty()) {
+        if ((module->activeScopeChannel[channelId] > -1) && !buffer.empty()) {
             firstSampleY = box.size.y * (1.0f - (buffer.front() / 15.0f));
         }
 
@@ -192,7 +231,7 @@ struct WaveformDisplay : TransparentWidget {
             int bufferIndex = int(i * ((buffer.size() - 1) * range + 1) / (displaySamples - 1));
             float x = (static_cast<float>(i) / (displaySamples - 1)) * box.size.x;
             float y = box.size.y;
-            if (module->inputs[Signals::ENV1_INPUT + channelId].isConnected()) {
+            if ((module->activeScopeChannel[channelId] > -1 )) {
                 y = box.size.y * (1.0f - (buffer[bufferIndex] / 15.0f));
             }
             points.push_back(Vec(x, y));
@@ -200,7 +239,7 @@ struct WaveformDisplay : TransparentWidget {
 
         //draw the wave
         nvgBeginPath(args.vg);
-        nvgStrokeWidth(args.vg, -module->params[Signals::RANGE_PARAM].getValue() + 1.5);
+        nvgStrokeWidth(args.vg, 2.0f);
         nvgStrokeColor(args.vg, waveformColor);        
         nvgMoveTo(args.vg, points[0].x, points[0].y);
         for (size_t i = 0; i < points.size()-1; ++i) {
