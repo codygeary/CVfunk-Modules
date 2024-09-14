@@ -97,20 +97,16 @@ struct Signals : Module {
 
         int currentBufferSize = int((MAX_BUFFER_SIZE / MAX_TIME) * currentTimeSetting * range);
 
-		// Reset the arrays for storing polyphony
-		for (int count = 0; count<6; count++){
-	        scopeChannels[count] = 0;  // Number of polyphonic channels for Scope inputs
-		    activeScopeChannel[count] = -1;  // Stores the number of the previous active channel for the Scope
-		}
-		//initialize all active channels with -1, indicating nothing connected.
-
 		// Scan all inputs to determine the polyphony
 		for (int i = 0; i < 6; i++) {		
+	        scopeChannels[i] = 0;  // Number of polyphonic channels for Scope inputs
+		    activeScopeChannel[i] = -1;  // Stores the number of the previous active channel for the Scope
+
 			// Update the Scope channels
 			if (inputs[ENV1_INPUT + i].isConnected()) {
 				scopeChannels[i] = inputs[ENV1_INPUT + i].getChannels();
 				activeScopeChannel[i] = i;
-			} else if (i > 0){
+			} else if ((i > 0) && (scopeChannels[activeScopeChannel[i-1]] >= i-activeScopeChannel[i-1]) ){
 				activeScopeChannel[i] = activeScopeChannel[i-1]; // Carry over the active channel		
 			}
 		}
@@ -157,13 +153,14 @@ struct Signals : Module {
                     lastInputs[i] = scopeInput[i];
 									
 				}
-			} else if (lastInputs[i] != 0.0f) {
+			} else {
                 std::fill(envelopeBuffers[i].begin(), envelopeBuffers[i].end(), 0.0f);
                 writeIndices[i] = 0;
-                lastInputs[i] = 0.0f;
-                lastTriggerTime[i] = 0.0f;
+                lastInputs[i] = scopeInput[i];
+                lastTriggerTime[i] = 0.0f;            
             }
- 
+            
+            
  
         }
 
