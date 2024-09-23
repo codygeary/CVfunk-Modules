@@ -96,7 +96,6 @@ struct DiscreteRoundBlackKnob : RoundBlackKnob {
     }
 };
 
-
 struct StepWave : Module {
     enum ParamIds {
         STEP_1_VAL, STEP_2_VAL, STEP_3_VAL, STEP_4_VAL,
@@ -175,7 +174,7 @@ struct StepWave : Module {
     float currentTime[2] = {0.f, 0.f};
     float finalCV[2] = {0.0f,0.0f};      
     float shapeValues[8] = {0.0f};  
-	float displacementValues[7] = {0.0f};
+    float displacementValues[7] = {0.0f};
 
     //For the display
     CircularBuffer<float, 1024> waveBuffers[3];
@@ -277,14 +276,14 @@ struct StepWave : Module {
         configParam(STEP_7_VAL, -5.f, 5.f, 0.0f, "Stage 7 Value");
         configParam(STEP_8_VAL, -5.f, 5.f, 0.0f, "Stage 8 Value");
 
-        configParam(STEP_1_BEATS, 1.f, 10.f, 1.0f, "Stage 1 Beats");
-        configParam(STEP_2_BEATS, 1.f, 10.f, 1.0f, "Stage 2 Beats");
-        configParam(STEP_3_BEATS, 1.f, 10.f, 1.0f, "Stage 3 Beats");
-        configParam(STEP_4_BEATS, 1.f, 10.f, 1.0f, "Stage 4 Beats");
-        configParam(STEP_5_BEATS, 1.f, 10.f, 1.0f, "Stage 5 Beats");
-        configParam(STEP_6_BEATS, 1.f, 10.f, 1.0f, "Stage 6 Beats");
-        configParam(STEP_7_BEATS, 1.f, 10.f, 1.0f, "Stage 7 Beats");
-        configParam(STEP_8_BEATS, 1.f, 10.f, 1.0f, "Stage 8 Beats");
+        configParam(STEP_1_BEATS, 0.f, 10.f, 1.0f, "Stage 1 Beats");
+        configParam(STEP_2_BEATS, 0.f, 10.f, 1.0f, "Stage 2 Beats");
+        configParam(STEP_3_BEATS, 0.f, 10.f, 1.0f, "Stage 3 Beats");
+        configParam(STEP_4_BEATS, 0.f, 10.f, 1.0f, "Stage 4 Beats");
+        configParam(STEP_5_BEATS, 0.f, 10.f, 1.0f, "Stage 5 Beats");
+        configParam(STEP_6_BEATS, 0.f, 10.f, 1.0f, "Stage 6 Beats");
+        configParam(STEP_7_BEATS, 0.f, 10.f, 1.0f, "Stage 7 Beats");
+        configParam(STEP_8_BEATS, 0.f, 10.f, 1.0f, "Stage 8 Beats");
  
         configParam(STEP_1_SHAPE, 1.f, 12.f, 1.0f, "Stage 1 Shape");
         configParam(STEP_2_SHAPE, 1.f, 12.f, 1.0f, "Stage 2 Shape");
@@ -356,8 +355,8 @@ struct StepWave : Module {
             }
         } 
 
-		// Check if the signal is at audio rate by comparing stageDuration[j]
-		isSupersamplingEnabled = (SyncInterval[1] < 0.05f);
+        // Check if the signal is at audio rate by comparing stageDuration[j]
+        isSupersamplingEnabled = (SyncInterval[1] < 0.05f);
 
         // Process timers
         float deltaTimeA = args.sampleTime; //for the display clock
@@ -425,98 +424,98 @@ struct StepWave : Module {
             sequenceProgress = 0.f;
         } 
 
-		// Check if the channel has polyphonic input
-		int displacementChannels[7] = {0};   // Number of polyphonic channels for rhythmic displacement CV inputs
-		int stageChannels[8] = {0};   // Number of polyphonic channels for stage value CV inputs
-		
-		// Arrays to store the current input signals and connectivity status
-		int activeDisplacementChannel[7] = {-1};   // Stores the number of the previous active channel for the rhythmic displacement CV 
-		int activeStageChannel[8] = {-1};   // Stores the number of the previous active channel for the stage value CV 	
-		//initialize all active channels with -1, indicating nothing connected.
+        // Check if the channel has polyphonic input
+        int displacementChannels[7] = {0};   // Number of polyphonic channels for rhythmic displacement CV inputs
+        int stageChannels[8] = {0};   // Number of polyphonic channels for stage value CV inputs
+        
+        // Arrays to store the current input signals and connectivity status
+        int activeDisplacementChannel[7] = {-1};   // Stores the number of the previous active channel for the rhythmic displacement CV 
+        int activeStageChannel[8] = {-1};   // Stores the number of the previous active channel for the stage value CV     
+        //initialize all active channels with -1, indicating nothing connected.
 
-		// Scan all inputs to determine the polyphony
-		for (int i = 0; i < 8; i++) {			
-			// Update the Rhythmic displacement CV channels
-			if (i <7){	//there are only 7 channels here vs 8
-				if (inputs[STEP_1_2_DISPLACE_IN + i].isConnected()) {
-					displacementChannels[i] = inputs[STEP_1_2_DISPLACE_IN + i].getChannels();
-					activeDisplacementChannel[i] = i;
-				} else if (i > 0 && activeDisplacementChannel[i-1] != -1) {
-					if (displacementChannels[activeDisplacementChannel[i-1]] >= (i - activeDisplacementChannel[i-1])) {
-						activeDisplacementChannel[i] = activeDisplacementChannel[i-1]; // Carry over the active channel
-					} else {
-						activeDisplacementChannel[i] = -1; // No valid polyphonic channel to carry over
-					}
-				} else {
-					activeDisplacementChannel[i] = -1; // Explicitly reset if not connected
-				}
-		    }
-		    
-			if (inputs[STEP_1_IN_VAL + i].isConnected()) {
-				stageChannels[i] = inputs[STEP_1_IN_VAL + i].getChannels();
-				activeStageChannel[i] = i;
-			} else if (i > 0 && activeStageChannel[i-1] != -1) {
-				if (stageChannels[activeStageChannel[i-1]] >= (i - activeStageChannel[i-1])) {
-					activeStageChannel[i] = activeStageChannel[i-1]; // Carry over the active channel
-				} else {
-					activeStageChannel[i] = -1; // No valid polyphonic channel to carry over
-				}
-			} else {
-				activeStageChannel[i] = -1; // Explicitly reset if not connected
-			}		    
-		}
-			
-		for (int i=0; i<7; i++){
-			if (activeDisplacementChannel[i]==i) {
-				displacementValues[i] = inputs[STEP_1_2_DISPLACE_IN + i].getPolyVoltage(0);
-			} else if (activeDisplacementChannel[i] > -1){
-				// Now we compute which channel we need to grab
-				int diffBetween = i - activeDisplacementChannel[i];
-				int currentChannelMax =  displacementChannels[activeDisplacementChannel[i]] ;	
-				if (currentChannelMax - diffBetween > 0) {    //If we are before the last poly channel
-					displacementValues[i] = inputs[STEP_1_2_DISPLACE_IN + activeDisplacementChannel[i]].getPolyVoltage(diffBetween); 
-				}
-			}
-		}
+        // Scan all inputs to determine the polyphony
+        for (int i = 0; i < 8; i++) {            
+            // Update the Rhythmic displacement CV channels
+            if (i <7){    //there are only 7 channels here vs 8
+                if (inputs[STEP_1_2_DISPLACE_IN + i].isConnected()) {
+                    displacementChannels[i] = inputs[STEP_1_2_DISPLACE_IN + i].getChannels();
+                    activeDisplacementChannel[i] = i;
+                } else if (i > 0 && activeDisplacementChannel[i-1] != -1) {
+                    if (displacementChannels[activeDisplacementChannel[i-1]] >= (i - activeDisplacementChannel[i-1])) {
+                        activeDisplacementChannel[i] = activeDisplacementChannel[i-1]; // Carry over the active channel
+                    } else {
+                        activeDisplacementChannel[i] = -1; // No valid polyphonic channel to carry over
+                    }
+                } else {
+                    activeDisplacementChannel[i] = -1; // Explicitly reset if not connected
+                }
+            }
+            
+            if (inputs[STEP_1_IN_VAL + i].isConnected()) {
+                stageChannels[i] = inputs[STEP_1_IN_VAL + i].getChannels();
+                activeStageChannel[i] = i;
+            } else if (i > 0 && activeStageChannel[i-1] != -1) {
+                if (stageChannels[activeStageChannel[i-1]] >= (i - activeStageChannel[i-1])) {
+                    activeStageChannel[i] = activeStageChannel[i-1]; // Carry over the active channel
+                } else {
+                    activeStageChannel[i] = -1; // No valid polyphonic channel to carry over
+                }
+            } else {
+                activeStageChannel[i] = -1; // Explicitly reset if not connected
+            }            
+        }
+            
+        for (int i=0; i<7; i++){
+            if (activeDisplacementChannel[i]==i) {
+                displacementValues[i] = inputs[STEP_1_2_DISPLACE_IN + i].getPolyVoltage(0);
+            } else if (activeDisplacementChannel[i] > -1){
+                // Now we compute which channel we need to grab
+                int diffBetween = i - activeDisplacementChannel[i];
+                int currentChannelMax =  displacementChannels[activeDisplacementChannel[i]] ;    
+                if (currentChannelMax - diffBetween > 0) {    //If we are before the last poly channel
+                    displacementValues[i] = inputs[STEP_1_2_DISPLACE_IN + activeDisplacementChannel[i]].getPolyVoltage(diffBetween); 
+                }
+            }
+        }
   
-		if (!stageShapeCV){
-			// Override and animate stage level controls if external CV connected
-			for (int i = 0; i<8; i++){
-				if (activeStageChannel[i]==i) {
-					stepValues[i] = clamp(inputs[STEP_1_IN_VAL + i].getVoltage(),-5.0f, 5.0f);
-					params[STEP_1_VAL + i].setValue(stepValues[i]);
-				} else if (activeStageChannel[i] > -1){
-					//Now we compute which channel to grab
-					int diffBetween = i - activeStageChannel[i];
-					int currentChannelMax =  stageChannels[activeStageChannel[i]] ;	
-					
-					if (currentChannelMax - diffBetween > 0) {    //If we are before the last poly channel
-						stepValues[i] = inputs[STEP_1_IN_VAL + activeStageChannel[i]].getPolyVoltage(diffBetween); 
-						params[STEP_1_VAL + i].setValue(stepValues[i]);
-					}
-				} else {					    
-					stepValues[i] = params[STEP_1_VAL + i].getValue();        
-				}
-				shapeValues[i] = params[STEP_1_SHAPE + i].getValue();
-			}
-		} else {
-			for (int i = 0; i<8; i++){
-				if (activeStageChannel[i]==i) {
-					shapeValues[i] = clamp(inputs[STEP_1_IN_VAL + i].getVoltage() + params[STEP_1_SHAPE + i].getValue() , 1.0f, 12.0f);
-				} else if (activeStageChannel[i] > -1){
-					//Now we compute which channel to grab
-					int diffBetween = i - activeStageChannel[i];
-					int currentChannelMax =  stageChannels[activeStageChannel[i]] ;	
-					
-					if (currentChannelMax - diffBetween > 0) {    //If we are before the last poly channel
-						shapeValues[i] = clamp(params[STEP_1_SHAPE + i].getValue() + inputs[STEP_1_IN_VAL + activeStageChannel[i]].getPolyVoltage(diffBetween), 1.0f, 12.0f);
-					}
-				} else {					    
-					shapeValues[i] = params[STEP_1_SHAPE + i].getValue();
-				}
-				stepValues[i] = params[STEP_1_VAL + i].getValue();   					
-			}
-		} 
+        if (!stageShapeCV){
+            // Override and animate stage level controls if external CV connected
+            for (int i = 0; i<8; i++){
+                if (activeStageChannel[i]==i) {
+                    stepValues[i] = clamp(inputs[STEP_1_IN_VAL + i].getVoltage(),-5.0f, 5.0f);
+                    params[STEP_1_VAL + i].setValue(stepValues[i]);
+                } else if (activeStageChannel[i] > -1){
+                    //Now we compute which channel to grab
+                    int diffBetween = i - activeStageChannel[i];
+                    int currentChannelMax =  stageChannels[activeStageChannel[i]] ;    
+                    
+                    if (currentChannelMax - diffBetween > 0) {    //If we are before the last poly channel
+                        stepValues[i] = inputs[STEP_1_IN_VAL + activeStageChannel[i]].getPolyVoltage(diffBetween); 
+                        params[STEP_1_VAL + i].setValue(stepValues[i]);
+                    }
+                } else {                        
+                    stepValues[i] = params[STEP_1_VAL + i].getValue();        
+                }
+                shapeValues[i] = params[STEP_1_SHAPE + i].getValue();
+            }
+        } else {
+            for (int i = 0; i<8; i++){
+                if (activeStageChannel[i]==i) {
+                    shapeValues[i] = clamp(inputs[STEP_1_IN_VAL + i].getVoltage() + params[STEP_1_SHAPE + i].getValue() , 1.0f, 12.0f);
+                } else if (activeStageChannel[i] > -1){
+                    //Now we compute which channel to grab
+                    int diffBetween = i - activeStageChannel[i];
+                    int currentChannelMax =  stageChannels[activeStageChannel[i]] ;    
+                    
+                    if (currentChannelMax - diffBetween > 0) {    //If we are before the last poly channel
+                        shapeValues[i] = clamp(params[STEP_1_SHAPE + i].getValue() + inputs[STEP_1_IN_VAL + activeStageChannel[i]].getPolyVoltage(diffBetween), 1.0f, 12.0f);
+                    }
+                } else {                        
+                    shapeValues[i] = params[STEP_1_SHAPE + i].getValue();
+                }
+                stepValues[i] = params[STEP_1_VAL + i].getValue();                       
+            }
+        } 
 
   
           
@@ -571,7 +570,7 @@ struct StepWave : Module {
                     ClockTimerB.reset();  //Reset the sequencer channel
                 }
                                 
-				currentStage[j] += 1; //always advance the display layer
+                currentStage[j] += 1; //always advance the display layer
                 
                 // Wrap the stage back to 0 at the end of the sequence
                 if (currentStage[j] > 7) {
@@ -580,7 +579,7 @@ struct StepWave : Module {
                 } 
                 
                 sampledStepValue[currentStage[j]] = stepValues[currentStage[j]];
-				currentShape[j] = shapeValues[currentStage[j]];
+                currentShape[j] = shapeValues[currentStage[j]];
                
                 previousStagesLength[j] += stageDuration[j] / SyncInterval[j]; // Accumulate the duration of each stage normalized to SyncInterval[j]
                 normallizedStageProgress[j] = 0; //reset the current stage progress meter
@@ -639,15 +638,15 @@ struct StepWave : Module {
                     } else if (currentStage[j] == i){
                         outputs[STEP_1_GATE_OUT + i ].setVoltage(0.0);
                         if (!isSupersamplingEnabled){
-							lights[STEP_1_GATE_LIGHT + i].setBrightness(0.5);
-							lights[STEP_1_VAL_LIGHT + i].setBrightness(0.25);
-						}
+                            lights[STEP_1_GATE_LIGHT + i].setBrightness(0.5);
+                            lights[STEP_1_VAL_LIGHT + i].setBrightness(0.25);
+                        }
                     } else {
                         outputs[STEP_1_GATE_OUT + i ].setVoltage(0.0);
                         if (!isSupersamplingEnabled){
-							lights[STEP_1_GATE_LIGHT + i].setBrightness(0.0);
-							lights[STEP_1_VAL_LIGHT + i].setBrightness(0.25); 
-						}           
+                            lights[STEP_1_GATE_LIGHT + i].setBrightness(0.0);
+                            lights[STEP_1_VAL_LIGHT + i].setBrightness(0.25); 
+                        }           
                     }
                     
                     if (isSupersamplingEnabled){
@@ -659,7 +658,8 @@ struct StepWave : Module {
             
             //CV and Gate computation
             if (linkShapeBeats){
-                numBeats = floor( params[STEP_1_BEATS + currentStage[j]].getValue() );     
+                numBeats = floor( params[STEP_1_BEATS + currentStage[j]].getValue() );   
+                if (numBeats < 1){numBeats = 1;} // setting the param to zero will only effect the GATE CV output.  
             } else { numBeats = 1;}   
                     
             frameLength[j] = stageDuration[j]/numBeats;
@@ -883,26 +883,32 @@ struct StepWave : Module {
             }
                    
             //Main Gate Output   
-            numBeats = floor( params[STEP_1_BEATS + currentStage[j]].getValue() );                
-            frameLength[j] = stageDuration[j]/numBeats;
-            splitTime[j] = currentTime[j];
-            while( splitTime[j] > stageDuration[j]/numBeats ) {
-                splitTime[j] -= stageDuration[j]/numBeats;
-            }            
-            
+            numBeats = floor( params[STEP_1_BEATS + currentStage[j]].getValue() ); 
             float gateCV = 0.f;
-            if (splitTime[j] < frameLength[j]/2.f){
-                gateCV = 5.0f;
+            if (numBeats > 0){                         
+                frameLength[j] = stageDuration[j]/numBeats;
+                splitTime[j] = currentTime[j];
+                while( splitTime[j] > stageDuration[j]/numBeats ) {
+                    splitTime[j] -= stageDuration[j]/numBeats;
+                }            
+                
+                if (splitTime[j] < frameLength[j]/2.f){
+                    gateCV = 5.0f;
+                } else {
+                    gateCV = 0.f;
+                }
+                if (j==1){
+                    if (sequenceRunning){
+                        outputs[GATE_OUTPUT].setVoltage(gateCV);
+                    } else {
+                        outputs[GATE_OUTPUT].setVoltage(0.0f);                
+                    }
+                }
             } else {
                 gateCV = 0.f;
-            }
-            if (j==1){
-                if (sequenceRunning){
-                    outputs[GATE_OUTPUT].setVoltage(gateCV);
-                } else {
-                    outputs[GATE_OUTPUT].setVoltage(0.0f);                
-                }
-            }
+                outputs[GATE_OUTPUT].setVoltage(gateCV);                
+            }                
+            
             oscPhase[0] = (previousStagesLength[j] + normallizedStageProgress[j] * (stageDuration[j] / SyncInterval[j])) / 8.f;
     
             if (j==0){ //only plot the display level
@@ -939,17 +945,17 @@ struct WaveDisplay : TransparentWidget {
             centerY = box.size.y / 2.0f;
             heightScale = centerY / 5; // Calculate based on current center Y
 
-			if (!module->isSupersamplingEnabled) {
-				// Draw the sequence progress bar
-				float progressBarX = box.size.x * (module->sequenceProgress / 8.0f); // X position of the progress bar
-				float progressBarWidth = 1.0f;  // Width of the progress bar
-	
-				// Draw a vertical rectangle as the progress bar
-				nvgBeginPath(args.vg);
-				nvgRect(args.vg, progressBarX, -box.size.y*0.2, progressBarWidth, box.size.y * 1.39); // Full height of the widget
-				nvgFillColor(args.vg, nvgRGBAf(0.5f, 0.5f, 0.5f, 0.8f)); // Light grey color
-				nvgFill(args.vg); // Fill the progress bar
-			}
+            if (!module->isSupersamplingEnabled) {
+                // Draw the sequence progress bar
+                float progressBarX = box.size.x * (module->sequenceProgress / 8.0f); // X position of the progress bar
+                float progressBarWidth = 1.0f;  // Width of the progress bar
+    
+                // Draw a vertical rectangle as the progress bar
+                nvgBeginPath(args.vg);
+                nvgRect(args.vg, progressBarX, -box.size.y*0.2, progressBarWidth, box.size.y * 1.39); // Full height of the widget
+                nvgFillColor(args.vg, nvgRGBAf(0.5f, 0.5f, 0.5f, 0.8f)); // Light grey color
+                nvgFill(args.vg); // Fill the progress bar
+            }
 
             drawWaveform(args, module->waveBuffers[0], nvgRGBAf(0.3, 0.3, 0.3, 0.8));
             drawWaveform(args, module->waveBuffers[1], nvgRGBAf(0, 0.4, 1, 0.8));

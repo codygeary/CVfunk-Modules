@@ -83,6 +83,14 @@ struct Signals : Module {
         }
     }
 
+    void onSampleRateChange() override {
+        MAX_BUFFER_SIZE = int(static_cast<int>(APP->engine->getSampleRate() * MAX_TIME));
+
+        for (auto &buffer : envelopeBuffers) {
+            buffer.resize(MAX_BUFFER_SIZE, 0.0f);
+        }
+    }
+
     void process(const ProcessArgs& args) override {
         float range = pow(params[RANGE_PARAM].getValue(),3.0f);
 
@@ -98,7 +106,7 @@ struct Signals : Module {
         int currentBufferSize = int((MAX_BUFFER_SIZE / MAX_TIME) * currentTimeSetting * range);
 
         // Scan all inputs to determine the polyphony
-        for (int i = 0; i < 6; i++) {		
+        for (int i = 0; i < 6; i++) {        
             scopeChannels[i] = 0;  // Number of polyphonic channels for Scope inputs
             activeScopeChannel[i] = -1;  // Stores the number of the previous active channel for the Scope
         
@@ -121,9 +129,9 @@ struct Signals : Module {
         for (int i = 0; i < 6; ++i) { //for the 6 wave inputs
  
  
- 			if (activeScopeChannel[i] == i) {
-				scopeInput[i] = clamp(inputs[ENV1_INPUT + i].getPolyVoltage(0) , -10.f, 10.f);
-				
+             if (activeScopeChannel[i] == i) {
+                scopeInput[i] = clamp(inputs[ENV1_INPUT + i].getPolyVoltage(0) , -10.f, 10.f);
+                
                 lastTriggerTime[i] += args.sampleTime;
 
                 if (retriggerEnabled && scopeInput[i] > 0.0f 
@@ -137,14 +145,14 @@ struct Signals : Module {
                 }
 
                 lastInputs[i] = scopeInput[i];
-				
-			} else if (activeScopeChannel[i] > -1) {
-				// Now we compute which channel we need to grab
-				int diffBetween = i - activeScopeChannel[i];
-				int currentChannelMax =  scopeChannels[activeScopeChannel[i]] ;	
-				if (currentChannelMax - diffBetween > 0) {    //If we are before the last poly channel
-					scopeInput[i] = clamp(inputs[ENV1_INPUT + activeScopeChannel[i]].getPolyVoltage(diffBetween), -10.f, 10.f);
-					
+                
+            } else if (activeScopeChannel[i] > -1) {
+                // Now we compute which channel we need to grab
+                int diffBetween = i - activeScopeChannel[i];
+                int currentChannelMax =  scopeChannels[activeScopeChannel[i]] ;    
+                if (currentChannelMax - diffBetween > 0) {    //If we are before the last poly channel
+                    scopeInput[i] = clamp(inputs[ENV1_INPUT + activeScopeChannel[i]].getPolyVoltage(diffBetween), -10.f, 10.f);
+                    
                     lastTriggerTime[i] += args.sampleTime;
     
                     if (retriggerEnabled && scopeInput[i] > 0.0f 
@@ -158,17 +166,19 @@ struct Signals : Module {
                     }
     
                     lastInputs[i] = scopeInput[i];
-									
-				}
-			} else {
-                std::fill(envelopeBuffers[i].begin(), envelopeBuffers[i].end(), 0.0f);
+                                    
+                }
+            } else {
+
+                for (auto &buffer : envelopeBuffers) {
+                    buffer.resize(MAX_BUFFER_SIZE, 0.0f);
+                }
+
                 writeIndices[i] = 0;
                 lastInputs[i] = scopeInput[i];
                 lastTriggerTime[i] = 0.0f;            
             }
             
-            
- 
         }
 
         if (params[TRIGGER_ON_PARAM].getValue() > 0.5f && !retriggerToggleProcessed) {
@@ -178,7 +188,11 @@ struct Signals : Module {
 
             if (!retriggerEnabled) {
                 for (int i = 0; i < NUM_INPUTS; ++i) {
-                    std::fill(envelopeBuffers[i].begin(), envelopeBuffers[i].end(), 0.0f);
+
+                    for (auto &buffer : envelopeBuffers) {
+                        buffer.resize(MAX_BUFFER_SIZE, 0.0f);
+                    }
+
                     writeIndices[i] = 0;
                     lastTriggerTime[i] = 0.0f;
                 }
