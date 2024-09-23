@@ -515,7 +515,7 @@ struct PreeeeeeeeeeessedDuck : Module {
 				activePanChannel[i] = -1; // Explicitly reset if not connected
 			}
 		
-			// Update the MUTE channels (your original fix)
+			// Update the MUTE channels
 			if (inputs[MUTE_1_INPUT + i].isConnected()) {
 				muteChannels[i] = inputs[MUTE_1_INPUT + i].getChannels();
 				activeMuteChannel[i] = i;

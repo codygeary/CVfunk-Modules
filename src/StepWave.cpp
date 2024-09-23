@@ -173,7 +173,9 @@ struct StepWave : Module {
     float slewedVoltage[2] = {0.0f,0.0f};
     float normallizedSplitTime[2] = {0.0f, 0.0f};
     float currentTime[2] = {0.f, 0.f};
-    float finalCV[2] = {0.0f,0.0f};        
+    float finalCV[2] = {0.0f,0.0f};      
+    float shapeValues[8] = {0.0f};  
+	float displacementValues[7] = {0.0f};
 
     //For the display
     CircularBuffer<float, 1024> waveBuffers[3];
@@ -199,9 +201,13 @@ struct StepWave : Module {
     bool trackLatched = false;
     bool trackGateActive = false;
     bool isSupersamplingEnabled = false;
+    bool stageShapeCV = false;
     
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
+
+        // Save the state of stageShapeCV
+        json_object_set_new(rootJ, "stageShapeCV", json_boolean(stageShapeCV));
     
         // Save the state of sequenceRunning
         json_object_set_new(rootJ, "sequenceRunning", json_boolean(sequenceRunning));
@@ -222,6 +228,12 @@ struct StepWave : Module {
     }
     
     void dataFromJson(json_t* rootJ) override {
+        // Load the state of stageShapeCV
+        json_t* stageShapeCVJ = json_object_get(rootJ, "stageShapeCV");
+        if (stageShapeCVJ) {
+            stageShapeCV = json_is_true(stageShapeCVJ);
+        }
+
         // Load the state of sequenceRunning
         json_t* sequenceRunningJ = json_object_get(rootJ, "sequenceRunning");
         if (sequenceRunningJ) {
@@ -412,41 +424,126 @@ struct StepWave : Module {
             currentStage[1] = 0;
             sequenceProgress = 0.f;
         } 
-            
+
+		// Check if the channel has polyphonic input
+		int displacementChannels[7] = {0};   // Number of polyphonic channels for rhythmic displacement CV inputs
+		int stageChannels[8] = {0};   // Number of polyphonic channels for stage value CV inputs
+		
+		// Arrays to store the current input signals and connectivity status
+		int activeDisplacementChannel[7] = {-1};   // Stores the number of the previous active channel for the rhythmic displacement CV 
+		int activeStageChannel[8] = {-1};   // Stores the number of the previous active channel for the stage value CV 	
+		//initialize all active channels with -1, indicating nothing connected.
+
+		// Scan all inputs to determine the polyphony
+		for (int i = 0; i < 8; i++) {			
+			// Update the Rhythmic displacement CV channels
+			if (i <7){	//there are only 7 channels here vs 8
+				if (inputs[STEP_1_2_DISPLACE_IN + i].isConnected()) {
+					displacementChannels[i] = inputs[STEP_1_2_DISPLACE_IN + i].getChannels();
+					activeDisplacementChannel[i] = i;
+				} else if (i > 0 && activeDisplacementChannel[i-1] != -1) {
+					if (displacementChannels[activeDisplacementChannel[i-1]] >= (i - activeDisplacementChannel[i-1])) {
+						activeDisplacementChannel[i] = activeDisplacementChannel[i-1]; // Carry over the active channel
+					} else {
+						activeDisplacementChannel[i] = -1; // No valid polyphonic channel to carry over
+					}
+				} else {
+					activeDisplacementChannel[i] = -1; // Explicitly reset if not connected
+				}
+		    }
+		    
+			if (inputs[STEP_1_IN_VAL + i].isConnected()) {
+				stageChannels[i] = inputs[STEP_1_IN_VAL + i].getChannels();
+				activeStageChannel[i] = i;
+			} else if (i > 0 && activeStageChannel[i-1] != -1) {
+				if (stageChannels[activeStageChannel[i-1]] >= (i - activeStageChannel[i-1])) {
+					activeStageChannel[i] = activeStageChannel[i-1]; // Carry over the active channel
+				} else {
+					activeStageChannel[i] = -1; // No valid polyphonic channel to carry over
+				}
+			} else {
+				activeStageChannel[i] = -1; // Explicitly reset if not connected
+			}		    
+		}
+			
+		for (int i=0; i<7; i++){
+			if (activeDisplacementChannel[i]==i) {
+				displacementValues[i] = inputs[STEP_1_2_DISPLACE_IN + i].getPolyVoltage(0);
+			} else if (activeDisplacementChannel[i] > -1){
+				// Now we compute which channel we need to grab
+				int diffBetween = i - activeDisplacementChannel[i];
+				int currentChannelMax =  displacementChannels[activeDisplacementChannel[i]] ;	
+				if (currentChannelMax - diffBetween > 0) {    //If we are before the last poly channel
+					displacementValues[i] = inputs[STEP_1_2_DISPLACE_IN + activeDisplacementChannel[i]].getPolyVoltage(diffBetween); 
+				}
+			}
+		}
+  
+		if (!stageShapeCV){
+			// Override and animate stage level controls if external CV connected
+			for (int i = 0; i<8; i++){
+				if (activeStageChannel[i]==i) {
+					stepValues[i] = clamp(inputs[STEP_1_IN_VAL + i].getVoltage(),-5.0f, 5.0f);
+					params[STEP_1_VAL + i].setValue(stepValues[i]);
+				} else if (activeStageChannel[i] > -1){
+					//Now we compute which channel to grab
+					int diffBetween = i - activeStageChannel[i];
+					int currentChannelMax =  stageChannels[activeStageChannel[i]] ;	
+					
+					if (currentChannelMax - diffBetween > 0) {    //If we are before the last poly channel
+						stepValues[i] = inputs[STEP_1_IN_VAL + activeStageChannel[i]].getPolyVoltage(diffBetween); 
+						params[STEP_1_VAL + i].setValue(stepValues[i]);
+					}
+				} else {					    
+					stepValues[i] = params[STEP_1_VAL + i].getValue();        
+				}
+				shapeValues[i] = params[STEP_1_SHAPE + i].getValue();
+			}
+		} else {
+			for (int i = 0; i<8; i++){
+				if (activeStageChannel[i]==i) {
+					shapeValues[i] = clamp(inputs[STEP_1_IN_VAL + i].getVoltage() + params[STEP_1_SHAPE + i].getValue() , 1.0f, 12.0f);
+				} else if (activeStageChannel[i] > -1){
+					//Now we compute which channel to grab
+					int diffBetween = i - activeStageChannel[i];
+					int currentChannelMax =  stageChannels[activeStageChannel[i]] ;	
+					
+					if (currentChannelMax - diffBetween > 0) {    //If we are before the last poly channel
+						shapeValues[i] = clamp(params[STEP_1_SHAPE + i].getValue() + inputs[STEP_1_IN_VAL + activeStageChannel[i]].getPolyVoltage(diffBetween), 1.0f, 12.0f);
+					}
+				} else {					    
+					shapeValues[i] = params[STEP_1_SHAPE + i].getValue();
+				}
+				stepValues[i] = params[STEP_1_VAL + i].getValue();   					
+			}
+		} 
+
+  
+          
         for (int j=0; j<2; j++){ //Cycle through the two different clock layers
               
             if (currentStage[j] == 0) { 
                 previousStagesLength[j] = 0.0f;  // Reset at the beginning of the sequence
-            }
-            
-            // Override and animate stage level controls if external CV connected
-            for (int i = 0; i<8; i++){
-                if (inputs[STEP_1_IN_VAL + i].isConnected() && sequenceRunning) {
-                    stepValues[i] = clamp(inputs[STEP_1_IN_VAL + i].getVoltage(),-5.0f, 5.0f);
-                    params[STEP_1_VAL + i].setValue(stepValues[i]);
-                } else {
-                    stepValues[i] = params[STEP_1_VAL + i].getValue();        
-                }
-            }
-            
+            }           
+         
             float displacementZero = 0.0f;
             float displacementOne = 0.0f;
             float displacementTwo = 0.0f;
             float displacementLast = 0.0f;
             float stageStart = 0.0f; //track the position of the beginning of the current stage over 0...8
-       
+
             //Compute rhythmic offsets
             if (currentStage[j] == 0){
-                displacementZero = clamp ( params[STEP_1_2_DISPLACE].getValue() + inputs[STEP_1_2_DISPLACE_IN].getVoltage(), -5.f, 5.f);
+                displacementZero = clamp ( params[STEP_1_2_DISPLACE].getValue() + displacementValues[0], -5.f, 5.f);
                 stageDuration[j] = ((displacementZero / 10.f) + 1) * SyncInterval[j];
                 if (j==1){ stageStart = 0.0f; }
             } else if (currentStage[j] > 0 && currentStage[j] < 7) {
-                displacementOne = clamp ( params[STEP_1_2_DISPLACE + currentStage[j]].getValue() + inputs[STEP_1_2_DISPLACE_IN + currentStage[j]].getVoltage(), -5.f, 5.f);
-                displacementTwo = clamp ( params[STEP_1_2_DISPLACE + currentStage[j] - 1].getValue() + inputs[STEP_1_2_DISPLACE_IN + currentStage[j] - 1].getVoltage(), -5.f, 5.f);        
+                displacementOne = clamp ( params[STEP_1_2_DISPLACE + currentStage[j]].getValue() + displacementValues[currentStage[j]], -5.f, 5.f);
+                displacementTwo = clamp ( params[STEP_1_2_DISPLACE + currentStage[j] - 1].getValue() + displacementValues[currentStage[j] - 1], -5.f, 5.f);        
                 stageDuration[j] = ((displacementOne / 10.f ) - (displacementTwo / 10.f ) + 1) * SyncInterval[j];
                 if (j==1){ stageStart = currentStage[j] + (displacementTwo / 10.f);}
             } else {
-                displacementLast = clamp ( params[STEP_7_8_DISPLACE].getValue() + inputs[STEP_7_8_DISPLACE_IN].getVoltage(), -5.f, 5.f);
+                displacementLast = clamp ( params[STEP_7_8_DISPLACE].getValue() + displacementValues[6], -5.f, 5.f);
                 stageDuration[j] = SyncInterval[j] * (1 - displacementLast / 10.f );
                 if (j==1){ stageStart = currentStage[j] + (displacementLast / 10.0f);}
             }        
@@ -483,7 +580,7 @@ struct StepWave : Module {
                 } 
                 
                 sampledStepValue[currentStage[j]] = stepValues[currentStage[j]];
-                currentShape[j] = params[STEP_1_SHAPE + currentStage[j]].getValue();
+				currentShape[j] = shapeValues[currentStage[j]];
                
                 previousStagesLength[j] += stageDuration[j] / SyncInterval[j]; // Accumulate the duration of each stage normalized to SyncInterval[j]
                 normallizedStageProgress[j] = 0; //reset the current stage progress meter
@@ -497,7 +594,9 @@ struct StepWave : Module {
                     if (stepButtonTrigger[i].process(params[STEP_1_BUTTON + i].getValue())) {
                         currentStage[j] = i;
                         sampledStepValue[currentStage[j]] = stepValues[currentStage[j]];
-                        currentShape[j] = params[STEP_1_SHAPE + currentStage[j]].getValue();
+                        
+                        currentShape[j] = shapeValues[currentStage[j]];
+                                              
                         numBeats = floor(params[STEP_1_BEATS + currentStage[j]].getValue());
                 
                         // Reset stage progress
@@ -972,7 +1071,37 @@ struct StepWaveWidget : ModuleWidget {
         waveDisplay->module = module;
         addChild(waveDisplay);
     }
-               
+
+   void appendContextMenu(Menu* menu) override {
+        ModuleWidget::appendContextMenu(menu);
+
+        StepWave* StepWaveModule = dynamic_cast<StepWave*>(module);
+        assert(StepWaveModule); // Ensure the cast succeeds
+
+        // Separator for visual grouping in the context menu
+        menu->addChild(new MenuSeparator());
+
+        // Stage Value CV controls Shape menu item
+        struct ShapeMenuItem : MenuItem {
+            StepWave* StepWaveModule;
+            void onAction(const event::Action& e) override {
+                // Toggle the "Stage Value CV controls Shape" mode
+                StepWaveModule->stageShapeCV = !StepWaveModule->stageShapeCV;
+            }
+            void step() override {
+                // Update the display to show a checkmark when the mode is active
+                rightText = StepWaveModule->stageShapeCV ? "✔" : "";
+                MenuItem::step();
+            }
+        };
+        
+        ShapeMenuItem* stageShapeItem = new ShapeMenuItem();
+        stageShapeItem->text = "Stage Value CV Modulates Shape";
+        stageShapeItem->StepWaveModule = StepWaveModule;
+        menu->addChild(stageShapeItem);
+                
+    }              
+      
 };
 
 Model* modelStepWave = createModel<StepWave, StepWaveWidget>("StepWave");
