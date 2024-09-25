@@ -360,7 +360,7 @@ struct Strings : Module {
         // Load the state of InvertMutes
         json_t* InvertMutesJ = json_object_get(rootJ, "InvertMutes");
         if (InvertMutesJ) {
-            VOctCV = json_is_true(InvertMutesJ);
+            InvertMutes = json_is_true(InvertMutesJ);
         }  
 
     }
