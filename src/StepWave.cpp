@@ -436,7 +436,7 @@ struct StepWave : Module {
         // Scan all inputs to determine the polyphony
         for (int i = 0; i < 8; i++) {            
             // Update the Rhythmic displacement CV channels
-            if (i <7){    //there are only 7 channels here vs 8
+            if (i < 7){    //there are only 7 channels here vs 8
                 if (inputs[STEP_1_2_DISPLACE_IN + i].isConnected()) {
                     displacementChannels[i] = inputs[STEP_1_2_DISPLACE_IN + i].getChannels();
                     activeDisplacementChannel[i] = i;
@@ -455,7 +455,7 @@ struct StepWave : Module {
                 stageChannels[i] = inputs[STEP_1_IN_VAL + i].getChannels();
                 activeStageChannel[i] = i;
             } else if (i > 0 && activeStageChannel[i-1] != -1) {
-                if (stageChannels[activeStageChannel[i-1]] >= (i - activeStageChannel[i-1])) {
+                if (stageChannels[activeStageChannel[i-1]] > (i - activeStageChannel[i-1])) {
                     activeStageChannel[i] = activeStageChannel[i-1]; // Carry over the active channel
                 } else {
                     activeStageChannel[i] = -1; // No valid polyphonic channel to carry over
@@ -465,7 +465,7 @@ struct StepWave : Module {
             }            
         }
             
-        for (int i=0; i<7; i++){
+        for (int i = 0; i < 7; i++){
             if (activeDisplacementChannel[i]==i) {
                 displacementValues[i] = inputs[STEP_1_2_DISPLACE_IN + i].getPolyVoltage(0);
             } else if (activeDisplacementChannel[i] > -1){
@@ -480,7 +480,7 @@ struct StepWave : Module {
   
         if (!stageShapeCV){
             // Override and animate stage level controls if external CV connected
-            for (int i = 0; i<8; i++){
+            for (int i = 0; i < 8; i++){
                 if (activeStageChannel[i]==i) {
                     stepValues[i] = clamp(inputs[STEP_1_IN_VAL + i].getVoltage(),-5.0f, 5.0f);
                     params[STEP_1_VAL + i].setValue(stepValues[i]);
@@ -490,7 +490,7 @@ struct StepWave : Module {
                     int currentChannelMax =  stageChannels[activeStageChannel[i]] ;    
                     
                     if (currentChannelMax - diffBetween > 0) {    //If we are before the last poly channel
-                        stepValues[i] = inputs[STEP_1_IN_VAL + activeStageChannel[i]].getPolyVoltage(diffBetween); 
+                        stepValues[i] = clamp(inputs[STEP_1_IN_VAL + activeStageChannel[i]].getPolyVoltage(diffBetween), -5.0f, 5.0f); 
                         params[STEP_1_VAL + i].setValue(stepValues[i]);
                     }
                 } else {                        
@@ -499,7 +499,7 @@ struct StepWave : Module {
                 shapeValues[i] = params[STEP_1_SHAPE + i].getValue();
             }
         } else {
-            for (int i = 0; i<8; i++){
+            for (int i = 0; i < 8; i++){
                 if (activeStageChannel[i]==i) {
                     shapeValues[i] = clamp(inputs[STEP_1_IN_VAL + i].getVoltage() + params[STEP_1_SHAPE + i].getValue() , 1.0f, 12.0f);
                 } else if (activeStageChannel[i] > -1){
@@ -519,7 +519,7 @@ struct StepWave : Module {
 
   
           
-        for (int j=0; j<2; j++){ //Cycle through the two different clock layers
+        for (int j = 0; j < 2; j++){ //Cycle through the two different clock layers
               
             if (currentStage[j] == 0) { 
                 previousStagesLength[j] = 0.0f;  // Reset at the beginning of the sequence

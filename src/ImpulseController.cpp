@@ -137,8 +137,8 @@ struct ImpulseController : Module {
     ImpulseController() {
         config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
         configParam(LAG_PARAM, 0.0f, 1.0f, 0.5f, "Lag");
-        configParam(SPREAD_PARAM, -1.0f, 1.f, 0.5f, "Spread");
-        configParam(DECAY_PARAM, 0.0f, 1.0f, 0.8f, "Decay");
+        configParam(SPREAD_PARAM, -1.0f, 1.f, 0.0f, "Spread");
+        configParam(DECAY_PARAM, 0.0f, 1.0f, 0.5f, "Decay");
         
         configParam(LAG_ATT_PARAM, -1.0f, 1.0f, 0.0f, "Lag Attenuverter");
         configParam(SPREAD_ATT_PARAM, -1.0f, 1.0f, 0.0f, "Spread Attenuverter");
