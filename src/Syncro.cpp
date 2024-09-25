@@ -152,7 +152,6 @@ struct Syncro : Module {
     bool phasorMode = false;
     bool clockCVAsVoct = false;
     bool clockCVAsBPM = true;  
-    bool gateVoltage10V = false;  
     bool resetPulse = false;
 
     json_t* dataToJson() override {
@@ -161,7 +160,6 @@ struct Syncro : Module {
         json_object_set_new(rootJ, "phasorMode", json_boolean(phasorMode));
         json_object_set_new(rootJ, "clockCVAsVoct", json_boolean(clockCVAsVoct));
         json_object_set_new(rootJ, "clockCVAsBPM", json_boolean(clockCVAsBPM));  
-        json_object_set_new(rootJ, "gateVoltage10V", json_boolean(gateVoltage10V));  
         return rootJ;
     }
     
@@ -186,10 +184,6 @@ struct Syncro : Module {
             clockCVAsBPM = json_is_true(clockCVAsBPMJ);
         }
     
-        json_t* gateVoltage10VJ = json_object_get(rootJ, "gateVoltage10V");
-        if (gateVoltage10VJ) {
-            gateVoltage10V = json_is_true(gateVoltage10VJ);
-        }
     }
 
     Syncro() {
@@ -495,23 +489,13 @@ struct Syncro : Module {
                     }
                 } else {
                     if (multiply[i]>0){
-                        if (gateVoltage10V){
-                            outputs[CLOCK_OUTPUT + 2 * i].setVoltage(highState ? 10.0f : 0.0f);
-                            outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage(highState ? 0.0f : 10.0f);
-                        } else {
-                            outputs[CLOCK_OUTPUT + 2 * i].setVoltage(highState ? 5.0f : 0.0f);
-                            outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage(highState ? 0.0f : 5.0f);
-                        }
+                        outputs[CLOCK_OUTPUT + 2 * i].setVoltage(highState ? 10.0f : 0.0f);
+                        outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage(highState ? 0.0f : 10.0f);
                         lights[CLOCK_LIGHT + 2 * i].setBrightness(highState ? 1.0f : 0.0f);
                         lights[CLOCK_LIGHT + 2 * i + 1].setBrightness(highState ? 0.0f : 1.0f);
                     } else {
-                        if (gateVoltage10V){
-                            outputs[CLOCK_OUTPUT + 2 * i].setVoltage( 0.0f);
-                            outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage( 10.0f);
-                        } else {
-                            outputs[CLOCK_OUTPUT + 2 * i].setVoltage( 0.0f);
-                            outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage( 5.0f);
-                        }
+                        outputs[CLOCK_OUTPUT + 2 * i].setVoltage( 0.0f);
+                        outputs[CLOCK_OUTPUT + 2 * i + 1].setVoltage( 10.0f);
                         lights[CLOCK_LIGHT + 2 * i].setBrightness( 0.0f);
                         lights[CLOCK_LIGHT + 2 * i + 1].setBrightness( 1.0f);                
                     }
@@ -717,22 +701,6 @@ struct SyncroWidget : ModuleWidget {
         bpmItem->syncroModule = syncroModule; 
         menu->addChild(bpmItem);
     
-        // 5V/10V output gate signal toggle menu item
-        struct GateVoltageItem : MenuItem {
-            Syncro* syncroModule;
-            void onAction(const event::Action& e) override {
-                syncroModule->gateVoltage10V = !syncroModule->gateVoltage10V;
-            }
-            void step() override {
-                rightText = syncroModule->gateVoltage10V ? "10V" : "5V";
-                MenuItem::step();
-            }
-        };
-    
-        GateVoltageItem* gateItem = new GateVoltageItem();
-        gateItem->text = "Gate Output Voltage";
-        gateItem->syncroModule = syncroModule; 
-        menu->addChild(gateItem);
     }
 
     void draw(const DrawArgs& args) override {

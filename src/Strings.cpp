@@ -311,9 +311,10 @@ struct Strings : Module {
     bool altGateActive = false;
     bool ChordBank = false;
     bool VOctCV = false;
+    bool InvertMutes = false;
 
-	int latchedChordIndex = -1; // Initialize to invalid index to ensure first update
-	int latchedRowIndex = -1; // Initialize to invalid index to ensure first update
+    int latchedChordIndex = -1; // Initialize to invalid index to ensure first update
+    int latchedRowIndex = -1; // Initialize to invalid index to ensure first update
 
     int process_count = 0;
     int display_count = 0;
@@ -324,6 +325,7 @@ struct Strings : Module {
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
 
+        json_object_set_new(rootJ, "InvertMutes", json_boolean(InvertMutes));
         json_object_set_new(rootJ, "VOctCV", json_boolean(VOctCV));
         json_object_set_new(rootJ, "ChordBank", json_boolean(ChordBank));
         json_object_set_new(rootJ, "barreLatched",    json_boolean(barreLatched));
@@ -354,6 +356,13 @@ struct Strings : Module {
         if (VOctCVJ) {
             VOctCV = json_is_true(VOctCVJ);
         }  
+
+        // Load the state of InvertMutes
+        json_t* InvertMutesJ = json_object_get(rootJ, "InvertMutes");
+        if (InvertMutesJ) {
+            VOctCV = json_is_true(InvertMutesJ);
+        }  
+
     }
 
     Strings() {
@@ -395,8 +404,8 @@ struct Strings : Module {
         configOutput(ROOT_NOTE_CV_OUT, "Root Note V/oct");      
         configOutput(TRIGGER_OUT, "Chord Change Trigger");      
 
-		configParam(BARRE_CHORD_BUTTON, 0.0, 1.0, 0.0, "Chord Bank I Button" );
-		configParam(ALT_CHORD_BUTTON, 0.0, 1.0, 0.0, "Chord Bank II Button" );
+        configParam(BARRE_CHORD_BUTTON, 0.0, 1.0, 0.0, "Chord Bank I Button" );
+        configParam(ALT_CHORD_BUTTON, 0.0, 1.0, 0.0, "Chord Bank II Button" );
 
         configOutput(MUTE_OUT_1, "Mute 1 / Poly");
         configOutput(MUTE_OUT_2, "Mute 2");
@@ -658,11 +667,11 @@ struct Strings : Module {
                 float muteVoltage;
                 if (semitoneShifts[stringIdx] >= 0) {
                     pitchVoltage = baseFrequencies[stringIdx] + (semitoneShifts[stringIdx] * (1.0f / 12.0f)) + whammyBarEffect + CapoAmount + PitchBend[stringIdx];
-                    muteVoltage = 0.0f; // Not muted
+                    if (!InvertMutes){muteVoltage = 0.0f;} else {muteVoltage = 10.0f;} // Not muted
                 } else {
                     // Mute this string
                     pitchVoltage = currentRoots[currentChordIndex] + CapoAmount - 1.0f;  // set muted string to the root note, just in case you don't mute it
-                    muteVoltage = 5.0f; // Muted
+                    if (!InvertMutes){muteVoltage = 10.0f;} else {muteVoltage = 0.f;} // Muted
                 }
             
                 // Handle STRING_CV_OUT output routing
@@ -1178,8 +1187,27 @@ struct StringsWidget : ModuleWidget {
         vOctCVItem->text = "CHORD input in V/oct";
         vOctCVItem->StringsModule = StringsModule; // Ensure we're setting the module
         menu->addChild(vOctCVItem);
+
+        // InvertMute
+        struct InvertMutesMenuItem : MenuItem {
+            Strings* StringsModule;
+            void onAction(const event::Action& e) override {
+                // Toggle the "Invert Mutes" mode
+                StringsModule->InvertMutes = !StringsModule->InvertMutes;
+            }
+            void step() override {
+                // Update the display to show a checkmark when the mode is active
+                rightText = StringsModule->InvertMutes ? "✔" : "";
+                MenuItem::step();
+            }
+        };
+
+        InvertMutesMenuItem* invertMutesItem = new InvertMutesMenuItem();
+        invertMutesItem->text = "Invert Mute Gate Outputs";
+        invertMutesItem->StringsModule = StringsModule; // Ensure we're setting the module
+        menu->addChild(invertMutesItem);
     }
-    
+
 };
 
 Model* modelStrings = createModel<Strings, StringsWidget>("Strings");

@@ -149,7 +149,7 @@ struct Steps : Module {
             //disconnect the normal to the stepper
             correction = 0.0;
         } else {
-            if (step>=0){  //change the behavior of the bouncing walls depending on step direction
+            if (step >= 0){  //change the behavior of the bouncing walls depending on step direction
                 // Comparator stage
                 if (comparatorInput >= bias + 0.5 * range) { 
                     comparatorOutput = -5.0;
@@ -161,7 +161,7 @@ struct Steps : Module {
                     comparatorOutput = 0.0;
                     correction = 0.0;
                 }
-            } else if (step<0) {
+            } else if (step < 0) {
                 // Comparator stage
                 if (comparatorInput > bias + 0.5 * range) { //avoid self-oscillatory behavior with > here 
                     comparatorOutput = -5.0;
@@ -220,11 +220,11 @@ struct Steps : Module {
         // Comparator Output and Lights
         if (comparatorOutput > 0) {
             outputs[COMPARATOR_UP_OUTPUT].setVoltage(0.0);
-            outputs[COMPARATOR_DN_OUTPUT].setVoltage(5.0);
+            outputs[COMPARATOR_DN_OUTPUT].setVoltage(10.0);
             lights[UP_LIGHT].setSmoothBrightness(0.0, args.sampleTime);
             lights[DOWN_LIGHT].setSmoothBrightness(1.0, args.sampleTime);
         } else if (comparatorOutput < 0) {
-            outputs[COMPARATOR_UP_OUTPUT].setVoltage(5.0);
+            outputs[COMPARATOR_UP_OUTPUT].setVoltage(10.0);
             outputs[COMPARATOR_DN_OUTPUT].setVoltage(0.0);
             lights[UP_LIGHT].setSmoothBrightness(1.0, args.sampleTime);
             lights[DOWN_LIGHT].setSmoothBrightness(0.0, args.sampleTime);            
@@ -253,7 +253,7 @@ struct Steps : Module {
                  lights[OUT1_LIGHT + i].setSmoothBrightness(1.0, args.sampleTime);
              } else {        
                  float how_bright = lights[OUT1_LIGHT + i].getBrightness();
-                 how_bright = (0.9-0.05*i)*how_bright; //dim the brightness, top lights dim faster than bottom lights for effect
+                 how_bright = (0.9 - 0.05 * i) * how_bright; //dim the brightness, top lights dim faster than bottom lights for effect
                  lights[OUT1_LIGHT + i].setSmoothBrightness(how_bright, args.sampleTime);         
              }
         

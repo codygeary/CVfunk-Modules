@@ -130,14 +130,14 @@ struct Collatz : Module {
         float cvValue = inputs[START_NUMBER_CV].isConnected() ?
                         inputs[START_NUMBER_CV].getVoltage() : 0.0f;
         cvValue *= params[START_NUMBER_ATT].getValue();
-        int startingNumber = std::abs(static_cast<int>((knobValue + 100*cvValue)));
+        int startingNumber = std::abs(static_cast<int>((knobValue + 100 * cvValue)));
 
         // Calculate the potential starting number every cycle
         float beatModIN = params[BEAT_MODULUS].getValue();
         float beatModAtt = params[BEAT_MODULUS_ATT].getValue();
         float beatModCV = inputs[BEAT_MODULUS_CV].isConnected() ?
                         inputs[BEAT_MODULUS_CV].getVoltage() : 0.0f;
-        beatMod = std::abs(static_cast<int>(beatModIN+beatModAtt*10*beatModCV));
+        beatMod = std::abs(static_cast<int>(beatModIN + beatModAtt * 10 * beatModCV));
    
         if (currentNumber == 0){
             modNumber = startingNumber % beatMod;
@@ -155,7 +155,7 @@ struct Collatz : Module {
                     digitalDisplay->text = std::to_string(currentNumber) + " mod " + std::to_string(beatMod);
                     modNumber = currentNumber % beatMod;
                     steps = modNumber ;
-                    if (modNumber<1) {accents = 0;} //avoid divide by zero 
+                    if (modNumber < 1) {accents = 0;} //avoid divide by zero 
                     else { accents = floor((currentNumber/modNumber) % beatMod);}
 
                     if (modNumberDisplay) {
@@ -168,7 +168,7 @@ struct Collatz : Module {
                     digitalDisplay->text = std::to_string(startingNumber) + " mod " + std::to_string(beatMod);
                     modNumber = startingNumber % beatMod;
                     steps = modNumber;
-                     if (modNumber<1) {//avoid divide by zero 
+                     if (modNumber < 1) {//avoid divide by zero 
                         accents = 0;
                     } else {
                         accents = floor((startingNumber/modNumber) % beatMod);
@@ -179,7 +179,7 @@ struct Collatz : Module {
                         modNumberDisplay->text = displayText; 
                     }
             
-                    outputs[COMPLETION_OUTPUT].setVoltage(5.0f);
+                    outputs[COMPLETION_OUTPUT].setVoltage(10.0f);
                     lights[COMPLETION_LIGHT].setBrightness(1);
                 }
             } 
@@ -234,42 +234,42 @@ struct Collatz : Module {
         // rhythm and output logic
         if (sequenceRunning) {
             steps = modNumber ;
-            if (modNumber<1) {accents = 0;} //avoid divide by zero 
+            if (modNumber < 1) {accents = 0;} //avoid divide by zero 
             else { accents = floor((currentNumber/modNumber) % beatMod);}
 
             accumulatedTime += args.sampleTime;
             accumulatedTimeB += args.sampleTime;
-            if (steps>=1){ //avoid divide by zero 
+            if (steps >= 1){ //avoid divide by zero 
                     float stepDuration = 1.0f / clockRate / steps; 
                     if (accumulatedTime < stepDuration/2) {
-                        gatePulse=5;
-                    } else {gatePulse=0;}
+                        gatePulse = 10;
+                    } else {gatePulse = 0;}
                     if (accumulatedTime >= stepDuration) {
                         accumulatedTime -= stepDuration;
                     }
             } else {
                     float stepDuration = 1.0f / clockRate / 1.0f; //avoid div by zero 
                     if (accumulatedTime < stepDuration/2) {
-                        gatePulse=5;
-                    } else {gatePulse=0;}
+                        gatePulse = 10;
+                    } else {gatePulse = 0;}
                     if (accumulatedTime >= stepDuration) {
                         accumulatedTime -= stepDuration;
                     }
             }
 
-            if (accents>=1){ //avoid divide by zero 
+            if (accents >= 1){ //avoid divide by zero 
                     float accentDuration = 1.0f / clockRate / accents;
                     if (accumulatedTimeB < accentDuration/2) {
-                        accentPulse=5;
-                    } else {accentPulse=0;}
+                        accentPulse = 10;
+                    } else {accentPulse = 0;}
                     if (accumulatedTimeB >= accentDuration) {
                         accumulatedTimeB -= accentDuration;
                     } 
             } else {
                     float accentDuration = 1.0f / clockRate / 1.0f;
-                    if (accumulatedTimeB < accentDuration/2) {
-                        accentPulse=5;
-                    } else {accentPulse=0;}
+                    if (accumulatedTimeB < accentDuration / 2) {
+                        accentPulse = 10;
+                    } else {accentPulse = 0;}
                     if (accumulatedTimeB >= accentDuration) {
                         accumulatedTimeB -= accentDuration;
                     } 
@@ -277,14 +277,14 @@ struct Collatz : Module {
 
             if (externalClockConnected){
             // Set gate and accent outputs
-                //for step or accents =0 suppress outputs
-                if (steps>=1){outputs[GATE_OUTPUT].setVoltage(gatePulse);
+                //for step or accents = 0 suppress outputs
+                if (steps >= 1){outputs[GATE_OUTPUT].setVoltage(gatePulse);
                 }else {outputs[GATE_OUTPUT].setVoltage(0.0f);}
-                if (accents>=1){outputs[ACCENT_OUTPUT].setVoltage(accentPulse);
+                if (accents >= 1){outputs[ACCENT_OUTPUT].setVoltage(accentPulse);
                 }else {outputs[ACCENT_OUTPUT].setVoltage(0.0f);}
-                if (steps>=1){lights[GATE_LIGHT].setBrightness(gatePulse/5);
+                if (steps >= 1){lights[GATE_LIGHT].setBrightness(gatePulse / 5);
                 }else {lights[GATE_LIGHT].setBrightness(0);}
-                if (accents>=1){lights[ACCENT_LIGHT].setBrightness(accentPulse/5);
+                if (accents >= 1){lights[ACCENT_LIGHT].setBrightness(accentPulse / 5);
                 }else {lights[ACCENT_LIGHT].setBrightness(0);}
             } else {
                 outputs[GATE_OUTPUT].setVoltage(0.0f);
@@ -311,8 +311,8 @@ void Collatz::advanceSequence() {
         rhythmStepIndex = 0;
          lights[RUN_LIGHT].setBrightness(0);      
         
-        accumulatedTime =0.0f;
-        accumulatedTimeB =0.0f;
+        accumulatedTime = 0.0f;
+        accumulatedTimeB = 0.0f;
 
         lights[GATE_LIGHT].setBrightness(0);
         lights[ACCENT_LIGHT].setBrightness(0);
@@ -332,7 +332,7 @@ void Collatz::advanceSequence() {
 
     modNumber = currentNumber % beatMod;
     steps = modNumber ;
-    if (modNumber<1) {accents = 0;} //avoid divide by zero 
+    if (modNumber < 1) {accents = 0;} //avoid divide by zero 
     else { accents = floor((currentNumber/modNumber) % beatMod);} 
 }
 

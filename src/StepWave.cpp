@@ -630,7 +630,7 @@ struct StepWave : Module {
                 // Stage Lights
                 for (int i=0; i<8; i++){
                     if (currentStage[j] == i && sequenceRunning){
-                        outputs[STEP_1_GATE_OUT + i ].setVoltage(5.0);
+                        outputs[STEP_1_GATE_OUT + i ].setVoltage(10.0);
                         if (!isSupersamplingEnabled){
                             lights[STEP_1_GATE_LIGHT + i].setBrightness(1.0);
                             lights[STEP_1_VAL_LIGHT + i].setBrightness(1.0);  
@@ -760,7 +760,7 @@ struct StepWave : Module {
                 
                 // Generate an inverted sawtooth wave and interpolate it with the square wave
                 float squareValue = (normallizedSplitTime[j] < 0.5f) ? 1.f : -1.f;
-                float sawtoothValue = 1.f - 2*normallizedSplitTime[j];
+                float sawtoothValue = 1.f - 2 * normallizedSplitTime[j];
                 if (!trackCV) {
                     finalCV[j] = sampledStepValue[currentStage[j]] * ((1 - morphFactor) * squareValue + morphFactor * sawtoothValue);
                 } else {
@@ -771,7 +771,7 @@ struct StepWave : Module {
                 float morphFactor = currentShape[j] - 8.f; // Ranges from 0 to 1 as currentShape goes from 8 to 9
                 
                 // Generate a triangle wave and interpolate it with the inverted sawtooth
-                float sawtoothValue = 1.f - 2*normallizedSplitTime[j];
+                float sawtoothValue = 1.f - 2 * normallizedSplitTime[j];
                 float triangleValue = (normallizedSplitTime[j] < 0.5f) ? (1-4.f * normallizedSplitTime[j]) : (1-4.f * (1.f - normallizedSplitTime[j]));
                 if (!trackCV) {
                     finalCV[j] = sampledStepValue[currentStage[j]] * ((1 - morphFactor) * sawtoothValue + morphFactor * triangleValue);
@@ -893,7 +893,7 @@ struct StepWave : Module {
                 }            
                 
                 if (splitTime[j] < frameLength[j]/2.f){
-                    gateCV = 5.0f;
+                    gateCV = 10.0f;
                 } else {
                     gateCV = 0.f;
                 }
