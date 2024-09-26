@@ -731,10 +731,6 @@ struct Strings : Module {
                 }
                 // Update display logic
                 if (digitalDisplay && fingeringDisplay) {
-                    // Static variables to remember the last displayed chord, row indices, and fingering
-                    static int lastDisplayedChordIndex = -1;
-                    static int lastDisplayedRowIndex = -1;
-                    static int lastFingering = -1;
 
                     // Define a small tolerance value for comparison
                     const float capoTolerance = 0.01f; // Adjust tolerance as needed
@@ -745,155 +741,146 @@ struct Strings : Module {
                     // Determine if CapoAmount has "effectively" changed using the tolerance
                     bool capoAmountChanged = std::abs(CapoAmount - lastCapoAmount) > capoTolerance;
 
-                    // Proceed with checking if an update is needed
-                    if (currentChordIndex != lastDisplayedChordIndex || currentRowIndex != lastDisplayedRowIndex || 
-                        fingeringVersion != lastFingering || capoAmountChanged) {
-                        // Update the last displayed indices to the current selection
-                        lastDisplayedChordIndex = currentChordIndex;
-                        lastDisplayedRowIndex = currentRowIndex;
-                        lastFingering = fingeringVersion;
-    
-                        // Only update lastCapoAmount if it has effectively changed
-                        if (capoAmountChanged) {
-                            lastCapoAmount = CapoAmount;
-                        }
-                        // Retrieve the current chord name based on the selection for the digital display
-                        std::string currentChordName = currentNames[currentChordIndex][fingeringVersion];
-                        // Update the digital display text with the current chord name
-                        digitalDisplay->text = currentChordName;
-
-                        // Retrieve the current fingering pattern for the fingering display
-                        std::string currentFingeringPattern = currentChords[currentChordIndex][fingeringVersion];
-                        // Update the fingering display text with the current fingering pattern
-
-                        int capoAmountInt = static_cast<int>(floor(CapoAmount*12)); // Round to the nearest whole number if necessary
-                        std::string capoAmountStr = std::to_string(capoAmountInt); // Convert the integer to a string
-
-                        // Compute the note name of the capoed root
-                        float pitchVoltage = currentRoots[currentChordIndex] + CapoAmount;
-                        double fractionalPart = fmod(pitchVoltage, 1.0);
-                        int semitone = round(fractionalPart * 12);
-                        semitone = (semitone % 12 + 12) % 12;
-                        const char* noteNames[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
-                        const char* noteName = noteNames[semitone];
-
-                        if (CapoAmount ==0){
-                            fingeringDisplay->text = currentFingeringPattern;
-                        } else {
-                            // Update the fingering display text with the current fingering pattern and capo setting
-                            if (CapoAmount > -0.01){
-                                fingeringDisplay->text = currentFingeringPattern + " +" + capoAmountStr + " " + noteName;    
-                            } else {
-                                fingeringDisplay->text = currentFingeringPattern + "  " + capoAmountStr + " " + noteName;    
-                            }
-                        }
-                
-                        if (chordDiagram) {
-                            auto semitoneShifts = fingeringToSemitoneShifts(currentChords[currentChordIndex][fingeringVersion]);
-                            chordDiagram->setFingering(semitoneShifts);
-                        }  
- 
-                        if (!ChordBank){   
-                            if (Row1Display) {        
-                                //{"B7", "B"     , "Bsus4", "Badd9"},
-                                auto row1text = "Row1";
-                                if (fingeringVersion == 0){row1text = "7";}
-                                else if (fingeringVersion == 1){row1text = "7 Bar";}
-                                else if (fingeringVersion == 2){row1text = "sus4";}
-                                else if (fingeringVersion == 3){row1text = "add9";}
-                                Row1Display->text = row1text;
-                            }
-
-                            if (Row2Display) {        
-                                //{"A" ,"A-Bar" ,"Amaj7" ,"Aaug"}
-                                auto row2text = "Row2";
-                                if (fingeringVersion == 0){row2text = "Maj";}
-                                else if (fingeringVersion == 1){row2text = "M Bar";}
-                                else if (fingeringVersion == 2){row2text = "Maj7";}
-                                else if (fingeringVersion == 3){row2text = "aug";}
-                                Row2Display->text = row2text;
-                            }
-
-                            if (Row3Display) {        
-                                //{"Em" ,"Em-Bar" ,"Em7","Em6  "},
-                                auto row3text = "Row3";
-                                if (fingeringVersion == 0){row3text = "min";}
-                                else if (fingeringVersion == 1){row3text = "m Bar";}
-                                else if (fingeringVersion == 2){row3text = "m7";}
-                                else if (fingeringVersion == 3){row3text = "m6";}
-                                Row3Display->text = row3text;
-                            }
-
-                            if (Row4Display) {        
-                                //{"Asus2" ,"A6" ,"A7sus4" ,"Am9"},
-                                auto row4text = "Row4";
-                                if (fingeringVersion == 0){row4text = "sus2";}
-                                else if (fingeringVersion == 1){row4text = "6";}
-                                else if (fingeringVersion == 2){row4text = "7sus4";}
-                                else if (fingeringVersion == 3){row4text = "m9";}
-                                Row4Display->text = row4text;
-                            } 
-                            if (CVModeDisplay) {        
-                                //Mark the knob with the mode setting, 
-                                auto CVdisplaytext = "V/oct";
-                                if (VOctCV){CVdisplaytext = "(V/Oct)";}
-                                else {CVdisplaytext = "        ";}
-                                CVModeDisplay->text = CVdisplaytext;
-                            } 
- 
-                        } else {
-
-                            if (Row1Display) {        
-                                //{"B7", "B"     , "B2", "B6"},
-                                auto row1text = "Row1";
-                                if (fingeringVersion == 0){row1text = "7";}
-                                else if (fingeringVersion == 1){row1text = "7 Bar";}
-                                else if (fingeringVersion == 2){row1text = "2";}
-                                else if (fingeringVersion == 3){row1text = "6";}
-                                Row1Display->text = row1text;
-                            }
-
-                            if (Row2Display) {        
-                                //    {"A" ,"A-Bar" ,"Amaj7" ,"A7+5"}, 
-                                auto row2text = "Row2";
-                                if (fingeringVersion == 0){row2text = "Maj";}
-                                else if (fingeringVersion == 1){row2text = "M Bar";}
-                                else if (fingeringVersion == 2){row2text = "Maj7";}
-                                else if (fingeringVersion == 3){row2text = "7+5";}
-                                Row2Display->text = row2text;
-                            }
-
-                            if (Row3Display) {        
-                                //{{"Em" ,"Em-Bar" ,"Em7"    ,"Em6"},
-                                auto row3text = "Row3";
-                                if (fingeringVersion == 0){row3text = "min";}
-                                else if (fingeringVersion == 1){row3text = "m Bar";}
-                                else if (fingeringVersion == 2){row3text = "m7";}
-                                else if (fingeringVersion == 3){row3text = "m6";}
-                                Row3Display->text = row3text;
-                            }
-
-                            if (Row4Display) {        
-                                //"Adim" ,"Adim7" ,"A9" ,"Aaug"}, 
-                                auto row4text = "Row4";
-                                if (fingeringVersion == 0){row4text = "dim";}
-                                else if (fingeringVersion == 1){row4text = "dim7";}
-                                else if (fingeringVersion == 2){row4text = "9";}
-                                else if (fingeringVersion == 3){row4text = "aug";}
-                                Row4Display->text = row4text;
-                            } 
-                    
-                            if (CVModeDisplay) {        
-                                //Mark the knob with the mode setting, 
-                                auto CVdisplaytext = "V/oct";
-                                if (VOctCV){CVdisplaytext = "(V/Oct)";}
-                                else {CVdisplaytext = "        ";}
-                                CVModeDisplay->text = CVdisplaytext;
-                            } 
-                        }
-                 
-                        triggerPulse.trigger(0.001f); // 1ms pulse
+                    // Only update lastCapoAmount if it has effectively changed
+                    if (capoAmountChanged) {
+                        lastCapoAmount = CapoAmount;
                     }
+                    // Retrieve the current chord name based on the selection for the digital display
+                    std::string currentChordName = currentNames[currentChordIndex][fingeringVersion];
+                    // Update the digital display text with the current chord name
+                    digitalDisplay->text = currentChordName;
+
+                    // Retrieve the current fingering pattern for the fingering display
+                    std::string currentFingeringPattern = currentChords[currentChordIndex][fingeringVersion];
+                    // Update the fingering display text with the current fingering pattern
+
+                    int capoAmountInt = static_cast<int>(floor(CapoAmount*12)); // Round to the nearest whole number if necessary
+                    std::string capoAmountStr = std::to_string(capoAmountInt); // Convert the integer to a string
+
+                    // Compute the note name of the capoed root
+                    float pitchVoltage = currentRoots[currentChordIndex] + CapoAmount;
+                    double fractionalPart = fmod(pitchVoltage, 1.0);
+                    int semitone = round(fractionalPart * 12);
+                    semitone = (semitone % 12 + 12) % 12;
+                    const char* noteNames[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+                    const char* noteName = noteNames[semitone];
+
+                    if (CapoAmount ==0){
+                        fingeringDisplay->text = currentFingeringPattern;
+                    } else {
+                        // Update the fingering display text with the current fingering pattern and capo setting
+                        if (CapoAmount > -0.01){
+                            fingeringDisplay->text = currentFingeringPattern + " +" + capoAmountStr + " " + noteName;    
+                        } else {
+                            fingeringDisplay->text = currentFingeringPattern + "  " + capoAmountStr + " " + noteName;    
+                        }
+                    }
+            
+                    if (chordDiagram) {
+                        auto semitoneShifts = fingeringToSemitoneShifts(currentChords[currentChordIndex][fingeringVersion]);
+                        chordDiagram->setFingering(semitoneShifts);
+                    }  
+
+                    if (!ChordBank){   
+                        if (Row1Display) {        
+                            //{"B7", "B"     , "Bsus4", "Badd9"},
+                            auto row1text = "Row1";
+                            if (fingeringVersion == 0){row1text = "7";}
+                            else if (fingeringVersion == 1){row1text = "7 Bar";}
+                            else if (fingeringVersion == 2){row1text = "sus4";}
+                            else if (fingeringVersion == 3){row1text = "add9";}
+                            Row1Display->text = row1text;
+                        }
+
+                        if (Row2Display) {        
+                            //{"A" ,"A-Bar" ,"Amaj7" ,"Aaug"}
+                            auto row2text = "Row2";
+                            if (fingeringVersion == 0){row2text = "Maj";}
+                            else if (fingeringVersion == 1){row2text = "M Bar";}
+                            else if (fingeringVersion == 2){row2text = "Maj7";}
+                            else if (fingeringVersion == 3){row2text = "aug";}
+                            Row2Display->text = row2text;
+                        }
+
+                        if (Row3Display) {        
+                            //{"Em" ,"Em-Bar" ,"Em7","Em6  "},
+                            auto row3text = "Row3";
+                            if (fingeringVersion == 0){row3text = "min";}
+                            else if (fingeringVersion == 1){row3text = "m Bar";}
+                            else if (fingeringVersion == 2){row3text = "m7";}
+                            else if (fingeringVersion == 3){row3text = "m6";}
+                            Row3Display->text = row3text;
+                        }
+
+                        if (Row4Display) {        
+                            //{"Asus2" ,"A6" ,"A7sus4" ,"Am9"},
+                            auto row4text = "Row4";
+                            if (fingeringVersion == 0){row4text = "sus2";}
+                            else if (fingeringVersion == 1){row4text = "6";}
+                            else if (fingeringVersion == 2){row4text = "7sus4";}
+                            else if (fingeringVersion == 3){row4text = "m9";}
+                            Row4Display->text = row4text;
+                        } 
+                        if (CVModeDisplay) {        
+                            //Mark the knob with the mode setting, 
+                            auto CVdisplaytext = "V/oct";
+                            if (VOctCV){CVdisplaytext = "(V/Oct)";}
+                            else {CVdisplaytext = "        ";}
+                            CVModeDisplay->text = CVdisplaytext;
+                        } 
+
+                    } else {
+
+                        if (Row1Display) {        
+                            //{"B7", "B"     , "B2", "B6"},
+                            auto row1text = "Row1";
+                            if (fingeringVersion == 0){row1text = "7";}
+                            else if (fingeringVersion == 1){row1text = "7 Bar";}
+                            else if (fingeringVersion == 2){row1text = "2";}
+                            else if (fingeringVersion == 3){row1text = "6";}
+                            Row1Display->text = row1text;
+                        }
+
+                        if (Row2Display) {        
+                            //    {"A" ,"A-Bar" ,"Amaj7" ,"A7+5"}, 
+                            auto row2text = "Row2";
+                            if (fingeringVersion == 0){row2text = "Maj";}
+                            else if (fingeringVersion == 1){row2text = "M Bar";}
+                            else if (fingeringVersion == 2){row2text = "Maj7";}
+                            else if (fingeringVersion == 3){row2text = "7+5";}
+                            Row2Display->text = row2text;
+                        }
+
+                        if (Row3Display) {        
+                            //{{"Em" ,"Em-Bar" ,"Em7"    ,"Em6"},
+                            auto row3text = "Row3";
+                            if (fingeringVersion == 0){row3text = "min";}
+                            else if (fingeringVersion == 1){row3text = "m Bar";}
+                            else if (fingeringVersion == 2){row3text = "m7";}
+                            else if (fingeringVersion == 3){row3text = "m6";}
+                            Row3Display->text = row3text;
+                        }
+
+                        if (Row4Display) {        
+                            //"Adim" ,"Adim7" ,"A9" ,"Aaug"}, 
+                            auto row4text = "Row4";
+                            if (fingeringVersion == 0){row4text = "dim";}
+                            else if (fingeringVersion == 1){row4text = "dim7";}
+                            else if (fingeringVersion == 2){row4text = "9";}
+                            else if (fingeringVersion == 3){row4text = "aug";}
+                            Row4Display->text = row4text;
+                        } 
+                
+                        if (CVModeDisplay) {        
+                            //Mark the knob with the mode setting, 
+                            auto CVdisplaytext = "V/oct";
+                            if (VOctCV){CVdisplaytext = "(V/Oct)";}
+                            else {CVdisplaytext = "        ";}
+                            CVModeDisplay->text = CVdisplaytext;
+                        } 
+                    }
+             
+                    triggerPulse.trigger(0.001f); // 1ms pulse
                 }
             }
             

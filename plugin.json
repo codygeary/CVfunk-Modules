@@ -129,13 +129,13 @@
         "Voltage-controlled Amplifier"
       ]
     },
-
   {
       "slug": "FlowerPatch",
       "name": "Flower Patch",
       "description": "A 12-tone scale polar visualizer with FFT analysis.",
       "tags": [
-        "Visual"
+        "Visual",
+        "Utility"
       ]
     },
 	{
@@ -180,13 +180,22 @@
       "description": "Single-knob macro-controller utility with 16 simultaneous outputs in different ranges.",
       "tags": [
         "Controller",
-        "Utility"
+        "Utility",
+        "Polyphonic"
       ]
     },
 	{
       "slug": "StepWave",
       "name": "Step Wave",
-      "description": "8-step programmable sequencer/envelope generator with rhythmic displacement and variable shape",
+      "description": "8-step programmable sequencer/envelope generator with rhythmic displacement and variable shape.",
+      "tags": [
+        "Sequencer"
+      ]
+    },
+	{
+      "slug": "Arrange",
+      "name": "Arrange",
+      "description": "A seven channel sequencer with quantize/volt option per channel, and adjustable length.",
       "tags": [
         "Sequencer"
       ]
