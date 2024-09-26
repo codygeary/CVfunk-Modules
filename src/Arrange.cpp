@@ -206,9 +206,10 @@ struct Arrange : Module {
 
         // Dynamically reconfigure the Stage knob based on the Max, if Max changes
         if (maxStages != prevMaxStages){
-            paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage/maxStages);
+            paramQuantities[STAGE_SELECT]->setDisplayValue(0.f);
             paramQuantities[STAGE_SELECT]->displayMultiplier = (maxStages-1);            
             prevMaxStages = maxStages;
+            currentStage = 0;
             resizeEvent = true;
         }
   
@@ -309,8 +310,6 @@ struct Arrange : Module {
         }
  
     }//void process
-
-
 };
 
 struct ProgressDisplay : TransparentWidget {
