@@ -182,80 +182,134 @@ struct Arrange : Module {
         }
     }
 
-    void process(const ProcessArgs &args) override {
-        // Update maxStages
-        maxStages = std::max(1, static_cast<int>(params[MAX_STAGES].getValue()));
-        currentStage = clamp(static_cast<int>(params[STAGE_SELECT].getValue() * (maxStages - 1)), 0, maxStages - 1);
-    
-        // Process stage changes only when needed
-        static int prevStage = -1;
-    
-        // Check for Resize Event
-        bool resizeEvent = (maxStages != prevMaxStages);
-        if (resizeEvent) {
-            paramQuantities[STAGE_SELECT]->setDisplayValue(static_cast<float>(currentStage) / (maxStages - 1));
-            paramQuantities[STAGE_SELECT]->displayMultiplier = static_cast<float>(maxStages - 1);
-            prevMaxStages = maxStages;
-        }
-    
-        // Handle Reset Button or Input
-        if (resetTrigger.process(params[RESET_BUTTON].getValue()) || 
-            (inputs[RESET_INPUT].isConnected() && inputs[RESET_INPUT].getVoltage() > 0.05f && !prevResetState)) {
-            currentStage = 0;
-            paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage);
-            prevResetState = true;
-        } else if (inputs[RESET_INPUT].isConnected() && inputs[RESET_INPUT].getVoltage() <= 0.05f) {
-            prevResetState = false;
-        }
-    
-        // Handle Forward Button or Input
-        if (forwardTrigger.process(params[FORWARD_BUTTON].getValue()) || 
-            (inputs[FORWARD_INPUT].isConnected() && inputs[FORWARD_INPUT].getVoltage() > 0.05f && !prevForwardState)) {
-            currentStage = (currentStage + 1) % maxStages;
-            paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage);
-            prevForwardState = true;
-        } else if (inputs[FORWARD_INPUT].isConnected() && inputs[FORWARD_INPUT].getVoltage() <= 0.05f) {
-            prevForwardState = false;
-        }
-    
-        // Handle Backward Button or Input
-        if (backwardTrigger.process(params[BACKWARDS_BUTTON].getValue()) || 
-            (inputs[BACKWARDS_INPUT].isConnected() && inputs[BACKWARDS_INPUT].getVoltage() > 0.05f && !prevBackwardState)) {
-            currentStage = (currentStage == 0) ? maxStages - 1 : currentStage - 1;
-            paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage);
-            prevBackwardState = true;
-        } else if (inputs[BACKWARDS_INPUT].isConnected() && inputs[BACKWARDS_INPUT].getVoltage() <= 0.05f) {
-            prevBackwardState = false;
-        }
-    
-        // Recall and update knobs only if the stage actually changes
-        if (currentStage != prevStage || resizeEvent) {
+    void process(const ProcessArgs &args) override {    
+
+        if (initializingFlag) {
             for (int i = 0; i < 7; i++) {
-                paramQuantities[CHAN_1_KNOB + i]->setDisplayValue(outputValues[currentStage][i]);
+                // Recall the output values for the current stage and set them to the knobs
+                float recalledValue = outputValues[currentStage][i]; // Get the stored value for the current stage
+                paramQuantities[CHAN_1_KNOB + i]->setDisplayValue(recalledValue); 
             }
-            prevStage = currentStage;  // Update the previous stage tracker
+            initializingFlag = false;
         }
+
+        // Store the current stage before processing the buttons
+        int previousStage = currentStage;
+        bool resizeEvent = false;
+
+        currentStage = floor(params[STAGE_SELECT].getValue()*(maxStages-1));
+        if (currentStage < 0){ currentStage = 0; }
+        if (currentStage > maxStages-1){ currentStage = maxStages-1; }
+
+        maxStages = floor( params[MAX_STAGES].getValue() );
+        if ( maxStages <= 0 ) {maxStages = 1;} //Fewest stages allowed is 1 
+
+        // Dynamically reconfigure the Stage knob based on the Max, if Max changes
+        if (maxStages != prevMaxStages){
+            paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage/maxStages);
+            paramQuantities[STAGE_SELECT]->displayMultiplier = (maxStages-1);            
+            prevMaxStages = maxStages;
+            resizeEvent = true;
+        }
+  
+        // Handle button press for Reset
+        if (resetTrigger.process(params[RESET_BUTTON].getValue())) {
+            currentStage = 0;  // Reset to the first stage
+            paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage);
+        } else if (inputs[RESET_INPUT].isConnected()) {
+            bool resetCurrentState = inputs[RESET_INPUT].getVoltage() > 0.05f;
+            if (resetCurrentState && !prevResetState) { // Rising edge detected
+                currentStage = 0;  // Reset to the first stage
+                paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage);
+            }
+            prevResetState = resetCurrentState; // Update previous state
+        }
+
     
-        // Handle Channel Button Toggles and Store Values
+        // Handle button press for Forward
+        if (forwardTrigger.process(params[FORWARD_BUTTON].getValue())) {
+            currentStage++;
+            if (currentStage >= maxStages) {
+                currentStage = 0;  // Loop back to the start if needed
+            }
+            paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage);
+        } else if (inputs[FORWARD_INPUT].isConnected()) {
+            bool forwardCurrentState = inputs[FORWARD_INPUT].getVoltage() > 0.05f;
+            if (forwardCurrentState && !prevForwardState) { // Rising edge detected
+                currentStage++;
+                if (currentStage >= maxStages) {
+                    currentStage = 0;  // Loop back to the start if needed
+                }
+                paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage);
+            }
+            prevForwardState = forwardCurrentState; // Update previous state
+        }
+
+    
+        // Handle button press for Backward
+        if (backwardTrigger.process(params[BACKWARDS_BUTTON].getValue())) {
+            currentStage--;
+            if (currentStage < 0) {
+                currentStage = maxStages - 1;  // Wrap around to the last stage
+            }
+            paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage);
+        } else if (inputs[BACKWARDS_INPUT].isConnected()) {
+            bool backwardCurrentState = inputs[BACKWARDS_INPUT].getVoltage() > 0.05f;
+            if (backwardCurrentState && !prevBackwardState) { // Rising edge detected
+                currentStage--;
+                if (currentStage < 0) {
+                    currentStage = maxStages - 1;  // Wrap around to the last stage
+                }
+                paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage);
+            }
+            prevBackwardState = backwardCurrentState; // Update previous state
+        } 
+                     
+        // If the current stage has changed, recall values for the knobs
+        if ( (currentStage != previousStage) || resizeEvent){
+            for (int i = 0; i < 7; i++) {
+                // Recall the output values for the current stage and set them to the knobs
+                float recalledValue = outputValues[currentStage][i]; // Get the stored value for the current stage
+                paramQuantities[CHAN_1_KNOB + i]->setDisplayValue(recalledValue); 
+            }
+        }
+
+        // Check for toggle button states and toggle them
         for (int i = 0; i < 7; i++) {
+            // Use a Schmitt Trigger to detect the rising edge
             if (channelButtonTriggers[i].process(params[CHAN_1_BUTTON + i].getValue())) {
-                channelButton[i] = !channelButton[i];  // Toggle state
-            }
-    
+                channelButton[i] = !channelButton[i]; // Toggle the channel button state
+                if (channelButton[i]){
+                    float outputValue = round(params[CHAN_1_KNOB + i].getValue() * 12.0f) / 12.0f;
+                    paramQuantities[CHAN_1_KNOB + i]->setDisplayValue(outputValue);
+
+                    // Store the output value in the 2D array for the current stage
+                    if (currentStage >= 0 && currentStage < 128) {
+                        outputValues[currentStage][i] = outputValue; // Store output value at the current stage for the respective channel
+                    }
+                }
+            }            
+        }
+
+        //Prepare output and store into array
+        for (int i = 0; i < 7; i++){
             float outputValue = params[CHAN_1_KNOB + i].getValue();
-            if (channelButton[i]) {
-                outputValue = round(outputValue * 12.0f) / 12.0f;  // Quantize to nearest 1/12V
+
+            if (channelButton[i]){
+                //quantize the outputValue voltage by rounding to the nearest 1/12
+                outputValue = round(outputValue * 12.0f) / 12.0f;
             }
-    
-            // Set output voltage
+
             outputs[CHAN_1_OUTPUT + i].setVoltage(outputValue);
-    
-            // Store output value for the current stage (if valid)
+
+            // Store the output value in the 2D array for the current stage
             if (currentStage >= 0 && currentStage < 128) {
-                outputValues[currentStage][i] = outputValue;
+                outputValues[currentStage][i] = outputValue; // Store output value at the current stage for the respective channel
             }
         }
-    }
+ 
+    }//void process
+
 
 };
 
