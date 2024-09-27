@@ -244,9 +244,9 @@ struct Arrange : Module {
         }
     }
 
-	void onReset(const ResetEvent& e) override {
-		// Reset all parameters
-		Module::onReset(e);
+    void onReset(const ResetEvent& e) override {
+        // Reset all parameters
+        Module::onReset(e);
         for (int stage = 0; stage < 128; stage++) {
             for (int channel = 0; channel < 7; channel++) {
                 outputValues[stage][channel] = 0.0f;  // Reset each element to 0.0f
@@ -415,7 +415,7 @@ struct Arrange : Module {
                 } else if (activeInputChannel[i] > -1){
                     // Now we compute which channel we need to grab
                     int diffBetween = i - activeInputChannel[i];
-                    int currentChannelMax =  inputChannels[activeInputChannel[i]] ;	
+                    int currentChannelMax =  inputChannels[activeInputChannel[i]] ;    
                     if (currentChannelMax - diffBetween > 0) {    //If we are before the last poly channel
                         inputVal = inputs[CHAN_1_INPUT + activeInputChannel[i]].getPolyVoltage(diffBetween); 
                     }
@@ -473,9 +473,11 @@ struct Arrange : Module {
             if (enablePolyOut) {
                 // Update tooltips to reflect polyphonic output
                 configOutput(CHAN_1_OUTPUT, "Poly Channel 1");
+                outputs[CHAN_1_OUTPUT].setChannels(7);  // Set the number of channels to 7
             } else {
                 // Revert tooltips to reflect monophonic output
                 configOutput(CHAN_1_OUTPUT, "Channel 1");
+                outputs[CHAN_1_OUTPUT].setChannels(1);  // Set the number of channels to 1
             }
         
             // Update the previous state to the current state
@@ -484,15 +486,11 @@ struct Arrange : Module {
 
         // Process poly-OUTPUTS    
         if (enablePolyOut) {
-            // Set the polyphonic voltage for the first output (A_OUTPUT)
-            outputs[CHAN_1_OUTPUT].setChannels(7);  // Set the number of channels to 5
+            // Set the polyphonic voltage for the first output
             for ( int part = 1; part < 7; part++) {
                 outputs[CHAN_1_OUTPUT].setVoltage(outputs[CHAN_1_OUTPUT + part].getVoltage(), part);  // Set voltage for the polyphonic channels
             }
-        } else {
-            outputs[CHAN_1_OUTPUT].setChannels(1);  // Set the number of channels to 1
-        }
-              
+        }           
     }//void process
 };
 
@@ -543,7 +541,6 @@ struct ProgressDisplay : TransparentWidget {
         }
     }
 };
-
 
 struct ArrangeWidget : ModuleWidget {
     ArrangeWidget(Arrange* module) {
@@ -734,11 +731,10 @@ struct ArrangeWidget : ModuleWidget {
     
         // Add the item to the context menu
         PolyOutEnabledItem* polyOutItem = new PolyOutEnabledItem();
-        polyOutItem->text = "Enable Polyphonic Output to Channel A";  // Customize this text
+        polyOutItem->text = "Enable Polyphonic Output to Channel 1";  // Customize this text
         polyOutItem->arrangeModule = arrangeModule;
         menu->addChild(polyOutItem);
     }
-    
   
 };
 

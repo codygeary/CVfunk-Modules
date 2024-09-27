@@ -205,6 +205,12 @@ struct StepWave : Module {
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
 
+        // Save the state of linkLatched
+        json_object_set_new(rootJ, "linkLatched", json_boolean(linkLatched));
+
+        // Save the state of trackGateActive
+        json_object_set_new(rootJ, "trackLatched", json_boolean(trackLatched));
+
         // Save the state of stageShapeCV
         json_object_set_new(rootJ, "stageShapeCV", json_boolean(stageShapeCV));
     
@@ -227,6 +233,19 @@ struct StepWave : Module {
     }
     
     void dataFromJson(json_t* rootJ) override {
+
+        // Load the state of linkLatched
+        json_t* linkLatchedJ = json_object_get(rootJ, "linkLatched");
+        if (linkLatchedJ) {
+            linkLatched = json_is_true(linkLatchedJ);
+        }
+
+        // Load the state of trackLatched
+        json_t* trackLatchedJ = json_object_get(rootJ, "trackLatched");
+        if (trackLatchedJ) {
+            trackLatched = json_is_true(trackLatchedJ);
+        }
+
         // Load the state of stageShapeCV
         json_t* stageShapeCVJ = json_object_get(rootJ, "stageShapeCV");
         if (stageShapeCVJ) {
