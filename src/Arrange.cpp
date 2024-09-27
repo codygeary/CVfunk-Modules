@@ -44,13 +44,16 @@ struct Arrange : Module {
         BACKWARDS_BUTTON,
         RESET_BUTTON,
         CHAN_1_BUTTON, CHAN_2_BUTTON, CHAN_3_BUTTON, CHAN_4_BUTTON, CHAN_5_BUTTON, CHAN_6_BUTTON, CHAN_7_BUTTON, 
-        CHAN_1_KNOB, CHAN_2_KNOB, CHAN_3_KNOB, CHAN_4_KNOB, CHAN_5_KNOB, CHAN_6_KNOB, CHAN_7_KNOB,        
+        CHAN_1_KNOB, CHAN_2_KNOB, CHAN_3_KNOB, CHAN_4_KNOB, CHAN_5_KNOB, CHAN_6_KNOB, CHAN_7_KNOB,
+        REC_BUTTON,        
         NUM_PARAMS
     };
     enum InputIds {
         RESET_INPUT,
         FORWARD_INPUT,
         BACKWARDS_INPUT,
+        REC_INPUT,
+        CHAN_1_INPUT, CHAN_2_INPUT, CHAN_3_INPUT, CHAN_4_INPUT, CHAN_5_INPUT, CHAN_6_INPUT, CHAN_7_INPUT, 
         NUM_INPUTS
     };
     enum OutputIds {
@@ -58,19 +61,21 @@ struct Arrange : Module {
         NUM_OUTPUTS
     };
     enum LightIds {
-        CHAN_1_LIGHT, CHAN_2_LIGHT, CHAN_3_LIGHT, CHAN_4_LIGHT, CHAN_5_LIGHT, CHAN_6_LIGHT, CHAN_7_LIGHT, 
+        CHAN_1_LIGHT, CHAN_2_LIGHT, CHAN_3_LIGHT, CHAN_4_LIGHT, CHAN_5_LIGHT, CHAN_6_LIGHT, CHAN_7_LIGHT,
+        CHAN_1_LIGHT_B, CHAN_2_LIGHT_B, CHAN_3_LIGHT_B, CHAN_4_LIGHT_B, CHAN_5_LIGHT_B, CHAN_6_LIGHT_B, CHAN_7_LIGHT_B,
+        REC_LIGHT, 
         NUM_LIGHTS
     };
 
     DigitalDisplay* digitalDisplay = nullptr;
     DigitalDisplay* chanDisplays[7] = {nullptr};
    
-    dsp::SchmittTrigger resetTrigger, forwardTrigger, backwardTrigger;
+    dsp::SchmittTrigger resetTrigger, forwardTrigger, backwardTrigger, recTrigger;
     dsp::SchmittTrigger channelButtonTriggers[7];
     int currentStage = 0;
     int maxStages = 16;
     int prevMaxStages = -1;
-    bool channelButton[7] = {false}; // store button press state for each channel
+    int channelButton[7] = {0}; // store button press state for each channel (0, 1, 2)
     float outputValues[128][7] = {{0.0f}}; // 2D array to store output values for each stage and channel
     bool initializingFlag = true;
     // To store the current state for the latch es   
@@ -81,6 +86,10 @@ struct Arrange : Module {
     bool prevResetState = false; 
     bool prevForwardState = false; 
     bool prevBackwardState = false;
+    bool recordLatched = false;
+    bool prevRecordState = false;
+
+    bool computedProb[7] = {false};
 
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
@@ -88,7 +97,7 @@ struct Arrange : Module {
         // Store channelButton array as a JSON array
         json_t* channelButtonJ = json_array();
         for (int i = 0; i < 7; i++) {
-            json_array_append_new(channelButtonJ, json_boolean(channelButton[i]));
+            json_array_append_new(channelButtonJ, json_integer(channelButton[i]));
         }
         json_object_set_new(rootJ, "channelButton", channelButtonJ);
     
@@ -113,7 +122,7 @@ struct Arrange : Module {
             for (int i = 0; i < 7; i++) {
                 json_t* buttonJ = json_array_get(channelButtonJ, i);
                 if (buttonJ)
-                    channelButton[i] = json_boolean_value(buttonJ);
+                    channelButton[i] = json_integer_value(buttonJ);
             }
         }
     
@@ -143,6 +152,7 @@ struct Arrange : Module {
         configParam(FORWARD_BUTTON, 0.f, 1.f, 0.f, "Forward");
         configParam(BACKWARDS_BUTTON, 0.f, 1.f, 0.f, "Backward");
         configParam(RESET_BUTTON, 0.f, 1.f, 0.f, "Reset");
+        configParam(REC_BUTTON, 0.f, 1.f, 0.f, "Record");
         configParam(CHAN_1_BUTTON, 0.f, 1.f, 0.f, "Channel 1 Voct/V");
         configParam(CHAN_2_BUTTON, 0.f, 1.f, 0.f, "Channel 2 Voct/V");
         configParam(CHAN_3_BUTTON, 0.f, 1.f, 0.f, "Channel 3 Voct/V");
@@ -164,6 +174,14 @@ struct Arrange : Module {
         configInput(RESET_INPUT, "Reset");
         configInput(FORWARD_INPUT, "Forward");
         configInput(BACKWARDS_INPUT, "Backward");
+        configInput(REC_INPUT, "Record");
+        configInput(CHAN_1_INPUT, "Channel 1 Input");
+        configInput(CHAN_2_INPUT, "Channel 2 Input");
+        configInput(CHAN_3_INPUT, "Channel 3 Input");
+        configInput(CHAN_4_INPUT, "Channel 4 Input");
+        configInput(CHAN_5_INPUT, "Channel 5 Input");
+        configInput(CHAN_6_INPUT, "Channel 6 Input");
+        configInput(CHAN_7_INPUT, "Channel 7 Input");
     
         // Configure outputs
         configOutput(CHAN_1_OUTPUT, "Channel 1 Output");
@@ -179,6 +197,16 @@ struct Arrange : Module {
         // Randomize only the channel knob parameters
         for (int i = 0; i < 7; i++) {
             params[CHAN_1_KNOB + i].setValue(random::uniform()*10-5);
+        }
+    }
+
+	void onReset(const ResetEvent& e) override {
+		// Reset all parameters
+		Module::onReset(e);
+        for (int stage = 0; stage < 128; stage++) {
+            for (int channel = 0; channel < 7; channel++) {
+                outputValues[stage][channel] = 0.0f;  // Reset each element to 0.0f
+            }
         }
     }
 
@@ -212,7 +240,7 @@ struct Arrange : Module {
             currentStage = 0;
             resizeEvent = true;
         }
-  
+ 
         // Handle button press for Reset
         if (resetTrigger.process(params[RESET_BUTTON].getValue())) {
             currentStage = 0;  // Reset to the first stage
@@ -225,7 +253,6 @@ struct Arrange : Module {
             }
             prevResetState = resetCurrentState; // Update previous state
         }
-
     
         // Handle button press for Forward
         if (forwardTrigger.process(params[FORWARD_BUTTON].getValue())) {
@@ -245,8 +272,7 @@ struct Arrange : Module {
             }
             prevForwardState = forwardCurrentState; // Update previous state
         }
-
-    
+   
         // Handle button press for Backward
         if (backwardTrigger.process(params[BACKWARDS_BUTTON].getValue())) {
             currentStage--;
@@ -272,43 +298,127 @@ struct Arrange : Module {
                 // Recall the output values for the current stage and set them to the knobs
                 float recalledValue = outputValues[currentStage][i]; // Get the stored value for the current stage
                 paramQuantities[CHAN_1_KNOB + i]->setDisplayValue(recalledValue); 
+            
+                // Generate a random value for each gate based on the probability
+                float randVal = random::uniform(); // Generate a random number between 0 and 1
+                if (randVal < ((recalledValue+10.f)/20.f) ) {
+                    computedProb[i] = true; // High gate (10V) if random value is less than input probability
+                } else {
+                    computedProb[i] = false;  // Low gate (0V) if random value is greater than input probability
+                }
             }
+            
         }
-
-        // Check for toggle button states and toggle them
+        
+        // Check for toggle button states and cycle them through three modes
         for (int i = 0; i < 7; i++) {
             // Use a Schmitt Trigger to detect the rising edge
             if (channelButtonTriggers[i].process(params[CHAN_1_BUTTON + i].getValue())) {
-                channelButton[i] = !channelButton[i]; // Toggle the channel button state
-                if (channelButton[i]){
-                    float outputValue = round(params[CHAN_1_KNOB + i].getValue() * 12.0f) / 12.0f;
-                    paramQuantities[CHAN_1_KNOB + i]->setDisplayValue(outputValue);
+                channelButton[i] = (channelButton[i] + 1) % 3; // Cycle through 0, 1, 2
+            }
+        }
 
-                    // Store the output value in the 2D array for the current stage
-                    if (currentStage >= 0 && currentStage < 128) {
-                        outputValues[currentStage][i] = outputValue; // Store output value at the current stage for the respective channel
+        bool recordStateChange = false;
+
+        // Handle button press for Record
+        if (recTrigger.process(params[REC_BUTTON].getValue())) {
+            recordLatched = !recordLatched;  // Toggle the recording state
+        } else if (inputs[REC_INPUT].isConnected()) {
+            bool recCurrentState = inputs[REC_INPUT].getVoltage() > 0.05f;
+            if (recCurrentState && !prevRecordState) {  // Rising edge detected
+                recordLatched = !recordLatched;  // Toggle the recording state
+                recordStateChange = true;
+            }
+            prevRecordState = recCurrentState;  // Update previous state
+        }       
+        // Update the REC_LIGHT based on recordLatched state
+        lights[REC_LIGHT].setBrightness(recordLatched ? 1.0f : 0.0f);
+
+
+        if (recordLatched || recordStateChange){       
+            // Check if the channel has polyphonic input
+            int inputChannels[7] = {0};   // Number of polyphonic channels for Input CV inputs
+            
+            // Arrays to store the current input signals and connectivity status
+            int activeInputChannel[7] = {-1};   // Stores the number of the previous active channel for the Input CVs 
+            //initialize all active channels with -1, indicating nothing connected.
+         
+            // Scan all inputs to determine the polyphony
+            for (int i = 0; i < 7; i++) {                
+                if (inputs[CHAN_1_INPUT + i].isConnected()) {
+                    inputChannels[i] = inputs[CHAN_1_INPUT + i].getChannels();
+                    activeInputChannel[i] = i;
+                } else if (i > 0 && activeInputChannel[i-1] != -1) {
+                    if (inputChannels[activeInputChannel[i-1]] > (i - activeInputChannel[i-1])) {
+                        activeInputChannel[i] = activeInputChannel[i-1]; // Carry over the active channel
+                    } else {
+                        activeInputChannel[i] = -1; // No valid polyphonic channel to carry over
+                    }
+                } else {
+                    activeInputChannel[i] = -1; // Explicitly reset if not connected
+                }
+            }       
+                   
+            //Prepare output and store into array
+            for (int i = 0; i < 7; i++){
+                // Measure inputs
+                float inputVal = params[CHAN_1_KNOB + i].getValue(); //default to the knob value with no inputs
+            
+                if (activeInputChannel[i]==i) {
+                    inputVal = inputs[CHAN_1_INPUT + i].getPolyVoltage(0);
+                } else if (activeInputChannel[i] > -1){
+                    // Now we compute which channel we need to grab
+                    int diffBetween = i - activeInputChannel[i];
+                    int currentChannelMax =  inputChannels[activeInputChannel[i]] ;	
+                    if (currentChannelMax - diffBetween > 0) {    //If we are before the last poly channel
+                        inputVal = inputs[CHAN_1_INPUT + activeInputChannel[i]].getPolyVoltage(diffBetween); 
                     }
                 }
-            }            
-        }
+        
+                if (channelButton[i]==0){
+                    outputs[CHAN_1_OUTPUT + i].setVoltage(inputVal);//output the unmodified value
+                } else if (channelButton[i]==1){               
+                    //quantize the outputValue voltage by rounding to the nearest 1/12
+                    inputVal = round(inputVal * 12.0f) / 12.0f;                  
+                    outputs[CHAN_1_OUTPUT + i].setVoltage(inputVal);//output the quantized value
+                } else if (channelButton[i] == 2) {            
+                    if (computedProb[i]) {  
+                        outputs[CHAN_1_OUTPUT + i].setVoltage(10.f);                     
+                    } else {
+                        outputs[CHAN_1_OUTPUT + i].setVoltage(0.f); 
+                    }
+                }  
+        
+                //Store the output value in the 2D array for the current stage
+                if (currentStage >= 0 && currentStage < 128) {
+                    outputValues[currentStage][i] = inputVal; // Store input value at the current stage for the respective channel
+                }
+            } 
+        } else {
+            for (int i = 0; i < 7; i++){         
+                for (int i = 0; i < 7; i++) {
+                    // Recall the output values for the current stage and set them to the knobs
+                    float recalledValue = outputValues[currentStage][i]; // Get the stored value for the current stage
+                    paramQuantities[CHAN_1_KNOB + i]->setDisplayValue(recalledValue); 
+                }
 
-        //Prepare output and store into array
-        for (int i = 0; i < 7; i++){
-            float outputValue = params[CHAN_1_KNOB + i].getValue();
-
-            if (channelButton[i]){
-                //quantize the outputValue voltage by rounding to the nearest 1/12
-                outputValue = round(outputValue * 12.0f) / 12.0f;
-            }
-
-            outputs[CHAN_1_OUTPUT + i].setVoltage(outputValue);
-
-            // Store the output value in the 2D array for the current stage
-            if (currentStage >= 0 && currentStage < 128) {
-                outputValues[currentStage][i] = outputValue; // Store output value at the current stage for the respective channel
-            }
-        }
- 
+                float inputVal = params[CHAN_1_KNOB + i].getValue(); //else we recall the values and set the knobs       
+                
+                if (channelButton[i]==0){
+                    outputs[CHAN_1_OUTPUT + i].setVoltage(inputVal);//output the unmodified value
+                } else if (channelButton[i]==1){               
+                    //quantize the outputValue voltage by rounding to the nearest 1/12
+                    inputVal = round(inputVal * 12.0f) / 12.0f;                  
+                    outputs[CHAN_1_OUTPUT + i].setVoltage(inputVal);//output the quantized value
+                } else if (channelButton[i] == 2) {            
+                    if (computedProb[i]) {
+                        outputs[CHAN_1_OUTPUT + i].setVoltage(10.f); 
+                    } else {
+                        outputs[CHAN_1_OUTPUT + i].setVoltage(0.f); 
+                    }
+                }  
+            }                    
+        }       
     }//void process
 };
 
@@ -376,12 +486,12 @@ struct ArrangeWidget : ModuleWidget {
         addChild(createWidget<ThemedScrew>(Vec(0, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
         addChild(createWidget<ThemedScrew>(Vec(box.size.x - 1 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 
-        box.size = Vec(12 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT); // 8HP wide screen
+        box.size = Vec(15 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT); 
 
         // Configure and add the first digital display
         DigitalDisplay* digitalDisplay = new DigitalDisplay();
         digitalDisplay->fontPath = asset::plugin(pluginInstance, "res/fonts/DejaVuSansMono.ttf");
-        digitalDisplay->box.pos = Vec(41.5, 34); // Position on the module
+        digitalDisplay->box.pos = Vec(41.5 + 25, 34); // Position on the module
         digitalDisplay->box.size = Vec(100, 18); // Size of the display
         digitalDisplay->text = "Stage : Max"; // Initial text
         digitalDisplay->fgColor = nvgRGB(208, 140, 89); // White color text
@@ -394,40 +504,48 @@ struct ArrangeWidget : ModuleWidget {
         }
 
         // Create and add the ProgressBar Display
-        ProgressDisplay* progressDisplay = createWidget<ProgressDisplay>(Vec(46.5, 50)); // Positioning
+        ProgressDisplay* progressDisplay = createWidget<ProgressDisplay>(Vec(46.5 + 25, 50)); // Positioning
         progressDisplay->box.size = Vec(90, 25); // Size of the display widget
         progressDisplay->module = module;
         addChild(progressDisplay);
 
         // Knobs
-        addParam(createParamCentered<RoundBlackKnob>(Vec(20, 50), module, Arrange::STAGE_SELECT));
-        addParam(createParamCentered<DiscreteRoundBlackKnob>(Vec(160, 50), module, Arrange::MAX_STAGES));
+        addParam(createParamCentered<RoundBlackKnob>(Vec(20 + 25, 50), module, Arrange::STAGE_SELECT));
+        addParam(createParamCentered<DiscreteRoundBlackKnob>(Vec(160 + 25, 50), module, Arrange::MAX_STAGES));
 
-        addParam(createParamCentered<TL1105>                  (Vec(45, 90), module, Arrange::RESET_BUTTON));
-        addInput(createInputCentered<ThemedPJ301MPort>        (Vec(20, 90), module, Arrange::RESET_INPUT));
+        addParam(createParamCentered<TL1105>                  (Vec(45, 90), module, Arrange::REC_BUTTON));
+        addInput(createInputCentered<ThemedPJ301MPort>        (Vec(20 , 90), module, Arrange::REC_INPUT));
+        addChild(createLightCentered<LargeLight<RedLight>>(Vec(45, 90), module, Arrange::REC_LIGHT));
 
-        addParam(createParamCentered<TL1105>                  (Vec(100, 90), module, Arrange::BACKWARDS_BUTTON));
-        addInput(createInputCentered<ThemedPJ301MPort>        (Vec(75, 90), module, Arrange::BACKWARDS_INPUT));
 
-        addParam(createParamCentered<TL1105>                  (Vec(135, 90), module, Arrange::FORWARD_BUTTON));
-        addInput(createInputCentered<ThemedPJ301MPort>        (Vec(160, 90), module, Arrange::FORWARD_INPUT));
+        addParam(createParamCentered<TL1105>                  (Vec(100 , 90), module, Arrange::BACKWARDS_BUTTON));
+        addInput(createInputCentered<ThemedPJ301MPort>        (Vec(75 , 90), module, Arrange::BACKWARDS_INPUT));
+
+        addParam(createParamCentered<TL1105>                  (Vec(130 , 90), module, Arrange::FORWARD_BUTTON));
+        addInput(createInputCentered<ThemedPJ301MPort>        (Vec(155 , 90), module, Arrange::FORWARD_INPUT));
+
+        addParam(createParamCentered<TL1105>                  (Vec(185 , 90), module, Arrange::RESET_BUTTON));
+        addInput(createInputCentered<ThemedPJ301MPort>        (Vec(210, 90), module, Arrange::RESET_INPUT));
+
 
         float initialYPos = 135; 
         float spacing = 35; 
         for (int i = 0; i < 7; ++i) {
             float yPos = initialYPos + i * spacing; // Adjusted positioning and spacing
 
-            addParam(createParamCentered<TL1105>                  (Vec(20, yPos), module, Arrange::CHAN_1_BUTTON + i));
-            addChild(createLightCentered<LargeLight<BlueLight>>(Vec(20, yPos), module, Arrange::CHAN_1_LIGHT + i));
-            addParam(createParamCentered<RoundBlackKnob>          (Vec(50, yPos), module, Arrange::CHAN_1_KNOB + i));
+            addInput(createInputCentered<ThemedPJ301MPort>        (Vec(20 , yPos), module, Arrange::CHAN_1_INPUT + i));
+            addParam(createParamCentered<TL1105>                  (Vec(20 + 30, yPos), module, Arrange::CHAN_1_BUTTON + i));
+            addChild(createLightCentered<LargeLight<BlueLight>>(Vec(20 + 30, yPos), module, Arrange::CHAN_1_LIGHT + i));
+            addChild(createLightCentered<LargeLight<YellowLight>>(Vec(20 + 30, yPos), module, Arrange::CHAN_1_LIGHT_B + i));
+            addParam(createParamCentered<RoundBlackKnob>          (Vec(50 + 35, yPos), module, Arrange::CHAN_1_KNOB + i));
 
             if (module) {
                 // Ratio Displays Initialization
-                module->chanDisplays[i] = createDigitalDisplay(Vec(75, yPos -  10), "Ready");
+                module->chanDisplays[i] = createDigitalDisplay(Vec(75 + 40, yPos -  10), "Ready");
                 addChild(module->chanDisplays[i]);
             }
  
-            addOutput(createOutputCentered<ThemedPJ301MPort>    (Vec(157, yPos), module, Arrange::CHAN_1_OUTPUT + i));
+            addOutput(createOutputCentered<ThemedPJ301MPort>    (Vec(157 + 45, yPos), module, Arrange::CHAN_1_OUTPUT + i));
         }
     }
 
@@ -445,8 +563,21 @@ struct ArrangeWidget : ModuleWidget {
         for (int i = 0; i < 7; i++) {
 
             if (module->chanDisplays[i]) {
-                if (module->channelButton[i]) {
+                if (module->channelButton[i]==0) {
+
+                    char buffer[32]; // Create a buffer to hold the formatted string
+                    float value = module->outputs[Arrange::CHAN_1_OUTPUT + i].getVoltage(); // Get the value
+                    
+                    // Format the value to 3 significant figures
+                    snprintf(buffer, sizeof(buffer), "%.3f", value);
+                    
+                    // Set the formatted text
+                    std::string voltageDisplay = std::string(buffer) + " V";
+                    module->chanDisplays[i]->text = voltageDisplay;  
+                    module->lights[Arrange::CHAN_1_LIGHT + i].setBrightness(0.0f); 
+                    module->lights[Arrange::CHAN_1_LIGHT_B + i].setBrightness(0.0f); 
                 
+                } else if (module->channelButton[i]==1){
                     // Compute the note name of the note and the octave
                     float pitchVoltage = module->outputs[Arrange::CHAN_1_OUTPUT + i].getVoltage();
                     int octave = static_cast<int>(pitchVoltage + 4);  // The integer part represents the octave
@@ -466,19 +597,28 @@ struct ArrangeWidget : ModuleWidget {
                 
                     module->chanDisplays[i]->text = fullNote;  
                     module->lights[Arrange::CHAN_1_LIGHT + i].setBrightness(1.0f); 
-                } else {
-                    char buffer[32]; // Create a buffer to hold the formatted string
-                    float value = module->params[Arrange::CHAN_1_KNOB + i].getValue(); // Get the value
+                    module->lights[Arrange::CHAN_1_LIGHT_B + i].setBrightness(0.0f); 
                     
-                    // Format the value to 3 significant figures
-                    snprintf(buffer, sizeof(buffer), "%.3f", value);
+                } else if (module->channelButton[i]==2){
+
+                    // Get the current probability value (clamped between 0.0 and 1.0)
+                    float probability =  (module->outputValues[module->currentStage][i] + 10.f)/20.f  ;
                     
-                    // Set the formatted text
-                    std::string voltageDisplay = std::string(buffer) + " V";
-                    module->chanDisplays[i]->text = voltageDisplay;  
+                    // Convert the probability to a percentage (0 to 100)
+                    int percentage = static_cast<int>(probability * 100.0f);
+            
+                    // Create a buffer to hold the percentage display
+                    char percentageBuffer[8];  // Enough space for "100%" + null terminator
+                    snprintf(percentageBuffer, sizeof(percentageBuffer), "%d%%", percentage);  // Format as a percentage
+                    
+                    // Set the percentage display
+                    module->chanDisplays[i]->text = percentageBuffer;  
+                    
+                    // Set the brightness for the secondary light (CHAN_1_LIGHT_B) in this mode
                     module->lights[Arrange::CHAN_1_LIGHT + i].setBrightness(0.0f); 
-                    
-                }                
+                    module->lights[Arrange::CHAN_1_LIGHT_B + i].setBrightness(1.0f); 
+                   
+                }               
             }
         }
     }

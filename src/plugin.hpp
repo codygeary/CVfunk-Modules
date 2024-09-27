@@ -27,5 +27,6 @@ extern Model* modelDecima;
 extern Model* modelMorta;
 extern Model* modelStepWave;
 extern Model* modelPreeeeeeeeeeessedDuck;
+extern Model* modelArrange;
 
 
