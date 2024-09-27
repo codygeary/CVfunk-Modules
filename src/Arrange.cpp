@@ -90,8 +90,9 @@ struct Arrange : Module {
     bool prevBackwardState = false;
     bool recordLatched = false;
     bool prevRecordState = false;
-
     bool computedProb[7] = {false};
+    bool enablePolyOut = false;
+    bool prevEnablePolyOut = false;
 
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
@@ -114,9 +115,23 @@ struct Arrange : Module {
         }
         json_object_set_new(rootJ, "outputValues", outputValuesJ);
     
+        // Store recordLatched and prevRecordState as JSON booleans
+        json_object_set_new(rootJ, "recordLatched", json_boolean(recordLatched));
+        json_object_set_new(rootJ, "prevRecordState", json_boolean(prevRecordState));
+    
+        // Store computedProb array as a JSON array
+        json_t* computedProbJ = json_array();
+        for (int i = 0; i < 7; i++) {
+            json_array_append_new(computedProbJ, json_boolean(computedProb[i]));
+        }
+        json_object_set_new(rootJ, "computedProb", computedProbJ);
+    
+        // Store enablePolyOut as a JSON boolean
+        json_object_set_new(rootJ, "enablePolyOut", json_boolean(enablePolyOut));
+    
         return rootJ;
     }
-    
+        
     void dataFromJson(json_t* rootJ) override {
         // Load channelButton array
         json_t* channelButtonJ = json_object_get(rootJ, "channelButton");
@@ -142,6 +157,33 @@ struct Arrange : Module {
                 }
             }
         }
+    
+        // Load recordLatched and prevRecordState
+        json_t* recordLatchedJ = json_object_get(rootJ, "recordLatched");
+        if (recordLatchedJ) {
+            recordLatched = json_is_true(recordLatchedJ);
+        }
+    
+        json_t* prevRecordStateJ = json_object_get(rootJ, "prevRecordState");
+        if (prevRecordStateJ) {
+            prevRecordState = json_is_true(prevRecordStateJ);
+        }
+    
+        // Load computedProb array
+        json_t* computedProbJ = json_object_get(rootJ, "computedProb");
+        if (computedProbJ) {
+            for (int i = 0; i < 7; i++) {
+                json_t* probJ = json_array_get(computedProbJ, i);
+                if (probJ)
+                    computedProb[i] = json_is_true(probJ);
+            }
+        }
+    
+        // Load enablePolyOut
+        json_t* enablePolyOutJ = json_object_get(rootJ, "enablePolyOut");
+        if (enablePolyOutJ) {
+            enablePolyOut = json_is_true(enablePolyOutJ);
+        }
     }
 
     Arrange() {
@@ -155,44 +197,44 @@ struct Arrange : Module {
         configParam(BACKWARDS_BUTTON, 0.f, 1.f, 0.f, "Backward");
         configParam(RESET_BUTTON, 0.f, 1.f, 0.f, "Reset");
         configParam(REC_BUTTON, 0.f, 1.f, 0.f, "Record");
-        configParam(CHAN_1_BUTTON, 0.f, 1.f, 0.f, "Channel 1 Voct/V");
-        configParam(CHAN_2_BUTTON, 0.f, 1.f, 0.f, "Channel 2 Voct/V");
-        configParam(CHAN_3_BUTTON, 0.f, 1.f, 0.f, "Channel 3 Voct/V");
-        configParam(CHAN_4_BUTTON, 0.f, 1.f, 0.f, "Channel 4 Voct/V");
-        configParam(CHAN_5_BUTTON, 0.f, 1.f, 0.f, "Channel 5 Voct/V");
-        configParam(CHAN_6_BUTTON, 0.f, 1.f, 0.f, "Channel 6 Voct/V");
-        configParam(CHAN_7_BUTTON, 0.f, 1.f, 0.f, "Channel 7 Voct/V");
+        configParam(CHAN_1_BUTTON, 0.f, 1.f, 0.f, "Channel 1 Mode");
+        configParam(CHAN_2_BUTTON, 0.f, 1.f, 0.f, "Channel 2 Mode");
+        configParam(CHAN_3_BUTTON, 0.f, 1.f, 0.f, "Channel 3 Mode");
+        configParam(CHAN_4_BUTTON, 0.f, 1.f, 0.f, "Channel 4 Mode");
+        configParam(CHAN_5_BUTTON, 0.f, 1.f, 0.f, "Channel 5 Mode");
+        configParam(CHAN_6_BUTTON, 0.f, 1.f, 0.f, "Channel 6 Mode");
+        configParam(CHAN_7_BUTTON, 0.f, 1.f, 0.f, "Channel 7 Mode");
     
         // Knob parameters for each channel
-        configParam(CHAN_1_KNOB, -10.f, 10.f, 0.f, "Channel 1 Knob");
-        configParam(CHAN_2_KNOB, -10.f, 10.f, 0.f, "Channel 2 Knob");
-        configParam(CHAN_3_KNOB, -10.f, 10.f, 0.f, "Channel 3 Knob");
-        configParam(CHAN_4_KNOB, -10.f, 10.f, 0.f, "Channel 4 Knob");
-        configParam(CHAN_5_KNOB, -10.f, 10.f, 0.f, "Channel 5 Knob");
-        configParam(CHAN_6_KNOB, -10.f, 10.f, 0.f, "Channel 6 Knob");
-        configParam(CHAN_7_KNOB, -10.f, 10.f, 0.f, "Channel 7 Knob");
+        configParam(CHAN_1_KNOB, -10.f, 10.f, 0.f, "Channel 1");
+        configParam(CHAN_2_KNOB, -10.f, 10.f, 0.f, "Channel 2");
+        configParam(CHAN_3_KNOB, -10.f, 10.f, 0.f, "Channel 3");
+        configParam(CHAN_4_KNOB, -10.f, 10.f, 0.f, "Channel 4");
+        configParam(CHAN_5_KNOB, -10.f, 10.f, 0.f, "Channel 5");
+        configParam(CHAN_6_KNOB, -10.f, 10.f, 0.f, "Channel 6");
+        configParam(CHAN_7_KNOB, -10.f, 10.f, 0.f, "Channel 7");
     
         // Configure inputs
         configInput(RESET_INPUT, "Reset");
         configInput(FORWARD_INPUT, "Forward");
         configInput(BACKWARDS_INPUT, "Backward");
         configInput(REC_INPUT, "Record");
-        configInput(CHAN_1_INPUT, "Channel 1 Input");
-        configInput(CHAN_2_INPUT, "Channel 2 Input");
-        configInput(CHAN_3_INPUT, "Channel 3 Input");
-        configInput(CHAN_4_INPUT, "Channel 4 Input");
-        configInput(CHAN_5_INPUT, "Channel 5 Input");
-        configInput(CHAN_6_INPUT, "Channel 6 Input");
-        configInput(CHAN_7_INPUT, "Channel 7 Input");
+        configInput(CHAN_1_INPUT, "Channel 1");
+        configInput(CHAN_2_INPUT, "Channel 2");
+        configInput(CHAN_3_INPUT, "Channel 3");
+        configInput(CHAN_4_INPUT, "Channel 4");
+        configInput(CHAN_5_INPUT, "Channel 5");
+        configInput(CHAN_6_INPUT, "Channel 6");
+        configInput(CHAN_7_INPUT, "Channel 7");
     
         // Configure outputs
-        configOutput(CHAN_1_OUTPUT, "Channel 1 Output");
-        configOutput(CHAN_2_OUTPUT, "Channel 2 Output");
-        configOutput(CHAN_3_OUTPUT, "Channel 3 Output");
-        configOutput(CHAN_4_OUTPUT, "Channel 4 Output");
-        configOutput(CHAN_5_OUTPUT, "Channel 5 Output");
-        configOutput(CHAN_6_OUTPUT, "Channel 6 Output");
-        configOutput(CHAN_7_OUTPUT, "Channel 7 Output");
+        configOutput(CHAN_1_OUTPUT, "Channel 1");
+        configOutput(CHAN_2_OUTPUT, "Channel 2");
+        configOutput(CHAN_3_OUTPUT, "Channel 3");
+        configOutput(CHAN_4_OUTPUT, "Channel 4");
+        configOutput(CHAN_5_OUTPUT, "Channel 5");
+        configOutput(CHAN_6_OUTPUT, "Channel 6");
+        configOutput(CHAN_7_OUTPUT, "Channel 7");
     }
 
     void onRandomize(const RandomizeEvent& e) override {
@@ -338,7 +380,7 @@ struct Arrange : Module {
         // Update the REC_LIGHT based on recordLatched state
         lights[REC_LIGHT].setBrightness(recordLatched ? 1.0f : 0.0f);
 
-
+        // Process the final outputs and recording of inputs
         if (recordLatched || recordStateChange){       
             // Check if the channel has polyphonic input
             int inputChannels[7] = {0};   // Number of polyphonic channels for Input CV inputs
@@ -424,7 +466,33 @@ struct Arrange : Module {
                     }
                 }  
             }                    
-        }       
+        } 
+        
+        // Detect if the enablePolyOut state has changed
+        if (enablePolyOut != prevEnablePolyOut) {
+            if (enablePolyOut) {
+                // Update tooltips to reflect polyphonic output
+                configOutput(CHAN_1_OUTPUT, "Poly Channel 1");
+            } else {
+                // Revert tooltips to reflect monophonic output
+                configOutput(CHAN_1_OUTPUT, "Channel 1");
+            }
+        
+            // Update the previous state to the current state
+            prevEnablePolyOut = enablePolyOut;
+        }     
+
+        // Process poly-OUTPUTS    
+        if (enablePolyOut) {
+            // Set the polyphonic voltage for the first output (A_OUTPUT)
+            outputs[CHAN_1_OUTPUT].setChannels(7);  // Set the number of channels to 5
+            for ( int part = 1; part < 7; part++) {
+                outputs[CHAN_1_OUTPUT].setVoltage(outputs[CHAN_1_OUTPUT + part].getVoltage(), part);  // Set voltage for the polyphonic channels
+            }
+        } else {
+            outputs[CHAN_1_OUTPUT].setChannels(1);  // Set the number of channels to 1
+        }
+              
     }//void process
 };
 
@@ -639,6 +707,38 @@ struct ArrangeWidget : ModuleWidget {
         display->setFontSize(14.0f);
         return display;
     }
+
+    void appendContextMenu(Menu* menu) override {
+        ModuleWidget::appendContextMenu(menu);
+    
+        // Cast the module to Arrange
+        Arrange* arrangeModule = dynamic_cast<Arrange*>(module);
+        assert(arrangeModule);
+    
+        // Separator for visual grouping in the context menu
+        menu->addChild(new MenuSeparator);
+    
+        // Example: Polyphonic output enabled/disabled menu item for Arrange
+        struct PolyOutEnabledItem : MenuItem {
+            Arrange* arrangeModule;
+            void onAction(const event::Action& e) override {
+                // Toggle the polyphonic output setting
+                arrangeModule->enablePolyOut = !arrangeModule->enablePolyOut;
+            }
+            void step() override {
+                // Show checkmark if polyphonic output is enabled
+                rightText = arrangeModule->enablePolyOut ? "✔" : "";
+                MenuItem::step();
+            }
+        };
+    
+        // Add the item to the context menu
+        PolyOutEnabledItem* polyOutItem = new PolyOutEnabledItem();
+        polyOutItem->text = "Enable Polyphonic Output to Channel A";  // Customize this text
+        polyOutItem->arrangeModule = arrangeModule;
+        menu->addChild(polyOutItem);
+    }
+    
   
 };
 
