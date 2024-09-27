@@ -72,6 +72,8 @@ struct Arrange : Module {
    
     dsp::SchmittTrigger resetTrigger, forwardTrigger, backwardTrigger, recTrigger;
     dsp::SchmittTrigger channelButtonTriggers[7];
+    dsp::PulseGenerator pulseGens[7]; 
+ 
     int currentStage = 0;
     int maxStages = 16;
     int prevMaxStages = -1;
@@ -303,12 +305,14 @@ struct Arrange : Module {
                 float randVal = random::uniform(); // Generate a random number between 0 and 1
                 if (randVal < ((recalledValue+10.f)/20.f) ) {
                     computedProb[i] = true; // High gate (10V) if random value is less than input probability
+                    pulseGens[i].trigger(0.001f);  // Trigger a 1ms pulse (0.001 seconds)
                 } else {
                     computedProb[i] = false;  // Low gate (0V) if random value is greater than input probability
                 }
             }
             
         }
+ 
         
         // Check for toggle button states and cycle them through three modes
         for (int i = 0; i < 7; i++) {
@@ -382,10 +386,11 @@ struct Arrange : Module {
                     inputVal = round(inputVal * 12.0f) / 12.0f;                  
                     outputs[CHAN_1_OUTPUT + i].setVoltage(inputVal);//output the quantized value
                 } else if (channelButton[i] == 2) {            
-                    if (computedProb[i]) {  
-                        outputs[CHAN_1_OUTPUT + i].setVoltage(10.f);                     
+                    // Check if the pulse is still high
+                    if (pulseGens[i].process(args.sampleTime)) {
+                        outputs[CHAN_1_OUTPUT + i].setVoltage(10.f);  // Output a 10V trigger
                     } else {
-                        outputs[CHAN_1_OUTPUT + i].setVoltage(0.f); 
+                        outputs[CHAN_1_OUTPUT + i].setVoltage(0.f);   // Otherwise, output 0V
                     }
                 }  
         
@@ -411,10 +416,11 @@ struct Arrange : Module {
                     inputVal = round(inputVal * 12.0f) / 12.0f;                  
                     outputs[CHAN_1_OUTPUT + i].setVoltage(inputVal);//output the quantized value
                 } else if (channelButton[i] == 2) {            
-                    if (computedProb[i]) {
-                        outputs[CHAN_1_OUTPUT + i].setVoltage(10.f); 
+                    // Check if the pulse is still high
+                    if (pulseGens[i].process(args.sampleTime)) {
+                        outputs[CHAN_1_OUTPUT + i].setVoltage(10.f);  // Output a 10V trigger
                     } else {
-                        outputs[CHAN_1_OUTPUT + i].setVoltage(0.f); 
+                        outputs[CHAN_1_OUTPUT + i].setVoltage(0.f);   // Otherwise, output 0V
                     }
                 }  
             }                    
