@@ -443,11 +443,9 @@ struct Arrange : Module {
             } 
         } else {
             for (int i = 0; i < 7; i++){         
-                for (int i = 0; i < 7; i++) {
-                    // Recall the output values for the current stage and set them to the knobs
-                    float recalledValue = outputValues[currentStage][i]; // Get the stored value for the current stage
-                    paramQuantities[CHAN_1_KNOB + i]->setDisplayValue(recalledValue); 
-                }
+                // Recall the output values for the current stage and set them to the knobs
+//                 float recalledValue = outputValues[currentStage][i]; // Get the stored value for the current stage
+//                 paramQuantities[CHAN_1_KNOB + i]->setDisplayValue(recalledValue); 
 
                 float inputVal = params[CHAN_1_KNOB + i].getValue(); //else we recall the values and set the knobs       
                 
