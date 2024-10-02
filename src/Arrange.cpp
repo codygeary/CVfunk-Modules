@@ -76,10 +76,17 @@ struct Arrange : Module {
  
     int currentStage = 0;
     int maxStages = 16;
+    float maxNumStages = 16.0f; //float version of maxStages
     int prevMaxStages = -1;
     int channelButton[7] = {0}; // store button press state for each channel (0, 1, 2)
-    float outputValues[128][7] = {{0.0f}}; // 2D array to store output values for each stage and channel
+    float outputValues[2048][7] = {{0.0f}}; // 2D array to store output values for each stage and channel
+                                            // array size is defaulted to the largest possible size used in the module.
+    int lengthMultiplier = 1.0f;
     bool initializingFlag = true;
+    int maxSequenceLength = 128;  //default to 128
+    int prevMaxSequenceLength = 128;
+    bool resizeEvent = false;
+    
     // To store the current state for the latch es   
     bool resetLatched = false;     
     bool forwardLatched = false;  
@@ -106,7 +113,7 @@ struct Arrange : Module {
     
         // Store outputValues 2D array as a JSON array of arrays
         json_t* outputValuesJ = json_array();
-        for (int stage = 0; stage < 128; stage++) {
+        for (int stage = 0; stage < 2048; stage++) {
             json_t* stageArrayJ = json_array();
             for (int channel = 0; channel < 7; channel++) {
                 json_array_append_new(stageArrayJ, json_real(outputValues[stage][channel]));
@@ -128,7 +135,10 @@ struct Arrange : Module {
     
         // Store enablePolyOut as a JSON boolean
         json_object_set_new(rootJ, "enablePolyOut", json_boolean(enablePolyOut));
-    
+
+        // Store maxSequenceLength as a JSON integer
+        json_object_set_new(rootJ, "maxSequenceLength", json_integer(maxSequenceLength)); 
+   
         return rootJ;
     }
         
@@ -146,7 +156,7 @@ struct Arrange : Module {
         // Load outputValues 2D array
         json_t* outputValuesJ = json_object_get(rootJ, "outputValues");
         if (outputValuesJ) {
-            for (int stage = 0; stage < 128; stage++) {
+            for (int stage = 0; stage < 2048; stage++) {
                 json_t* stageArrayJ = json_array_get(outputValuesJ, stage);
                 if (stageArrayJ) {
                     for (int channel = 0; channel < 7; channel++) {
@@ -184,12 +194,18 @@ struct Arrange : Module {
         if (enablePolyOutJ) {
             enablePolyOut = json_is_true(enablePolyOutJ);
         }
+        
+        // Load maxSequenceLength
+        json_t* maxSequenceLengthJ = json_object_get(rootJ, "maxSequenceLength");
+        if (maxSequenceLengthJ) {
+            maxSequenceLength = json_integer_value(maxSequenceLengthJ); // Set maxSequenceLength
+        }     
     }
 
     Arrange() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
 
-        configParam(MAX_STAGES, 1.f, 128.f, 16.f, "Max Stages");
+        configParam(MAX_STAGES, 0.f, 128.f, 16.f, "Max Stages");
         configParam(STAGE_SELECT, 0.f, 1.f, 0.f, "Stage");
 
         // Button parameters
@@ -269,12 +285,23 @@ struct Arrange : Module {
         int previousStage = currentStage;
         bool resizeEvent = false;
 
+        maxNumStages = params[MAX_STAGES].getValue() ;
+        if ( maxNumStages <= 1 ) {maxNumStages = 1;} //Fewest stages allowed is 1 
+            
+        if (prevMaxSequenceLength != maxSequenceLength){
+            //Sequence length has changed 
+            lengthMultiplier = static_cast<int>(maxSequenceLength/128);
+            paramQuantities[MAX_STAGES]->displayMultiplier = lengthMultiplier;
+            maxStages = static_cast<int>(maxNumStages * lengthMultiplier);
+            prevMaxSequenceLength = maxSequenceLength;
+        } else {
+            maxStages = static_cast<int>( floor(maxNumStages * lengthMultiplier) );
+        }
+
         currentStage = floor(params[STAGE_SELECT].getValue()*(maxStages-1));
         if (currentStage < 0){ currentStage = 0; }
-        if (currentStage > maxStages-1){ currentStage = maxStages-1; }
+        if (currentStage > (maxStages-1)){ currentStage = (maxStages-1); }
 
-        maxStages = floor( params[MAX_STAGES].getValue() );
-        if ( maxStages <= 0 ) {maxStages = 1;} //Fewest stages allowed is 1 
 
         // Dynamically reconfigure the Stage knob based on the Max, if Max changes
         if (maxStages != prevMaxStages){
@@ -443,10 +470,6 @@ struct Arrange : Module {
             } 
         } else {
             for (int i = 0; i < 7; i++){         
-                // Recall the output values for the current stage and set them to the knobs
-//                 float recalledValue = outputValues[currentStage][i]; // Get the stored value for the current stage
-//                 paramQuantities[CHAN_1_KNOB + i]->setDisplayValue(recalledValue); 
-
                 float inputVal = params[CHAN_1_KNOB + i].getValue(); //else we recall the values and set the knobs       
                 
                 if (channelButton[i]==0){
@@ -490,6 +513,7 @@ struct Arrange : Module {
             }
         }           
     }//void process
+        
 };
 
 struct ProgressDisplay : TransparentWidget {
@@ -538,6 +562,7 @@ struct ProgressDisplay : TransparentWidget {
             nvgFill(args.vg);
         }
     }
+    
 };
 
 struct ArrangeWidget : ModuleWidget {
@@ -703,37 +728,57 @@ struct ArrangeWidget : ModuleWidget {
         return display;
     }
 
+    // Update the context menu structure and ensure correct function calling
     void appendContextMenu(Menu* menu) override {
         ModuleWidget::appendContextMenu(menu);
-    
+        
         // Cast the module to Arrange
         Arrange* arrangeModule = dynamic_cast<Arrange*>(module);
         assert(arrangeModule);
-    
-        // Separator for visual grouping in the context menu
+        
+        // Separator for new section
         menu->addChild(new MenuSeparator);
-    
-        // Example: Polyphonic output enabled/disabled menu item for Arrange
-        struct PolyOutEnabledItem : MenuItem {
+        
+        // Max Sequence Length Submenu
+        struct MaxSequenceLengthSubMenu : MenuItem {
             Arrange* arrangeModule;
-            void onAction(const event::Action& e) override {
-                // Toggle the polyphonic output setting
-                arrangeModule->enablePolyOut = !arrangeModule->enablePolyOut;
-            }
-            void step() override {
-                // Show checkmark if polyphonic output is enabled
-                rightText = arrangeModule->enablePolyOut ? "✔" : "";
-                MenuItem::step();
+    
+            Menu* createChildMenu() override {
+                Menu* subMenu = new Menu;
+                std::vector<int> lengths = {128, 256, 512, 1024, 2048}; 
+                for (int length : lengths) {
+                    struct MaxSequenceLengthItem : MenuItem {
+                        Arrange* arrangeModule;
+                        int sequenceLength;
+    
+                        void onAction(const event::Action& e) override {
+                            // Set the new max sequence length in the module
+                            arrangeModule->maxSequenceLength = sequenceLength;
+
+                        }
+    
+                        void step() override {
+                            rightText = (arrangeModule->maxSequenceLength == sequenceLength) ? "✔" : "";
+                            MenuItem::step();
+                        }
+                    };
+    
+                    MaxSequenceLengthItem* lengthItem = new MaxSequenceLengthItem();
+                    lengthItem->text = std::to_string(length);
+                    lengthItem->arrangeModule = arrangeModule; // Pass the module to the item
+                    lengthItem->sequenceLength = length; // Set the sequence length
+                    subMenu->addChild(lengthItem);
+                }
+                return subMenu;
             }
         };
     
-        // Add the item to the context menu
-        PolyOutEnabledItem* polyOutItem = new PolyOutEnabledItem();
-        polyOutItem->text = "Enable Polyphonic Output to Channel 1";  // Customize this text
-        polyOutItem->arrangeModule = arrangeModule;
-        menu->addChild(polyOutItem);
+        MaxSequenceLengthSubMenu* maxLengthSubMenu = new MaxSequenceLengthSubMenu();
+        maxLengthSubMenu->text = "Set Max Sequence Length";
+        maxLengthSubMenu->arrangeModule = arrangeModule; // Pass the module to the submenu
+        menu->addChild(maxLengthSubMenu);
     }
-  
+    
 };
 
 Model* modelArrange = createModel<Arrange, ArrangeWidget>("Arrange");

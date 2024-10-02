@@ -190,7 +190,7 @@ struct Syncro : Module {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
     
         // Configure parameters
-        configParam(CLOCK_KNOB, 0.000001f, 360.0f, 120.0f, "Clock Rate", " BPM");
+        configParam(CLOCK_KNOB, 0.000001f, 480.0f, 120.0f, "Clock Rate", " BPM");
         configParam(CLOCK_ATT, -1.f, 1.f, 0.0f, "Clock Attenuvertor");
         configParam(SWING_KNOB, -99.0f, 99.0f, 0.0f, "Swing", " %");
         configParam(SWING_ATT, -1.f, 1.f, 0.0f, "Swing Attenuvertor");

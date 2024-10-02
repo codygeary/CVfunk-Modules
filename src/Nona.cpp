@@ -72,7 +72,7 @@ struct Nona : Module {
             configParam(GAIN_KNOB_1 + i, -2.0f, 2.0f, 0.0f, "Gain " + std::to_string(i + 1));
         }
         for (int i = 0; i < 9; i++) {
-            configParam(OFFSET_KNOB_1 + i, -5.0f, 5.0f, 0.0f,  "Offset " + std::to_string(i + 1));
+            configParam(OFFSET_KNOB_1 + i, -10.0f, 10.0f, 0.0f,  "Offset " + std::to_string(i + 1));
         }
     }
 

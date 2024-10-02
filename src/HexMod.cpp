@@ -208,7 +208,7 @@ struct HexMod : Module {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
 
         // Initialize knob parameters with a reasonable range and default values
-        configParam(RATE_KNOB, 0.0f, 10.0f, 2.0f, "Rate, Hz"); // 
+        configParam(RATE_KNOB, 0.0f, 20.0f, 2.0f, "Rate, Hz"); // 
         configParam(NODE_KNOB, 0.0f, 3.0f, 0.0f, "Node Distribution"); // 0: Hexagonal, 1: Unison, 2: Bimodal, 3: Trimodal
         configParam(RANGE_KNOB, -10.0f, 10.0f, 5.0f, "Output Range"); //
 

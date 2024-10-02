@@ -48,6 +48,39 @@ public:
     }
 };
 
+#include "Filter6pButter.h"
+#define OVERSAMPLING_FACTOR 8 
+class OverSamplingShaper {
+public:
+    OverSamplingShaper() {
+        interpolatingFilter.setCutoffFreq(1.f / (OVERSAMPLING_FACTOR * 4));
+        decimatingFilter.setCutoffFreq(1.f / (OVERSAMPLING_FACTOR * 4));
+    }
+    float process(float input) {
+        float signal;
+        for (int i = 0; i < OVERSAMPLING_FACTOR; ++i) {
+            signal = (i == 0) ? input * OVERSAMPLING_FACTOR : 0.f;   
+            signal = interpolatingFilter.process(signal);
+            signal = processShape(signal);
+            signal = decimatingFilter.process(signal);
+        }
+        return signal;
+    }
+private:
+    virtual float processShape(float) = 0;
+    Filter6PButter interpolatingFilter;
+    Filter6PButter decimatingFilter;
+};
+
+// Define the OverSamplingShaper derived class
+class SimpleShaper : public OverSamplingShaper {
+private:
+    float processShape(float input) override {
+        // No additional shaping; just pass through
+        return input;
+    }
+};
+
 struct Ouros : Module {
 
     static inline float linearInterpolation(float a, float b, float fraction) {
@@ -179,7 +212,7 @@ struct Ouros : Module {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
 
         // Initialize knob parameters with a reasonable range and default values
-        configParam(RATE_KNOB, -3.0f, 3.0f, 0.0f, "V/Oct offset"); // 
+        configParam(RATE_KNOB, -4.0f, 4.0f, 0.0f, "V/Oct offset"); // 
         configParam(NODE_KNOB, 0.0f, 5.0f, 0.0f, "Node Distribution"); // 0: Hexagonal, 1: Unison, 2: Bimodal, 3: Trimodal, 4: Unison, 5:Hexagonal
         configParam(POSITION_KNOB, -360.0f, 360.0f, 0.0f, "Feedback Position"); // 
 
