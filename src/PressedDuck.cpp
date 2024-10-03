@@ -224,8 +224,7 @@ struct PressedDuck : Module {
     SecondOrderHPF hpfL, hpfR;
 
     // For mute transition
-    float transitionTimeMs = 10000.f; // Transition time in milliseconds
-    float transitionSamples; // Number of samples to complete the transition
+    float transitionSamples = 1.f; // Number of samples to complete the transition, updated in config
     float fadeLevel[7] = {1.0f}; 
     int transitionCount[7] = {0};  // Array to track transition progress for each channel
     float targetFadeLevel[7] = {0.0f};
@@ -316,10 +315,14 @@ struct PressedDuck : Module {
         configOutput(AUDIO_OUTPUT_L, "Main Out L");
         configOutput(AUDIO_OUTPUT_R, "Main Out R");
         
-        // Calculate transition samples (default assuming 44100 Hz, will update in process)
-        transitionSamples = 0.005 * 44100; // 5 ms * sample rate
+        transitionSamples = 0.005 * APP->engine->getSampleRate(); // 5 ms * sample rate        
      }
 
+    void onSampleRateChange() override {
+         float sampleRate = APP->engine->getSampleRate();
+         transitionSamples = 0.005 * sampleRate; // 5 ms * sample rate
+    }
+    
     void process(const ProcessArgs& args) override {
         float mixL = 0.0f;
         float mixR = 0.0f;
@@ -500,12 +503,13 @@ struct PressedDuck : Module {
                     inputMute = inputs[ MUTE_1_INPUT + activeMuteChannel[i] ].getPolyVoltage(diffBetween) > 0.5f;
                 }
             }
-        
+         
             // Determine final mute state
             if (activeMuteChannel[i] > -1) {
                 // If CV is connected or if it's poly CV, ignore the button
                 muteState[i] = inputMute;
                 muteLatch[i] = false; // Reset the latch
+
             } else {
                 // If no CV is connected, use the button for muting
                 if (buttonMute) {
@@ -521,7 +525,10 @@ struct PressedDuck : Module {
                 // Ensure the mute state is handled
                 muteState[i] = muteState[i];
             }
-        
+ 
+ 			if (muteState[i] > 0){ inputCount += -1.0f; }//decrement the input count for each muted input
+			if (inputCount < 0.f){ inputCount = 0.f;} //prevent negative inputs
+      
             if (transitionCount[i] > 0) {
                 float fadeStep = (muteState[i] ? -1.0f : 1.0f) / transitionSamples;
                 fadeLevel[i] += fadeStep;
@@ -611,18 +618,23 @@ struct PressedDuck : Module {
             pressAmount += inputs[PRESS_CV_INPUT].getVoltage()*params[PRESS_ATT].getValue();
         }
         pressAmount = clamp(pressAmount, 0.0f, 1.0f);
-        
-        pressTotalL = (1.0f*(1-pressAmount) + pressAmount/compressionAmountL)*6/inputCount;
-        pressTotalR = (1.0f*(1-pressAmount) + pressAmount/compressionAmountR)*6/inputCount;
-        
+
+		if (inputCount>0 && compressionAmountL > 0 && compressionAmountR > 0){  //div zero protection  
+			pressTotalL = (1.0f*(1-pressAmount) + pressAmount/compressionAmountL)*6/inputCount;
+			pressTotalR = (1.0f*(1-pressAmount) + pressAmount/compressionAmountR)*6/inputCount;
+        } else {
+            pressTotalL = 1.0f;
+            pressTotalR = 1.0f;
+		}
+
         // MIX the channels scaled by compression
         for (int i=0; i<6; i++){  
             if (compressionAmountL > 0.0f && inputCount>0.0f){ //avoid div by zero
                     mixL += inputL[i]*pressTotalL;
-            } 
+            } else { mixL = 0.0f;}
             if (compressionAmountR > 0.0f && inputCount>0.0f){ //avoid div by zero
                     mixR += inputR[i]*pressTotalR;
-            } 
+            } else {mixR = 0.0f;}
 
         }
 
@@ -687,20 +699,8 @@ struct PressedDuck : Module {
         volTotalL = fmax(outputL * decayRate, fabs(outputL)) ;
         volTotalR = fmax(outputR * decayRate, fabs(outputR)) ;
 
-        // Check output connections to implement conditional mono-to-stereo mirroring
-        if (outputs[AUDIO_OUTPUT_L].isConnected() && !outputs[AUDIO_OUTPUT_R].isConnected()) {
-            // Only left output is connected, copy to right output
-            outputs[AUDIO_OUTPUT_L].setVoltage(outputL);
-            outputs[AUDIO_OUTPUT_R].setVoltage(outputL);  // Mirror left to right
-        } else if (!outputs[AUDIO_OUTPUT_L].isConnected() && outputs[AUDIO_OUTPUT_R].isConnected()) {
-            // Only right output is connected, copy to left output
-            outputs[AUDIO_OUTPUT_L].setVoltage(outputR);  // Mirror right to left
-            outputs[AUDIO_OUTPUT_R].setVoltage(outputR);
-        } else {
-            // Both outputs are connected, or neither are, operate in true stereo or silence both
-            outputs[AUDIO_OUTPUT_L].setVoltage(outputL);
-            outputs[AUDIO_OUTPUT_R].setVoltage(outputR);
-        }
+		outputs[AUDIO_OUTPUT_L].setVoltage(outputL);
+		outputs[AUDIO_OUTPUT_R].setVoltage(outputR);
 
         // Update lights periodically
         updateLights();
