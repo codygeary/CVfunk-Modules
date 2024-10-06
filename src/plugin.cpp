@@ -28,6 +28,7 @@ void init(Plugin* p) {
 	p->addModel(modelStepWave);
 	p->addModel(modelPreeeeeeeeeeessedDuck);
 	p->addModel(modelArrange);
+	p->addModel(modelTriDelay);
 
 	
 	// Any other plugin initialization may go here.
