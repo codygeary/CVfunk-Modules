@@ -55,11 +55,11 @@
        width="77.001762"
        height="129.94316"
        style="clip-rule:evenodd;display:inline;fill:#e5e5e5;fill-rule:evenodd;stroke-width:0.432576;stroke-linejoin:round;stroke-miterlimit:1.5;fill-opacity:1" /><rect
-       style="display:inline;fill:#666666;fill-opacity:1;stroke:#000000;stroke-width:0.35277778;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       style="display:inline;fill:#666666;fill-opacity:1;stroke:#000000;stroke-width:0.352778;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
        id="rect48"
        width="14.474549"
        height="23.308886"
-       x="109.86259"
+       x="109.33342"
        y="-72.898384"
        rx="5.0000005"
        ry="5.0000005"
@@ -284,7 +284,8 @@
        style="clip-rule:evenodd;display:inline;fill:#000000;fill-opacity:0;fill-rule:evenodd;stroke:#000000;stroke-width:0.286245;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:1.5;stroke-dasharray:none;stroke-opacity:1" /><g
        aria-label="OUT"
        id="text1440"
-       style="font-style:italic;font-size:3.52778px;font-family:Menlo;-inkscape-font-specification:'Menlo Italic';text-align:center;text-anchor:middle;opacity:1;fill:#ffffff;stroke-width:0.352777"><path
+       style="font-style:italic;font-size:3.52778px;font-family:Menlo;-inkscape-font-specification:'Menlo Italic';text-align:center;text-anchor:middle;opacity:1;fill:#ffffff;stroke-width:0.352777"
+       transform="translate(0,-1.0583333)"><path
          d="m 58.592054,113.74435 q 0.146417,0 0.270441,-0.0879 0.124023,-0.0878 0.204983,-0.2515 0.127468,-0.24977 0.206706,-0.60461 0.07924,-0.35485 0.07924,-0.68213 0,-0.2446 -0.09129,-0.36001 -0.08957,-0.11714 -0.279053,-0.11714 -0.146417,0 -0.268718,0.0879 -0.122301,0.0879 -0.20326,0.2515 -0.130914,0.25321 -0.210151,0.60461 -0.07924,0.3514 -0.07924,0.67869 0,0.24632 0.08957,0.36345 0.0913,0.11714 0.280775,0.11714 z m 1.117935,-1.52446 q 0,0.18948 -0.03962,0.41169 -0.0379,0.22221 -0.111966,0.45648 -0.04995,0.15847 -0.10852,0.28422 -0.05684,0.12574 -0.124024,0.22737 -0.151584,0.21877 -0.339342,0.32384 -0.187758,0.10335 -0.437527,0.10335 -0.346233,0 -0.51332,-0.21187 -0.167087,-0.21187 -0.167087,-0.65285 0,-0.1912 0.03617,-0.40996 0.0379,-0.22049 0.111966,-0.45475 0.04995,-0.15848 0.106798,-0.28423 0.05857,-0.12574 0.125746,-0.22737 0.151584,-0.21877 0.339342,-0.32212 0.187758,-0.10507 0.437528,-0.10507 0.347955,0 0.515042,0.21187 0.16881,0.21015 0.16881,0.6494 z"
          style="stroke-width:0.352778"
          id="path2962" /><path
