@@ -100,6 +100,7 @@ struct Arrange : Module {
     bool computedProb[7] = {false};
     bool enablePolyOut = false;
     bool prevEnablePolyOut = false;
+    bool stopRecordAtEnd = false;
 
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
@@ -125,6 +126,8 @@ struct Arrange : Module {
         // Store recordLatched and prevRecordState as JSON booleans
         json_object_set_new(rootJ, "recordLatched", json_boolean(recordLatched));
         json_object_set_new(rootJ, "prevRecordState", json_boolean(prevRecordState));
+        json_object_set_new(rootJ, "stopRecordAtEnd", json_boolean(stopRecordAtEnd));
+
     
         // Store computedProb array as a JSON array
         json_t* computedProbJ = json_array();
@@ -178,7 +181,12 @@ struct Arrange : Module {
         if (prevRecordStateJ) {
             prevRecordState = json_is_true(prevRecordStateJ);
         }
-    
+
+        json_t* stopRecordAtEndJ = json_object_get(rootJ, "stopRecordAtEnd");
+        if (stopRecordAtEndJ) {
+            stopRecordAtEnd = json_is_true(stopRecordAtEndJ);
+        }
+ 
         // Load computedProb array
         json_t* computedProbJ = json_object_get(rootJ, "computedProb");
         if (computedProbJ) {
@@ -285,33 +293,32 @@ struct Arrange : Module {
         int previousStage = currentStage;
         bool resizeEvent = false;
 
-        maxNumStages = params[MAX_STAGES].getValue() ;
-        if ( maxNumStages <= 1 ) {maxNumStages = 1;} //Fewest stages allowed is 1 
-            
-        if (prevMaxSequenceLength != maxSequenceLength){
-            //Sequence length has changed 
-            lengthMultiplier = static_cast<int>(maxSequenceLength/128);
+        // Calculate maxNumStages
+        maxNumStages = params[MAX_STAGES].getValue()*lengthMultiplier;
+        if (maxNumStages < 1) { maxNumStages = 1; } // Fewest stages allowed is 1 
+        
+        // Check if maxSequenceLength has changed
+        if (prevMaxSequenceLength != maxSequenceLength) {
+            // Sequence length has changed 
+            lengthMultiplier = static_cast<int>(maxSequenceLength / 128);
             paramQuantities[MAX_STAGES]->displayMultiplier = lengthMultiplier;
-            maxStages = static_cast<int>(maxNumStages * lengthMultiplier);
+            if (currentStage < maxNumStages) {currentStage = static_cast<int>(maxNumStages);}
             prevMaxSequenceLength = maxSequenceLength;
-        } else {
-            maxStages = static_cast<int>( floor(maxNumStages * lengthMultiplier) );
-        }
+            resizeEvent = true;
+        } 
 
-        currentStage = floor(params[STAGE_SELECT].getValue()*(maxStages-1));
-        if (currentStage < 0){ currentStage = 0; }
-        if (currentStage > (maxStages-1)){ currentStage = (maxStages-1); }
-
-
+        maxStages = static_cast<int>(maxNumStages);
+        
+        currentStage = round(params[STAGE_SELECT].getValue() * (maxStages - 1));
+        
         // Dynamically reconfigure the Stage knob based on the Max, if Max changes
-        if (maxStages != prevMaxStages){
+        if (maxStages != prevMaxStages) {
             paramQuantities[STAGE_SELECT]->setDisplayValue(0.f);
-            paramQuantities[STAGE_SELECT]->displayMultiplier = (maxStages-1);            
-            prevMaxStages = maxStages;
-            currentStage = 0;
+            paramQuantities[STAGE_SELECT]->displayMultiplier = (maxStages - 1);            
+            prevMaxStages = maxStages;        
             resizeEvent = true;
         }
- 
+
         // Handle button press for Reset
         if (resetTrigger.process(params[RESET_BUTTON].getValue())) {
             currentStage = 0;  // Reset to the first stage
@@ -327,17 +334,24 @@ struct Arrange : Module {
     
         // Handle button press for Forward
         if (forwardTrigger.process(params[FORWARD_BUTTON].getValue())) {
-            currentStage++;
+            currentStage++; // Increment stage
             if (currentStage >= maxStages) {
                 currentStage = 0;  // Loop back to the start if needed
+                if (stopRecordAtEnd && recordLatched){
+                    recordLatched = false;
+                }
             }
             paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage);
         } else if (inputs[FORWARD_INPUT].isConnected()) {
             bool forwardCurrentState = inputs[FORWARD_INPUT].getVoltage() > 0.05f;
             if (forwardCurrentState && !prevForwardState) { // Rising edge detected
-                currentStage++;
+                currentStage++; // Increment stage
+
                 if (currentStage >= maxStages) {
                     currentStage = 0;  // Loop back to the start if needed
+                    if (stopRecordAtEnd && recordLatched){
+                        recordLatched = false;
+                    }
                 }
                 paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage);
             }
@@ -605,7 +619,7 @@ struct ArrangeWidget : ModuleWidget {
 
         // Knobs
         addParam(createParamCentered<RoundBlackKnob>(Vec(20 + 25, 50), module, Arrange::STAGE_SELECT));
-        addParam(createParamCentered<DiscreteRoundBlackKnob>(Vec(160 + 25, 50), module, Arrange::MAX_STAGES));
+        addParam(createParamCentered<RoundBlackKnob>(Vec(160 + 25, 50), module, Arrange::MAX_STAGES));
 
         addParam(createParamCentered<TL1105>                  (Vec(45, 90), module, Arrange::REC_BUTTON));
         addInput(createInputCentered<ThemedPJ301MPort>        (Vec(20 , 90), module, Arrange::REC_INPUT));
@@ -777,6 +791,31 @@ struct ArrangeWidget : ModuleWidget {
         maxLengthSubMenu->text = "Set Max Sequence Length";
         maxLengthSubMenu->arrangeModule = arrangeModule; // Pass the module to the submenu
         menu->addChild(maxLengthSubMenu);
+
+        // Separator for new section
+        menu->addChild(new MenuSeparator);
+        
+        // Stop Record At End Menu Item
+        struct StopRecordAtEndItem : MenuItem {
+            Arrange* arrangeModule;
+        
+            void onAction(const event::Action& e) override {
+                // Toggle the stopRecordAtEnd variable in the module
+                arrangeModule->stopRecordAtEnd = !arrangeModule->stopRecordAtEnd;
+            }
+        
+            void step() override {
+                rightText = arrangeModule->stopRecordAtEnd ? "✔" : ""; // Show checkmark if true
+                MenuItem::step();
+            }
+        };
+        
+        // Create the Stop Record At End menu item
+        StopRecordAtEndItem* stopRecordAtEndItem = new StopRecordAtEndItem();
+        stopRecordAtEndItem->text = "Stop Record At End"; // Set menu item text
+        stopRecordAtEndItem->arrangeModule = arrangeModule; // Pass the module to the item
+        menu->addChild(stopRecordAtEndItem); // Add the item to the menu
+
     }
     
 };

@@ -620,11 +620,11 @@ struct PressedDuck : Module {
         pressAmount = clamp(pressAmount, 0.0f, 1.0f);
 
 		if (inputCount>0 && compressionAmountL > 0 && compressionAmountR > 0){  //div zero protection  
-			pressTotalL = (1.0f*(1-pressAmount) + pressAmount/compressionAmountL)*6/inputCount;
-			pressTotalR = (1.0f*(1-pressAmount) + pressAmount/compressionAmountR)*6/inputCount;
+			pressTotalL = ( (1.0f-pressAmount) + (pressAmount / compressionAmountL) ) * 6.0f / inputCount;
+			pressTotalR = ( (1.0f-pressAmount) + (pressAmount / compressionAmountR) ) * 6.0f / inputCount;
         } else {
-            pressTotalL = 1.0f;
-            pressTotalR = 1.0f;
+            pressTotalL = 0.0f;
+            pressTotalR = 0.0f;
 		}
 
         // MIX the channels scaled by compression
