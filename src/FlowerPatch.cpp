@@ -41,7 +41,7 @@ std::array<std::array<float, 12>, 6> Scales = {{
 // }};
 
 #include <cstddef> // for std::size_t
-bool isAligned(void* ptr, std::size_t alignment) {
+static bool isAligned(void* ptr, std::size_t alignment) {
     return reinterpret_cast<uintptr_t>(ptr) % alignment == 0;
 }
 
@@ -302,11 +302,11 @@ struct FlowerPatch : Module {
             float frequency = Scales[binIndex / 12][binIndex % 12];
             
             // Convert frequency to v/oct using inline formula
-    const float referenceFrequency = 440.0f; // Reference frequency (A4)
-    const float referenceVoltage = 0.750f;   // Voltage corresponding to the reference frequency
+            const float referenceFrequency = 440.0f; // Reference frequency (A4)
+            const float referenceVoltage = 0.750f;   // Voltage corresponding to the reference frequency
 
-    // Calculate the voltage in v/oct
-    float vOct = referenceVoltage + std::log2(frequency / referenceFrequency);
+            // Calculate the voltage in v/oct
+            float vOct = referenceVoltage + std::log2(frequency / referenceFrequency);
             // Output v/oct and scaled amplitude for each peak
             outputs[FREQUENCY_OUTPUT].setVoltage(vOct, i);  // Set voltage for each channel
             outputs[AMPLITUDE_OUTPUT].setVoltage(topIntensities[i] * 10.0f, i);  // Set voltage for each channel
