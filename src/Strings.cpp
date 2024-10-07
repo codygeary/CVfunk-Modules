@@ -121,7 +121,7 @@ struct Strings : Module {
             {"A7", "A7-Bar", "Asus4", "Aadd9"},
             {"D7", "D7-Bar", "Dsus4", "Dadd9"},
             {"G7", "G7-Bar", "Gsus4", "Gadd9"},
-            {"C7", "C7-Bar", "Csus4", "Cadd9"},
+            {"C6", "C7-Bar", "Csus4", "Cadd9"},
             {"F7", "F7-Bar", "Fsus4", "Fadd9"}
         }};
         // Define chord fingerings for row 1
@@ -139,7 +139,7 @@ struct Strings : Module {
 
         const std::array<std::array<std::string, 4>, 7> Row2_Names = {{
             {"A" ,"A-Bar" ,"Amaj7" ,"Aaug"}, 
-            {"D" ,"D-Bar" ,"Dmaj7" ,"Caug"}, 
+            {"D" ,"D-Bar" ,"Dmaj7" ,"Daug"}, 
             {"G" ,"G-Bar" ,"Gmaj7" ,"Gaug"}, 
             {"C" ,"C-Bar" ,"Cmaj7" ,"Caug"}, 
             {"F" ,"F-Bar" ,"Fmaj7" ,"Faug"}, 
@@ -148,12 +148,12 @@ struct Strings : Module {
         }};
         const std::array<std::array<std::string, 4>, 7> Row2_Chords = {{
             {"X02220", "577655", "X02120", "X03221"}, 
-            {"XX0232", "X57775", "XX0222", "XX0131"}, 
-            {"320003", "355433", "320002", "XX5323"}, 
-            {"X32010", "X35553", "X32000", "X3454X"}, 
-            {"133211", "133211", "102210", "12310X"}, 
-            {"X10331", "X13331", "X10231", "X12320"}, 
-            {"XX1343", "X68886", "XX1333", "XX1242"} 
+            {"XX0232", "X57775", "XX0222", "XX0332"}, 
+            {"320003", "355433", "320002", "321003"}, 
+            {"X32010", "X35553", "X32000", "X32110"}, 
+            {"133211", "133211", "102210", "XX3225"}, 
+            {"X10331", "X13331", "X10231", "X10332"}, 
+            {"XX1343", "X68886", "XX1333", "XX1443"} 
         }};
         const std::array<float, 7> Row2_Roots = { 0.75f, 0.167f, 0.583f, 0.0f, 0.417f, 0.833f ,0.25f };
 

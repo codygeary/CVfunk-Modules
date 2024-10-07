@@ -167,21 +167,21 @@ struct TriDelay : Module {
 
     
         // Per-tap Delay Offsets
-        configParam(TAP_1_DELAY, -3600.f, 3600.f, 0.f, "Tap 1 Delay Offset", " msec");
+        configParam(TAP_1_DELAY, -3600.f, 3600.f, -25.f, "Tap 1 Delay Offset", " msec");
         configParam(TAP_2_DELAY, -3600.f, 3600.f, 0.f, "Tap 2 Delay Offset", " msec");
-        configParam(TAP_3_DELAY, -3600.f, 3600.f, 0.f, "Tap 3 Delay Offset", " msec");
+        configParam(TAP_3_DELAY, -3600.f, 3600.f, 25.f, "Tap 3 Delay Offset", " msec");
     
         // Global Panning
         configParam(GLOBAL_PAN, -1.f, 1.f, 0.f, "Global Pan", " L/R");
         configParam(GLOBAL_PAN_ATT, -1.f, 1.f, 0.f, "Global Pan Attenuverter");
     
         // Per-tap Panning Offsets
-        configParam(TAP_1_PAN, -1.f, 1.f, 0.f, "Tap 1 Pan Offset", " L/R");
+        configParam(TAP_1_PAN, -1.f, 1.f, -.5f, "Tap 1 Pan Offset", " L/R");
         configParam(TAP_2_PAN, -1.f, 1.f, 0.f, "Tap 2 Pan Offset", " L/R");
-        configParam(TAP_3_PAN, -1.f, 1.f, 0.f, "Tap 3 Pan Offset", " L/R");
+        configParam(TAP_3_PAN, -1.f, 1.f, .5f, "Tap 3 Pan Offset", " L/R");
         
         // Global Feedback
-        configParam(GLOBAL_FEEDBACK, 0.f, 100.f, 25.f, "Global Feedback", "%");
+        configParam(GLOBAL_FEEDBACK, 0.f, 100.f, 35.f, "Global Feedback", "%");
         configParam(GLOBAL_FEEDBACK_ATT, -10.f, 10.f, 0.f, "Global Feedback Attenuverter");
     
         // Per-tap Feedback Offsets

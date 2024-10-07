@@ -504,28 +504,31 @@ struct Arrange : Module {
         } 
         
         // Detect if the enablePolyOut state has changed
+        // Detect if the enablePolyOut state has changed
         if (enablePolyOut != prevEnablePolyOut) {
             if (enablePolyOut) {
                 // Update tooltips to reflect polyphonic output
                 configOutput(CHAN_1_OUTPUT, "Poly Channel 1");
-                outputs[CHAN_1_OUTPUT].setChannels(7);  // Set the number of channels to 7
             } else {
                 // Revert tooltips to reflect monophonic output
                 configOutput(CHAN_1_OUTPUT, "Channel 1");
-                outputs[CHAN_1_OUTPUT].setChannels(1);  // Set the number of channels to 1
             }
         
             // Update the previous state to the current state
             prevEnablePolyOut = enablePolyOut;
-        }     
-
-        // Process poly-OUTPUTS    
+        }
+        
+        // Ensure correct number of channels is set based on the current state of enablePolyOut
         if (enablePolyOut) {
+            outputs[CHAN_1_OUTPUT].setChannels(7);  // Set the number of channels to 7
             // Set the polyphonic voltage for the first output
             for ( int part = 1; part < 7; part++) {
                 outputs[CHAN_1_OUTPUT].setVoltage(outputs[CHAN_1_OUTPUT + part].getVoltage(), part);  // Set voltage for the polyphonic channels
             }
-        }           
+        } else {
+            outputs[CHAN_1_OUTPUT].setChannels(1);  // Set the number of channels to 1
+        }
+
     }//void process
         
 };
@@ -634,7 +637,6 @@ struct ArrangeWidget : ModuleWidget {
 
         addParam(createParamCentered<TL1105>                  (Vec(185 , 90), module, Arrange::RESET_BUTTON));
         addInput(createInputCentered<ThemedPJ301MPort>        (Vec(210, 90), module, Arrange::RESET_INPUT));
-
 
         float initialYPos = 135; 
         float spacing = 35; 
@@ -816,8 +818,31 @@ struct ArrangeWidget : ModuleWidget {
         stopRecordAtEndItem->arrangeModule = arrangeModule; // Pass the module to the item
         menu->addChild(stopRecordAtEndItem); // Add the item to the menu
 
-    }
-    
+        // Separator for new section
+        menu->addChild(new MenuSeparator);
+        
+        // Enable Poly Output
+        struct EnablePolyOutItem : MenuItem {
+            Arrange* arrangeModule;
+        
+            void onAction(const event::Action& e) override {
+                // Toggle the enablePolyOut variable in the module
+                arrangeModule->enablePolyOut = !arrangeModule->enablePolyOut;
+            }
+        
+            void step() override {
+                rightText = arrangeModule->enablePolyOut ? "✔" : ""; // Show checkmark if true
+                MenuItem::step();
+            }
+        };
+        
+        // Create the Enable Poly Out menu item
+        EnablePolyOutItem* enablePolyOutItem = new EnablePolyOutItem();
+        enablePolyOutItem->text = "Enable Poly Out"; // Set menu item text
+        enablePolyOutItem->arrangeModule = arrangeModule; // Pass the module to the item
+        menu->addChild(enablePolyOutItem); // Add the item to the menu
+
+    }    
 };
 
 Model* modelArrange = createModel<Arrange, ArrangeWidget>("Arrange");

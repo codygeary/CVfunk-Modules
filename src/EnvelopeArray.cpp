@@ -107,6 +107,11 @@ struct EnvelopeArray : Module {
     bool retrigEnabled = false;
     bool enablePolyOut = false;
 
+    //poly logic
+    int triggerChannels[6] = {0};     
+    int activeTriggerChannel[6] = {-1};
+    
+
     // Serialization method to save module state
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
@@ -326,25 +331,71 @@ struct EnvelopeArray : Module {
             // Initialize the trigger state for each part
             bool trig[6] = {};
 
+            // Scan all trigger inputs to determine polyphony
+            for (int i = 0; i < 6; i++) {
+                // Check if the trigger input is connected
+                if (inputs[_1_INPUT + i].isConnected()) {
+                    // Get the number of polyphonic channels for this input
+                    triggerChannels[i] = inputs[_1_INPUT + i].getChannels();
+                    // Mark this as the active trigger channel
+                    activeTriggerChannel[i] = i;
+                } 
+                // Normalize from the previous active channel
+                else if (i > 0 && activeTriggerChannel[i - 1] != -1) {
+                    if (triggerChannels[activeTriggerChannel[i - 1]] > (i - activeTriggerChannel[i - 1])) {
+                        // Carry over the active channel if still valid
+                        activeTriggerChannel[i] = activeTriggerChannel[i - 1];
+                    } else {
+                        activeTriggerChannel[i] = -1; // Reset if no valid channel
+                    }
+                } else {
+                    activeTriggerChannel[i] = -1; // Explicit reset if not connected
+                }
+            }
+
+
+
             // loop over six stage parts:
             for (int part = 0; part < 6; part++) {
 
                 float in = {};
                 float in_trig[6] = {};
-
-                // Directly use the input trigger voltage if connected
-                if (inputs[_1_INPUT + part].isConnected()) {
-                    in_trig[part] = inputs[_1_INPUT + part].getVoltage()-0.1f; //add a small offset so envelopes can trigger it.
+            
+                // If this part has an active polyphonic trigger input
+                if (activeTriggerChannel[part] == part) {
+                    // Get the trigger voltage from the first polyphonic channel (base case)
+                    in_trig[part] = inputs[_1_INPUT + part].getPolyVoltage(0) - 0.1f; // Adding a small offset
                 }
+                // If this part is relying on the previous channel's polyphonic input
+                else if (activeTriggerChannel[part] > -1) {
+                    int diffBetween = part - activeTriggerChannel[part];
+                    int currentChannelMax = triggerChannels[activeTriggerChannel[part]];
+            
+                    // If we're still within the valid polyphonic channels for the active part
+                    if (currentChannelMax - diffBetween > 0) {
+                        in_trig[part] = inputs[_1_INPUT + activeTriggerChannel[part]].getPolyVoltage(diffBetween) - 0.1f;
+                    }
+                }
+ 
                 // Normalize trigger from the left (previous part) if not connected
                 else if (part > 0 && trig[part - 1]) {
                     in_trig[part] = 10.0f; // Assuming 10.0f is the voltage that indicates a trigger
                 }
-                
-                if (part==0){
-                    in_trig[0] += params[TRIGGER_BUTTON].getValue();
+            
+                // Add manual trigger if this is the first part
+                if (part == 0) {
+                    in_trig[part] += params[TRIGGER_BUTTON].getValue();
                 }
- 
+            
+                // Process the trigger input for this part 
+                if (in_trig[part] >= 1.0f) {  // Assuming trigger threshold is 1.0V
+                    // Trigger the envelope (e.g., start or reset it)
+                    trig[part] = true;
+                } else {
+                    // No trigger, reset or continue envelope
+                    trig[part] = false;
+                }
+
                 // Set gate for the current part
                 if ( Trigger[part].process(in_trig[part]) ) {
                     // Open the gate if the current part's trigger is detected
@@ -357,8 +408,7 @@ struct EnvelopeArray : Module {
                     if (retrigEnabled){
                         gate[part] = 1.0f;
                         trig[part] = true;
-                    }
-                    
+                    }                    
                 } 
 
                 float minTime = .0001f/processSkipRate; //set a very small minTime
