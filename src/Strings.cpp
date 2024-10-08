@@ -164,7 +164,7 @@ struct Strings : Module {
             {"Gm" ,"Gm-Bar" ,"Gm7"    ,"Gm6"},    
             {"Cm" ,"Cm-Bar" ,"Cm7"    ,"Cm6"},    
             {"Bb7","Bb7-Bar","Bbm7","Bb7sus2"},  
-            {"Ab" ,"Ab-Bar" ,"Ab7","Ab6sus2"}  
+            {"Ab" ,"Ab-Bar" ,"Ab7","Ab7sus2"}  
         }};
         const std::array<std::array<std::string, 4>, 7> Row3_Chords = {{
             {"022000", "X79987", "020000", "042000"},
@@ -248,7 +248,7 @@ struct Strings : Module {
             {"Gm" ,"Gm-Bar" ,"Gm7"    ,"Gm6"},    
             {"Cm" ,"Cm-Bar" ,"Cm7"    ,"Cm6"},    
             {"Bb7","Bb7-Bar","Bbm7"   ,"Bb7sus2"},  
-            {"Ab" ,"Ab-Bar" ,"Ab7"    ,"Abm6"}  
+            {"Ab" ,"Ab-Bar" ,"Ab7"    ,"AbM6"}  
         }};
         const std::array<std::array<std::string, 4>, 7> Row3_ChordsB = {{
             {"022000", "X79987", "020000", "042000"},
@@ -257,7 +257,7 @@ struct Strings : Module {
             {"310033", "355333", "313333", "312030"},
             {"X31013", "X35543", "X31313", "X31213"},
             {"X10131", "X13134", "X13124", "X13314"},
-            {"431114", "466544", "431112", "421141"}
+            {"431114", "466544", "431112", "431141"}
         }};
         const std::array<float, 7> Row3_RootsB = {0.333f, 0.75f, 0.1667f, 0.583f, 0.0f, 0.833f, 0.667f };
 
