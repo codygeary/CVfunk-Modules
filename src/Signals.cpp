@@ -203,26 +203,16 @@ struct Signals : Module {
 
         lights[TRIGGER_ON_LIGHT].setBrightness(retriggerEnabled ? 1.0f : 0.0f);
 
-//         for (int i = 0; i < NUM_INPUTS; ++i) {
-//             if (inputs[i].isConnected()) {
-//                 outputs[i].setVoltage(inputs[i].getVoltage());
-//             } else {
-//                 outputs[i].setVoltage(0.0f);
-//             }
-//         }
-
-for (int i = 0; i < 6; ++i) {
-    // Check if the current scope channel is active
-    if (activeScopeChannel[i] >= 0) {
-        // Output the processed voltage for the corresponding scope channel
-        outputs[ENV1_OUTPUT + i].setVoltage(scopeInput[i]);
-    } else {
-        // If no active input, set the output to 0V
-        outputs[ENV1_OUTPUT + i].setVoltage(0.0f);
-    }
-}
-
-
+        for (int i = 0; i < 6; ++i) {
+            // Check if the current scope channel is active
+            if (activeScopeChannel[i] >= 0) {
+                // Output the processed voltage for the corresponding scope channel
+                outputs[ENV1_OUTPUT + i].setVoltage(scopeInput[i]);
+            } else {
+                // If no active input, set the output to 0V
+                outputs[ENV1_OUTPUT + i].setVoltage(0.0f);
+            }
+        }
 
         timeSinceLastUpdate += args.sampleTime;
         if (timeSinceLastUpdate >= displayUpdateTime) {

@@ -167,9 +167,9 @@ struct TriDelay : Module {
 
     
         // Per-tap Delay Offsets
-        configParam(TAP_1_DELAY, -3600.f, 3600.f, -25.f, "Tap 1 Delay Offset", " msec");
+        configParam(TAP_1_DELAY, -3600.f, 3600.f, 0.f, "Tap 1 Delay Offset", " msec");
         configParam(TAP_2_DELAY, -3600.f, 3600.f, 0.f, "Tap 2 Delay Offset", " msec");
-        configParam(TAP_3_DELAY, -3600.f, 3600.f, 25.f, "Tap 3 Delay Offset", " msec");
+        configParam(TAP_3_DELAY, -3600.f, 3600.f, 0.f, "Tap 3 Delay Offset", " msec");
     
         // Global Panning
         configParam(GLOBAL_PAN, -1.f, 1.f, 0.f, "Global Pan", " L/R");

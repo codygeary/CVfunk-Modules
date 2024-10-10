@@ -318,19 +318,6 @@ struct Arrange : Module {
             prevMaxStages = maxStages;        
             resizeEvent = true;
         }
-
-        // Handle button press for Reset
-        if (resetTrigger.process(params[RESET_BUTTON].getValue())) {
-            currentStage = 0;  // Reset to the first stage
-            paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage);
-        } else if (inputs[RESET_INPUT].isConnected()) {
-            bool resetCurrentState = inputs[RESET_INPUT].getVoltage() > 0.05f;
-            if (resetCurrentState && !prevResetState) { // Rising edge detected
-                currentStage = 0;  // Reset to the first stage
-                paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage);
-            }
-            prevResetState = resetCurrentState; // Update previous state
-        }
     
         // Handle button press for Forward
         if (forwardTrigger.process(params[FORWARD_BUTTON].getValue())) {
@@ -376,6 +363,20 @@ struct Arrange : Module {
             }
             prevBackwardState = backwardCurrentState; // Update previous state
         } 
+ 
+        // Handle button press for Reset last
+        if (resetTrigger.process(params[RESET_BUTTON].getValue())) {
+            currentStage = 0;  // Reset to the first stage
+            paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage);
+        } else if (inputs[RESET_INPUT].isConnected()) {
+            bool resetCurrentState = inputs[RESET_INPUT].getVoltage() > 0.05f;
+            if (resetCurrentState && !prevResetState) { // Rising edge detected
+                currentStage = 0;  // Reset to the first stage
+                paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage);
+            }
+            prevResetState = resetCurrentState; // Update previous state
+        }
+
                      
         // If the current stage has changed, recall values for the knobs
         if ( (currentStage != previousStage) || resizeEvent){
@@ -395,7 +396,6 @@ struct Arrange : Module {
             }
             
         }
- 
         
         // Check for toggle button states and cycle them through three modes
         for (int i = 0; i < 7; i++) {
@@ -503,7 +503,6 @@ struct Arrange : Module {
             }                    
         } 
         
-        // Detect if the enablePolyOut state has changed
         // Detect if the enablePolyOut state has changed
         if (enablePolyOut != prevEnablePolyOut) {
             if (enablePolyOut) {

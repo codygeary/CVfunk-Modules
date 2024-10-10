@@ -201,6 +201,11 @@ struct StepWave : Module {
     bool trackGateActive = false;
     bool isSupersamplingEnabled = false;
     bool stageShapeCV = false;
+    bool quantizeCVOut = false;
+ 
+    //for gate output when sequence is not running
+	dsp::PulseGenerator stepTrigger; 
+
     
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
@@ -216,7 +221,10 @@ struct StepWave : Module {
     
         // Save the state of sequenceRunning
         json_object_set_new(rootJ, "sequenceRunning", json_boolean(sequenceRunning));
-    
+
+        // Save the state of quantizeCVOut
+        json_object_set_new(rootJ, "quantizeCVOut", json_boolean(quantizeCVOut));
+
         // Save the state of trackCV
         json_object_set_new(rootJ, "trackCV", json_boolean(trackCV));
     
@@ -256,6 +264,12 @@ struct StepWave : Module {
         json_t* sequenceRunningJ = json_object_get(rootJ, "sequenceRunning");
         if (sequenceRunningJ) {
             sequenceRunning = json_is_true(sequenceRunningJ);
+        }
+
+        // Load the state of quantizeCVOut
+        json_t* quantizeCVOutJ = json_object_get(rootJ, "quantizeCVOut");
+        if (quantizeCVOutJ) {
+            quantizeCVOut = json_is_true(quantizeCVOutJ);
         }
     
         // Load the state of trackCV
@@ -443,14 +457,13 @@ struct StepWave : Module {
             sequenceProgress = 0.f;
         } 
 
-        // Check if the channel has polyphonic input
         int displacementChannels[7] = {0};   // Number of polyphonic channels for rhythmic displacement CV inputs
         int stageChannels[8] = {0};   // Number of polyphonic channels for stage value CV inputs
         
         // Arrays to store the current input signals and connectivity status
+        //initialize all active channels with -1, indicating nothing connected.
         int activeDisplacementChannel[7] = {-1};   // Stores the number of the previous active channel for the rhythmic displacement CV 
         int activeStageChannel[8] = {-1};   // Stores the number of the previous active channel for the stage value CV     
-        //initialize all active channels with -1, indicating nothing connected.
 
         // Scan all inputs to determine the polyphony
         for (int i = 0; i < 8; i++) {            
@@ -535,8 +548,6 @@ struct StepWave : Module {
                 stepValues[i] = params[STEP_1_VAL + i].getValue();                       
             }
         } 
-
-  
           
         for (int j = 0; j < 2; j++){ //Cycle through the two different clock layers
               
@@ -589,8 +600,8 @@ struct StepWave : Module {
                     ClockTimerB.reset();  //Reset the sequencer channel
                 }
                                 
-                currentStage[j] += 1; //always advance the display layer
-                
+                currentStage[j] += 1; // advance the sequence when the time>duration
+                           
                 // Wrap the stage back to 0 at the end of the sequence
                 if (currentStage[j] > 7) {
                     currentStage[j] = 0;
@@ -612,6 +623,7 @@ struct StepWave : Module {
                     if (stepButtonTrigger[i].process(params[STEP_1_BUTTON + i].getValue())) {
                         currentStage[j] = i;
                         sampledStepValue[currentStage[j]] = stepValues[currentStage[j]];
+						stepTrigger.trigger(0.001f);  // Trigger a 1ms pulse (0.001 seconds)
                         
                         currentShape[j] = shapeValues[currentStage[j]];
                                               
@@ -880,6 +892,11 @@ struct StepWave : Module {
                 // If no slew rate is applied, directly set the slewed voltage to the final CV
                 slewedVoltage[j] = finalCV[j];
             }
+            
+            if (quantizeCVOut){
+                slewedVoltage[j] = round(slewedVoltage[j]*12.f)/12.f;
+            }
+            
 
             if (j == 1) {
                 if (isSupersamplingEnabled) {
@@ -920,7 +937,11 @@ struct StepWave : Module {
                     if (sequenceRunning){
                         outputs[GATE_OUTPUT].setVoltage(gateCV);
                     } else {
-                        outputs[GATE_OUTPUT].setVoltage(0.0f);                
+						if (stepTrigger.process(args.sampleTime)) {
+							outputs[GATE_OUTPUT].setVoltage(10.f);  // Output a 10V trigger
+						} else {
+							outputs[GATE_OUTPUT].setVoltage(0.0f);   // Otherwise, output 0V
+						}                      
                     }
                 }
             } else {
@@ -1119,11 +1140,33 @@ struct StepWaveWidget : ModuleWidget {
                 MenuItem::step();
             }
         };
-        
+ 
         ShapeMenuItem* stageShapeItem = new ShapeMenuItem();
         stageShapeItem->text = "Stage Value CV Modulates Shape";
         stageShapeItem->StepWaveModule = StepWaveModule;
         menu->addChild(stageShapeItem);
+ 
+		menu->addChild(new MenuSeparator());
+        
+		// Create a new menu item for "Quantize CV Out"
+		struct QuantizeCVMenuItem : MenuItem {
+			StepWave* StepWaveModule;  // Pointer to your module
+			void onAction(const event::Action& e) override {
+				// Toggle the "Quantize CV Out" mode
+				StepWaveModule->quantizeCVOut = !StepWaveModule->quantizeCVOut;
+			}
+			void step() override {
+				// Show a checkmark when "Quantize CV Out" is active
+				rightText = StepWaveModule->quantizeCVOut ? "✔" : "";
+				MenuItem::step();
+			}
+		};
+		
+		// Add "Quantize CV Out" item to the menu
+		QuantizeCVMenuItem* quantizeCVItem = new QuantizeCVMenuItem();
+		quantizeCVItem->text = "Quantize CV Out";
+		quantizeCVItem->StepWaveModule = StepWaveModule;  // Assign the module pointer
+		menu->addChild(quantizeCVItem);		
                 
     }              
       
