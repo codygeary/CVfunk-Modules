@@ -379,7 +379,7 @@ struct StepWave : Module {
             float SyncInputVoltage = inputs[CLOCK_INPUT].getVoltage();
 
             if (SyncTrigger.process(SyncInputVoltage)) {
-                if (!firstClockPulse) {
+                if (!firstClockPulse && SyncTimer.time > SyncInterval[1]) {
                      SyncInterval[1] = SyncTimer.time; // Get the accumulated time since the last reset                         
                 }
                 SyncTimer.reset(); // Reset the timer for the next trigger interval measurement
