@@ -2,6 +2,8 @@
 
 Explore the vast possibilities of modular synthesis with the CV funk Module Collection, designed for VCV Rack. This suite of 21 modules simplifies generating a complex spectrum of modulation and sound from simple inputs. The modules are each carefully engineered to inject dynamic modulation, intricate sequencing, and immersive soundscapes into your musical creations! From the precise steps of the Penta Sequencer to the wide range of creative freedom offered by the Step Wave, each module is designed to explore patch-programmable modular synthesis in a new way, inviting you to dive deep into the complexities of sound design with intuitive macro-controls.
 
+Please see the [USER'S MANUAL](/img/CV_funk_Manual.pdf) for more information.
+
 ![Dark CV funk Module Panels](/img/darkmodules.png)
 
 ## Modules Overview
@@ -69,4 +71,12 @@ A 7-channel input sampling sequencer/programmer.
 ### Tri Delay
 A 3-tap delay effect with 8x oversampled anti-aliasing, anti-derivative anti-aliased tanh saturation, and lagrange fractional delays.
 
-See the [User's Manual](/img/CV_funk_Manual.pdf) for more information.
+–––––––––––––––––––––––––––––
+
+Check out Omri Cohen's excellent walkthrough of the Step Wave sequencer module here:
+[![Omri Cohen's walkthrough of the Step Wave sequencer](https://img.youtube.com/vi/LT-7bXAbz20/0.jpg)](https://www.youtube.com/watch?v=LT-7bXAbz20)
+
+You can also follow the developer blog <a href = "https://community.vcvrack.com/t/new-modules-by-cv-funk/">HERE</a>
+
+Please see the [USER'S MANUAL](/img/CV_funk_Manual.pdf) for more information on the operation of these modules.
+
