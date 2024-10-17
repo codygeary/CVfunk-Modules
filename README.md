@@ -74,6 +74,7 @@ A 3-tap delay effect with 8x oversampled anti-aliasing, anti-derivative anti-ali
 –––––––––––––––––––––––––––––
 
 Check out Omri Cohen's excellent walkthrough of the Step Wave sequencer module here:
+
 [![Omri Cohen's walkthrough of the Step Wave sequencer](https://img.youtube.com/vi/LT-7bXAbz20/0.jpg)](https://www.youtube.com/watch?v=LT-7bXAbz20)
 
 You can also follow the developer blog <a href = "https://community.vcvrack.com/t/new-modules-by-cv-funk/">HERE</a>
