@@ -144,10 +144,8 @@ struct StepWave : Module {
     dsp::Timer ClockTimerA; 
     dsp::Timer ClockTimerB; 
     dsp::SchmittTrigger SyncTrigger;
-    float lastClockTime = -1.0f;
     float SyncInterval[2] = {1.0f/60.f, 1.0f};
     bool firstClockPulse = true;
-    bool resetPulse = false;
 
     // For Reset and ON/OFF
     dsp::SchmittTrigger resetTrigger;
@@ -159,8 +157,7 @@ struct StepWave : Module {
     // For each stage
     int currentStage[2] = {0,0};
     float stepValues[8] = {0.0f};
-    float sampledStepValue[8] =  {0.0f};
-    float sampledDispStepValue[8] =  {0.0f};
+    float sampledStepValue[2][8] =  {{0.0f}};
     float stageDuration[2] = {1.0f, 1.0f};
     float currentShape[2] = {0.f, 0.f};
     int numBeats = 0;
@@ -206,7 +203,6 @@ struct StepWave : Module {
     //for gate output when sequence is not running
 	dsp::PulseGenerator stepTrigger; 
 
-    
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
 
@@ -230,13 +226,16 @@ struct StepWave : Module {
     
         // Save the state of linkShapeBeats
         json_object_set_new(rootJ, "linkShapeBeats", json_boolean(linkShapeBeats));
-    
-        // Save the state of firstClockPulse
-        json_object_set_new(rootJ, "firstClockPulse", json_boolean(firstClockPulse));
-    
+        
         // Save the value of SyncInterval[1]
         json_object_set_new(rootJ, "SyncInterval1", json_real(SyncInterval[1]));
-    
+
+        // Save the value of stageDuration[1]
+        json_object_set_new(rootJ, "stageDuration1", json_real(stageDuration[1]));
+
+        // Save the value of currentStage[1]
+        json_object_set_new(rootJ, "currentStage1", json_real(currentStage[1]));
+
         return rootJ;
     }
     
@@ -283,17 +282,23 @@ struct StepWave : Module {
         if (linkShapeBeatsJ) {
             linkShapeBeats = json_is_true(linkShapeBeatsJ);
         }
-    
-        // Load the state of firstClockPulse
-        json_t* firstClockPulseJ = json_object_get(rootJ, "firstClockPulse");
-        if (firstClockPulseJ) {
-            firstClockPulse = json_is_true(firstClockPulseJ);
-        }
-    
+        
         // Load the value of SyncInterval[1]
         json_t* SyncInterval1J = json_object_get(rootJ, "SyncInterval1");
         if (SyncInterval1J) {
             SyncInterval[1] = (float)json_real_value(SyncInterval1J);
+        }
+
+        // Load the value of stageDuration[1]
+        json_t* stageDuration1J = json_object_get(rootJ, "stageDuration1");
+        if (stageDuration1J) {
+            stageDuration[1] = (float)json_real_value(stageDuration1J);
+        }
+
+        // Load the value of currentStage[1]
+        json_t* currentStage1J = json_object_get(rootJ, "currentStage1");
+        if (currentStage1J) {
+            currentStage[1] = (float)json_real_value(currentStage1J);
         }
     }
 
@@ -379,12 +384,14 @@ struct StepWave : Module {
             float SyncInputVoltage = inputs[CLOCK_INPUT].getVoltage();
 
             if (SyncTrigger.process(SyncInputVoltage)) {
-                if (!firstClockPulse && SyncTimer.time > SyncInterval[1]) {
-                     SyncInterval[1] = SyncTimer.time; // Get the accumulated time since the last reset                         
+                if (!firstClockPulse) {
+                    SyncInterval[1] = SyncTimer.time; // Get the accumulated time since the last reset                         
+					SyncTimer.reset(); // Reset the timer for the next trigger interval measurement
                 }
-                SyncTimer.reset(); // Reset the timer for the next trigger interval measurement
-                resetPulse = true;
-                firstClockPulse = false;
+                
+                if (firstClockPulse && SyncTimer.time > SyncInterval[1]){
+					firstClockPulse = false;
+                }
             }
         } 
 
@@ -445,23 +452,15 @@ struct StepWave : Module {
 
         if (!sequenceRunning) {
             deltaTimeB = 0.f;
-           // ClockTimerB.reset(); //don't reset the individual stage clock when the sequence is paused
+            // ClockTimerB.reset(); //don't reset the individual stage clock when the sequence is paused
             firstClockPulse = true;
         }
-
-        // Check for reset input or reset button
-        bool resetCondition = (inputs[RESET_INPUT].isConnected() && resetTrigger.process(inputs[RESET_INPUT].getVoltage())) || (params[RESET_BUTTON].getValue() > 0.1f);    
-        if (resetCondition) {
-            ClockTimerB.reset();
-            currentStage[1] = 0;
-            sequenceProgress = 0.f;
-        } 
 
         int displacementChannels[7] = {0};   // Number of polyphonic channels for rhythmic displacement CV inputs
         int stageChannels[8] = {0};   // Number of polyphonic channels for stage value CV inputs
         
         // Arrays to store the current input signals and connectivity status
-        //initialize all active channels with -1, indicating nothing connected.
+        // initialize all active channels with -1, indicating nothing connected.
         int activeDisplacementChannel[7] = {-1};   // Stores the number of the previous active channel for the rhythmic displacement CV 
         int activeStageChannel[8] = {-1};   // Stores the number of the previous active channel for the stage value CV     
 
@@ -592,7 +591,7 @@ struct StepWave : Module {
                 normallizedStageProgress[1] = currentTime[1]/stageDuration[1];     
                 sequenceProgress = stageStart + currentTime[1]/SyncInterval[1];
             }
-        
+			
             if (currentTime[j] >= stageDuration[j]){
                 if (j==0){
                     ClockTimerA.reset();  //Reset master channel
@@ -607,8 +606,8 @@ struct StepWave : Module {
                     currentStage[j] = 0;
                     sequenceProgress = 0.f;
                 } 
-                
-                sampledStepValue[currentStage[j]] = stepValues[currentStage[j]];
+
+				sampledStepValue[j][currentStage[j]] = stepValues[currentStage[j]]; 
                 currentShape[j] = shapeValues[currentStage[j]];
                
                 previousStagesLength[j] += stageDuration[j] / SyncInterval[j]; // Accumulate the duration of each stage normalized to SyncInterval[j]
@@ -616,13 +615,13 @@ struct StepWave : Module {
                 
                 numBeats = floor( params[STEP_1_BEATS + currentStage[j]].getValue() );                
             }
-    
+      
             if (j==1){//only jump to button for the sequencer layer
                 // Jump to step if step button is pushed
                 for (int i = 0; i < 8; i++) {
                     if (stepButtonTrigger[i].process(params[STEP_1_BUTTON + i].getValue())) {
                         currentStage[j] = i;
-                        sampledStepValue[currentStage[j]] = stepValues[currentStage[j]];
+                        sampledStepValue[j][currentStage[j]] = stepValues[currentStage[j]];
 						stepTrigger.trigger(0.001f);  // Trigger a 1ms pulse (0.001 seconds)
                         
                         currentShape[j] = shapeValues[currentStage[j]];
@@ -667,9 +666,9 @@ struct StepWave : Module {
                             lights[STEP_1_VAL_LIGHT + i].setBrightness(1.0);  
                         }              
                     } else if (currentStage[j] == i){
-                        outputs[STEP_1_GATE_OUT + i ].setVoltage(0.0);
+                        outputs[STEP_1_GATE_OUT + i ].setVoltage(10.0);
                         if (!isSupersamplingEnabled){
-                            lights[STEP_1_GATE_LIGHT + i].setBrightness(0.5);
+                            lights[STEP_1_GATE_LIGHT + i].setBrightness(0.5); //dim lights when sequencer off
                             lights[STEP_1_VAL_LIGHT + i].setBrightness(0.25);
                         }
                     } else {
@@ -686,7 +685,16 @@ struct StepWave : Module {
                     }
                 }
             }    
-            
+
+            // Check if sequencer is resetting
+			bool resetCondition = (inputs[RESET_INPUT].isConnected() && resetTrigger.process(inputs[RESET_INPUT].getVoltage())) || (params[RESET_BUTTON].getValue() > 0.1f);    
+			if (resetCondition) {
+				ClockTimerB.reset(); //reset sequencer clock
+				currentStage[1] = 0; //set sequencer stage to 0
+				sequenceProgress = 0.f; //reset progress bar
+				sampledStepValue[1][currentStage[1]] = stepValues[currentStage[1]]; //recollect the sample at reset
+			} 
+         
             //CV and Gate computation
             if (linkShapeBeats){
                 numBeats = floor( params[STEP_1_BEATS + currentStage[j]].getValue() );   
@@ -702,7 +710,7 @@ struct StepWave : Module {
     
             if (currentShape[j] == 1.f) { // Rectangle Shape
                 if (!trackCV) {
-                    finalCV[j] = sampledStepValue[currentStage[j]];  
+                    finalCV[j] = sampledStepValue[j][currentStage[j]];  
                 } else {
                     finalCV[j] = stepValues[currentStage[j]]; 
                 }
@@ -712,7 +720,7 @@ struct StepWave : Module {
                 float morphFactor = (currentShape[j] - 1.f); // From 0 to 1 as currentShape goes from 1 to 2
             
                 if (!trackCV) {
-                    finalCV[j] = sampledStepValue[currentStage[j]] * (1 - morphFactor) + sampledStepValue[currentStage[j]] * morphFactor * sawFactor;
+                    finalCV[j] = sampledStepValue[j][currentStage[j]] * (1 - morphFactor) + sampledStepValue[j][currentStage[j]] * morphFactor * sawFactor;
                 } else {
                     finalCV[j] = stepValues[currentStage[j]] * (1 - morphFactor) + stepValues[currentStage[j]] * morphFactor * sawFactor;
                 }
@@ -733,7 +741,7 @@ struct StepWave : Module {
             
                 // Apply the triangle wave to the CV
                 if (!trackCV) {
-                    finalCV[j] = sampledStepValue[currentStage[j]] * triangleValue;
+                    finalCV[j] = sampledStepValue[j][currentStage[j]] * triangleValue;
                 } else {
                     finalCV[j] = stepValues[currentStage[j]] * triangleValue;
                 }
@@ -744,12 +752,12 @@ struct StepWave : Module {
                 // Triangle to rectangle morphing logic
                 if (normallizedSplitTime[j] < 1.f - morphFactor) {
                     // Left part of the shape, which is still the triangle
-                    finalCV[j] = sampledStepValue[currentStage[j]] * (1.f - normallizedSplitTime[j] / (1.f - morphFactor));
+                    finalCV[j] = sampledStepValue[j][currentStage[j]] * (1.f - normallizedSplitTime[j] / (1.f - morphFactor));
                 } else {
                     // Right part morphing to a rectangle
                     finalCV[j] = 0.f;
                 }
-            }        
+            }        ///REMINDER implement trackCV
             else if (currentShape[j] > 4.f && currentShape[j] <= 5.f) { // Pulse Width Modulation from Left-Sided PWM to Rectangle
                 float morphFactor = currentShape[j] - 4.f; // Ranges from 0 to 1 as currentShape goes from 4 to 5
                 
@@ -758,18 +766,18 @@ struct StepWave : Module {
                 
                 // Generate the PWM shape based on pulse width
                 if (normallizedSplitTime[j] <= pulseWidth) {
-                    finalCV[j] = sampledStepValue[currentStage[j]]; // High part of the pulse
+                    finalCV[j] = sampledStepValue[j][currentStage[j]]; // High part of the pulse
                 } else {
                     finalCV[j] = 0.f; // Low part of the pulse
                 }
-            }
+            }       ///REMINDER implement trackCV
             else if (currentShape[j] > 5.f && currentShape[j] <= 6.f) { // Morphing from Rectangle to Sine Wave
                 float morphFactor = currentShape[j] - 5.f; // Ranges from 0 to 1 as currentShape goes from 5 to 6
                 
                 // Generate a sine wave and interpolate it with the rectangle
                 float sineValue = (sinf(2.f * M_PI * normallizedSplitTime[j]));
                 if (!trackCV) {
-                    finalCV[j] = sampledStepValue[currentStage[j]] * ((1 - morphFactor) + sineValue * morphFactor);
+                    finalCV[j] = sampledStepValue[j][currentStage[j]] * ((1 - morphFactor) + sineValue * morphFactor);
                 } else {
                     finalCV[j] = stepValues[currentStage[j]] * ((1 - morphFactor) + sineValue * morphFactor);
                 }
@@ -781,7 +789,7 @@ struct StepWave : Module {
                 float squareValue = (normallizedSplitTime[j] < 0.5f) ? 1.f : -1.f;
                 float sineValue = (sinf(2.f * M_PI * normallizedSplitTime[j]));
                 if (!trackCV) {
-                    finalCV[j] = sampledStepValue[currentStage[j]] * ((1 - morphFactor) * sineValue + morphFactor * squareValue);
+                    finalCV[j] = sampledStepValue[j][currentStage[j]] * ((1 - morphFactor) * sineValue + morphFactor * squareValue);
                 } else {
                     finalCV[j] = stepValues[currentStage[j]] * ((1 - morphFactor) * sineValue + morphFactor * squareValue);
                 }
@@ -793,7 +801,7 @@ struct StepWave : Module {
                 float squareValue = (normallizedSplitTime[j] < 0.5f) ? 1.f : -1.f;
                 float sawtoothValue = 1.f - 2 * normallizedSplitTime[j];
                 if (!trackCV) {
-                    finalCV[j] = sampledStepValue[currentStage[j]] * ((1 - morphFactor) * squareValue + morphFactor * sawtoothValue);
+                    finalCV[j] = sampledStepValue[j][currentStage[j]] * ((1 - morphFactor) * squareValue + morphFactor * sawtoothValue);
                 } else {
                     finalCV[j] = stepValues[currentStage[j]] * ((1 - morphFactor) * squareValue + morphFactor * sawtoothValue);
                 }
@@ -805,7 +813,7 @@ struct StepWave : Module {
                 float sawtoothValue = 1.f - 2 * normallizedSplitTime[j];
                 float triangleValue = (normallizedSplitTime[j] < 0.5f) ? (1-4.f * normallizedSplitTime[j]) : (1-4.f * (1.f - normallizedSplitTime[j]));
                 if (!trackCV) {
-                    finalCV[j] = sampledStepValue[currentStage[j]] * ((1 - morphFactor) * sawtoothValue + morphFactor * triangleValue);
+                    finalCV[j] = sampledStepValue[j][currentStage[j]] * ((1 - morphFactor) * sawtoothValue + morphFactor * triangleValue);
                 } else {
                     finalCV[j] = stepValues[currentStage[j]] * ((1 - morphFactor) * sawtoothValue + morphFactor * triangleValue);
                 }
@@ -818,7 +826,7 @@ struct StepWave : Module {
                 float logRampValue = 1.f - 2.f * logf(1.f + 9.f * normallizedSplitTime[j]) / logf(10.f);
                 
                 if (!trackCV) {
-                    finalCV[j] = sampledStepValue[currentStage[j]] * ((1 - morphFactor) * triangleValue + morphFactor * logRampValue);
+                    finalCV[j] = sampledStepValue[j][currentStage[j]] * ((1 - morphFactor) * triangleValue + morphFactor * logRampValue);
                 } else {
                     finalCV[j] = stepValues[currentStage[j]] * ((1 - morphFactor) * triangleValue + morphFactor * logRampValue);
                 }
@@ -837,7 +845,7 @@ struct StepWave : Module {
                 
                 // Apply the interpolated value to finalCV[j]
                 if (!trackCV) {
-                    finalCV[j] = sampledStepValue[currentStage[j]] * interpolatedValue;
+                    finalCV[j] = sampledStepValue[j][currentStage[j]] * interpolatedValue;
                 } else {
                     finalCV[j] = stepValues[currentStage[j]] * interpolatedValue;
                 }
@@ -860,14 +868,19 @@ struct StepWave : Module {
                 
                 // Apply the interpolated value to finalCV[j]
                 if (!trackCV) {
-                    finalCV[j] = sampledStepValue[currentStage[j]] * interpolatedValue;
+                    finalCV[j] = sampledStepValue[j][currentStage[j]] * interpolatedValue;
                 } else {
                     finalCV[j] = stepValues[currentStage[j]] * interpolatedValue;
                 }
             }
+  
+			if (!sequenceRunning && j==1) { //if the sequencer if off, then preview the CV directly
+				finalCV[1] = stepValues[currentStage[1]]; 
+			}
+
         
             // Compute Slew and output CV voltages
-            float slewRate = clamp(params[SLEW_PARAM].getValue() + inputs[SLEW_INPUT].getVoltage() / 10.f, 0.f, 1.f);
+            float slewRate = clamp(params[SLEW_PARAM].getValue() + inputs[SLEW_INPUT].getVoltage() / 10.f, 0.0f, 1.f);
 
             if (slewRate > 0) {
                 // Calculate the absolute voltage difference from the last target
@@ -892,32 +905,11 @@ struct StepWave : Module {
                 // If no slew rate is applied, directly set the slewed voltage to the final CV
                 slewedVoltage[j] = finalCV[j];
             }
-            
+             
             if (quantizeCVOut){
                 slewedVoltage[j] = round(slewedVoltage[j]*12.f)/12.f;
             }
-            
-
-            if (j == 1) {
-                if (isSupersamplingEnabled) {
-                    // Use the oversampling shaper for the signal
-                    float outputValue = shaper.process(slewedVoltage[j]);
-
-                    // Output the processed value
-                    outputs[CV_OUTPUT].setVoltage(outputValue);                   
-                    
-                } else {
-                    // If supersampling is not enabled, output the slewed voltage directly
-                    outputs[CV_OUTPUT].setVoltage(slewedVoltage[j]);
-                }
-
-                // Update last target voltage after setting the output
-                lastTargetVoltage[j] = slewedVoltage[j];
-            } else {
-                // Update last target voltage even if no output is set
-                lastTargetVoltage[j] = slewedVoltage[j];
-            }
-                   
+                             
             //Main Gate Output   
             numBeats = floor( params[STEP_1_BEATS + currentStage[j]].getValue() ); 
             float gateCV = 0.f;
@@ -948,7 +940,27 @@ struct StepWave : Module {
                 gateCV = 0.f;
                 outputs[GATE_OUTPUT].setVoltage(gateCV);                
             }                
-            
+
+            if (j == 1) {
+                if (isSupersamplingEnabled) {
+                    // Use the oversampling shaper for the signal
+                    float outputValue = shaper.process(slewedVoltage[j]);
+
+                    // Output the processed value
+                    outputs[CV_OUTPUT].setVoltage(outputValue);                   
+                    
+                } else {
+                    // If supersampling is not enabled, output the slewed voltage directly
+                    outputs[CV_OUTPUT].setVoltage(slewedVoltage[j]);
+                }
+
+                // Update last target voltage after setting the output
+                lastTargetVoltage[j] = slewedVoltage[j];
+            } else {
+                // Update last target voltage even if no output is set
+                lastTargetVoltage[j] = slewedVoltage[j];
+            }
+           
             oscPhase[0] = (previousStagesLength[j] + normallizedStageProgress[j] * (stageDuration[j] / SyncInterval[j])) / 8.f;
     
             if (j==0){ //only plot the display level
