@@ -529,7 +529,7 @@ struct StepWave : Module {
                 }
                 shapeValues[i] = params[STEP_1_SHAPE + i].getValue();
             }
-        } else {
+        } else { // the CV input modulates shape instead
             for (int i = 0; i < 8; i++){
                 if (activeStageChannel[i]==i) {
                     shapeValues[i] = clamp(inputs[STEP_1_IN_VAL + i].getVoltage() + params[STEP_1_SHAPE + i].getValue() , 1.0f, 12.0f);
@@ -544,7 +544,7 @@ struct StepWave : Module {
                 } else {                        
                     shapeValues[i] = params[STEP_1_SHAPE + i].getValue();
                 }
-                stepValues[i] = params[STEP_1_VAL + i].getValue();                       
+                stepValues[i] = params[STEP_1_VAL + i].getValue();  
             }
         } 
           
@@ -591,7 +591,19 @@ struct StepWave : Module {
                 normallizedStageProgress[1] = currentTime[1]/stageDuration[1];     
                 sequenceProgress = stageStart + currentTime[1]/SyncInterval[1];
             }
-			
+	
+			// Check if sequencer is resetting
+			bool resetCondition = (inputs[RESET_INPUT].isConnected() && resetTrigger.process(inputs[RESET_INPUT].getVoltage())) || (params[RESET_BUTTON].getValue() > 0.1f);    
+			if (resetCondition) {
+				ClockTimerB.reset(); //reset sequencer clock
+				currentStage[1] = 0; //set sequencer stage to 0
+				currentStage[0] = 0; 
+				sequenceProgress = 0.f; //reset progress bar
+				sampledStepValue[1][0] = stepValues[0]; //recollect the sample at reset
+                currentShape[1] = shapeValues[0];
+			} 
+
+		
             if (currentTime[j] >= stageDuration[j]){
                 if (j==0){
                     ClockTimerA.reset();  //Reset master channel
@@ -619,6 +631,7 @@ struct StepWave : Module {
             if (j==1){//only jump to button for the sequencer layer
                 // Jump to step if step button is pushed
                 for (int i = 0; i < 8; i++) {
+
                     if (stepButtonTrigger[i].process(params[STEP_1_BUTTON + i].getValue())) {
                         currentStage[j] = i;
                         sampledStepValue[j][currentStage[j]] = stepValues[currentStage[j]];
@@ -685,15 +698,6 @@ struct StepWave : Module {
                     }
                 }
             }    
-
-            // Check if sequencer is resetting
-			bool resetCondition = (inputs[RESET_INPUT].isConnected() && resetTrigger.process(inputs[RESET_INPUT].getVoltage())) || (params[RESET_BUTTON].getValue() > 0.1f);    
-			if (resetCondition) {
-				ClockTimerB.reset(); //reset sequencer clock
-				currentStage[1] = 0; //set sequencer stage to 0
-				sequenceProgress = 0.f; //reset progress bar
-				sampledStepValue[1][currentStage[1]] = stepValues[currentStage[1]]; //recollect the sample at reset
-			} 
          
             //CV and Gate computation
             if (linkShapeBeats){
@@ -877,8 +881,7 @@ struct StepWave : Module {
 			if (!sequenceRunning && j==1) { //if the sequencer if off, then preview the CV directly
 				finalCV[1] = stepValues[currentStage[1]]; 
 			}
-
-        
+       
             // Compute Slew and output CV voltages
             float slewRate = clamp(params[SLEW_PARAM].getValue() + inputs[SLEW_INPUT].getVoltage() / 10.f, 0.0f, 1.f);
 
