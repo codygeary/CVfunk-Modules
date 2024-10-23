@@ -70,7 +70,7 @@ struct Arrange : Module {
     DigitalDisplay* digitalDisplay = nullptr;
     DigitalDisplay* chanDisplays[7] = {nullptr};
    
-    dsp::SchmittTrigger resetTrigger, forwardTrigger, backwardTrigger, recTrigger;
+    dsp::SchmittTrigger resetTrigger, forwardTrigger, backwardTrigger, recTrigger, forwardInput, backwardInput, recInput, resetInput;
     dsp::SchmittTrigger channelButtonTriggers[7];
     dsp::PulseGenerator pulseGens[7]; 
  
@@ -81,6 +81,8 @@ struct Arrange : Module {
     int channelButton[7] = {0}; // store button press state for each channel (0, 1, 2)
     float outputValues[2048][7] = {{0.0f}}; // 2D array to store output values for each stage and channel
                                             // array size is defaulted to the largest possible size used in the module.
+    float inputVal[7] = {0.0f};
+
     int lengthMultiplier = 1.0f;
     bool initializingFlag = true;
     int maxSequenceLength = 128;  //default to 128
@@ -264,14 +266,12 @@ struct Arrange : Module {
     void onRandomize(const RandomizeEvent& e) override {
         // Randomize only the channel knob parameters
         for (int i = 0; i < 7; i++) {
-            params[CHAN_1_KNOB + i].setValue(random::uniform()*10-5);
+            params[CHAN_1_KNOB + i].setValue(random::uniform()*10-5);  //randomizes to -5...5V
         }
     }
 
     void onReset(const ResetEvent& e) override {
-        // Reset all parameters
-        Module::onReset(e);
-        for (int stage = 0; stage < 128; stage++) {
+        for (int stage = 0; stage < maxSequenceLength; stage++) {  // Reset values only
             for (int channel = 0; channel < 7; channel++) {
                 outputValues[stage][channel] = 0.0f;  // Reset each element to 0.0f
             }
@@ -330,7 +330,7 @@ struct Arrange : Module {
             }
             paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage);
         } else if (inputs[FORWARD_INPUT].isConnected()) {
-            bool forwardCurrentState = inputs[FORWARD_INPUT].getVoltage() > 0.05f;
+            bool forwardCurrentState = forwardInput.process(inputs[FORWARD_INPUT].getVoltage());
             if (forwardCurrentState && !prevForwardState) { // Rising edge detected
                 currentStage++; // Increment stage
 
@@ -353,7 +353,7 @@ struct Arrange : Module {
             }
             paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage);
         } else if (inputs[BACKWARDS_INPUT].isConnected()) {
-            bool backwardCurrentState = inputs[BACKWARDS_INPUT].getVoltage() > 0.05f;
+            bool backwardCurrentState = backwardInput.process(inputs[BACKWARDS_INPUT].getVoltage());
             if (backwardCurrentState && !prevBackwardState) { // Rising edge detected
                 currentStage--;
                 if (currentStage < 0) {
@@ -369,7 +369,7 @@ struct Arrange : Module {
             currentStage = 0;  // Reset to the first stage
             paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage);
         } else if (inputs[RESET_INPUT].isConnected()) {
-            bool resetCurrentState = inputs[RESET_INPUT].getVoltage() > 0.05f;
+            bool resetCurrentState = resetInput.process(inputs[RESET_INPUT].getVoltage());
             if (resetCurrentState && !prevResetState) { // Rising edge detected
                 currentStage = 0;  // Reset to the first stage
                 paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage);
@@ -411,7 +411,7 @@ struct Arrange : Module {
         if (recTrigger.process(params[REC_BUTTON].getValue())) {
             recordLatched = !recordLatched;  // Toggle the recording state
         } else if (inputs[REC_INPUT].isConnected()) {
-            bool recCurrentState = inputs[REC_INPUT].getVoltage() > 0.05f;
+            bool recCurrentState = recInput.process(inputs[REC_INPUT].getVoltage());
             if (recCurrentState && !prevRecordState) {  // Rising edge detected
                 recordLatched = !recordLatched;  // Toggle the recording state
                 recordStateChange = true;
@@ -448,26 +448,13 @@ struct Arrange : Module {
                    
             //Prepare output and store into array
             for (int i = 0; i < 7; i++){
-                // Measure inputs
-                float inputVal = params[CHAN_1_KNOB + i].getValue(); //default to the knob value with no inputs
-            
-                if (activeInputChannel[i]==i) {
-                    inputVal = inputs[CHAN_1_INPUT + i].getPolyVoltage(0);
-                } else if (activeInputChannel[i] > -1){
-                    // Now we compute which channel we need to grab
-                    int diffBetween = i - activeInputChannel[i];
-                    int currentChannelMax =  inputChannels[activeInputChannel[i]] ;    
-                    if (currentChannelMax - diffBetween > 0) {    //If we are before the last poly channel
-                        inputVal = inputs[CHAN_1_INPUT + activeInputChannel[i]].getPolyVoltage(diffBetween); 
-                    }
-                }
         
                 if (channelButton[i]==0){
-                    outputs[CHAN_1_OUTPUT + i].setVoltage(inputVal);//output the unmodified value
+                    outputs[CHAN_1_OUTPUT + i].setVoltage(inputVal[i]);//output the unmodified value
                 } else if (channelButton[i]==1){               
                     //quantize the outputValue voltage by rounding to the nearest 1/12
-                    inputVal = round(inputVal * 12.0f) / 12.0f;                  
-                    outputs[CHAN_1_OUTPUT + i].setVoltage(inputVal);//output the quantized value
+                    inputVal[i] = round(inputVal[i] * 12.0f) / 12.0f;                  
+                    outputs[CHAN_1_OUTPUT + i].setVoltage(inputVal[i]);//output the quantized value
                 } else if (channelButton[i] == 2) {            
                     // Check if the pulse is still high
                     if (pulseGens[i].process(args.sampleTime)) {
@@ -478,20 +465,35 @@ struct Arrange : Module {
                 }  
         
                 //Store the output value in the 2D array for the current stage
-                if (currentStage >= 0 && currentStage < 128) {
-                    outputValues[currentStage][i] = inputVal; // Store input value at the current stage for the respective channel
+                if (currentStage >= 0 && currentStage < maxSequenceLength) {
+                    outputValues[currentStage][i] = inputVal[i]; // Store input value at the current stage for the respective channel
                 }
+                
+                // Measure new inputs (delayed by 1 sample)
+                inputVal[i] = params[CHAN_1_KNOB + i].getValue(); //default to the knob value with no inputs
+            
+                if (activeInputChannel[i]==i) {
+                    inputVal[i] = inputs[CHAN_1_INPUT + i].getPolyVoltage(0);
+                } else if (activeInputChannel[i] > -1){
+                    // Now we compute which channel we need to grab
+                    int diffBetween = i - activeInputChannel[i];
+                    int currentChannelMax =  inputChannels[activeInputChannel[i]] ;    
+                    if (currentChannelMax - diffBetween > 0) {    //If we are before the last poly channel
+                        inputVal[i] = inputs[CHAN_1_INPUT + activeInputChannel[i]].getPolyVoltage(diffBetween); 
+                    }
+                }               
+                
             } 
         } else {
             for (int i = 0; i < 7; i++){         
-                float inputVal = params[CHAN_1_KNOB + i].getValue(); //else we recall the values and set the knobs       
+                inputVal[i] = params[CHAN_1_KNOB + i].getValue(); //else we recall the values and set the knobs       
                 
                 if (channelButton[i]==0){
-                    outputs[CHAN_1_OUTPUT + i].setVoltage(inputVal);//output the unmodified value
+                    outputs[CHAN_1_OUTPUT + i].setVoltage(inputVal[i]);//output the unmodified value
                 } else if (channelButton[i]==1){               
                     //quantize the outputValue voltage by rounding to the nearest 1/12
-                    inputVal = round(inputVal * 12.0f) / 12.0f;                  
-                    outputs[CHAN_1_OUTPUT + i].setVoltage(inputVal);//output the quantized value
+                    inputVal[i] = round(inputVal[i] * 12.0f) / 12.0f;                  
+                    outputs[CHAN_1_OUTPUT + i].setVoltage(inputVal[i]);//output the quantized value
                 } else if (channelButton[i] == 2) {            
                     // Check if the pulse is still high
                     if (pulseGens[i].process(args.sampleTime)) {
