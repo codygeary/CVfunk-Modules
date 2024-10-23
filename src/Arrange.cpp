@@ -81,8 +81,6 @@ struct Arrange : Module {
     int channelButton[7] = {0}; // store button press state for each channel (0, 1, 2)
     float outputValues[2048][7] = {{0.0f}}; // 2D array to store output values for each stage and channel
                                             // array size is defaulted to the largest possible size used in the module.
-    float inputVal[7] = {0.0f};
-
     int lengthMultiplier = 1.0f;
     bool initializingFlag = true;
     int maxSequenceLength = 128;  //default to 128
@@ -376,8 +374,7 @@ struct Arrange : Module {
             }
             prevResetState = resetCurrentState; // Update previous state
         }
-
-                     
+                    
         // If the current stage has changed, recall values for the knobs
         if ( (currentStage != previousStage) || resizeEvent){
             for (int i = 0; i < 7; i++) {
@@ -393,8 +390,7 @@ struct Arrange : Module {
                 } else {
                     computedProb[i] = false;  // Low gate (0V) if random value is greater than input probability
                 }
-            }
-            
+            }          
         }
         
         // Check for toggle button states and cycle them through three modes
@@ -448,13 +444,27 @@ struct Arrange : Module {
                    
             //Prepare output and store into array
             for (int i = 0; i < 7; i++){
+                // Measure inputs
+                float knobVal = params[CHAN_1_KNOB + i].getValue(); //default to the knob value with no inputs
+                float inputVal = knobVal; 
+            
+                if (activeInputChannel[i]==i) {
+                    inputVal = inputs[CHAN_1_INPUT + i].getPolyVoltage(0);
+                } else if (activeInputChannel[i] > -1){
+                    // Now we compute which channel we need to grab
+                    int diffBetween = i - activeInputChannel[i];
+                    int currentChannelMax =  inputChannels[activeInputChannel[i]] ;    
+                    if (currentChannelMax - diffBetween > 0) {    //If we are before the last poly channel
+                        inputVal = inputs[CHAN_1_INPUT + activeInputChannel[i]].getPolyVoltage(diffBetween); 
+                    }
+                }
         
                 if (channelButton[i]==0){
-                    outputs[CHAN_1_OUTPUT + i].setVoltage(inputVal[i]);//output the unmodified value
+                    outputs[CHAN_1_OUTPUT + i].setVoltage(inputVal);//output the unmodified value
                 } else if (channelButton[i]==1){               
                     //quantize the outputValue voltage by rounding to the nearest 1/12
-                    inputVal[i] = round(inputVal[i] * 12.0f) / 12.0f;                  
-                    outputs[CHAN_1_OUTPUT + i].setVoltage(inputVal[i]);//output the quantized value
+                    inputVal = round(inputVal * 12.0f) / 12.0f;                  
+                    outputs[CHAN_1_OUTPUT + i].setVoltage(inputVal);//output the quantized value
                 } else if (channelButton[i] == 2) {            
                     // Check if the pulse is still high
                     if (pulseGens[i].process(args.sampleTime)) {
@@ -463,37 +473,26 @@ struct Arrange : Module {
                         outputs[CHAN_1_OUTPUT + i].setVoltage(0.f);   // Otherwise, output 0V
                     }
                 }  
+                
+                if (knobVal != inputVal){  //only update knobs to the set value if they are different
+                    paramQuantities[CHAN_1_KNOB + i]->setDisplayValue(inputVal); 
+                }
         
                 //Store the output value in the 2D array for the current stage
-                if (currentStage >= 0 && currentStage < maxSequenceLength) {
-                    outputValues[currentStage][i] = inputVal[i]; // Store input value at the current stage for the respective channel
+                if (currentStage >= 0 && currentStage < 128) {
+                    outputValues[currentStage][i] = inputVal; // Store input value at the current stage for the respective channel
                 }
-                
-                // Measure new inputs (delayed by 1 sample)
-                inputVal[i] = params[CHAN_1_KNOB + i].getValue(); //default to the knob value with no inputs
-            
-                if (activeInputChannel[i]==i) {
-                    inputVal[i] = inputs[CHAN_1_INPUT + i].getPolyVoltage(0);
-                } else if (activeInputChannel[i] > -1){
-                    // Now we compute which channel we need to grab
-                    int diffBetween = i - activeInputChannel[i];
-                    int currentChannelMax =  inputChannels[activeInputChannel[i]] ;    
-                    if (currentChannelMax - diffBetween > 0) {    //If we are before the last poly channel
-                        inputVal[i] = inputs[CHAN_1_INPUT + activeInputChannel[i]].getPolyVoltage(diffBetween); 
-                    }
-                }               
-                
             } 
         } else {
             for (int i = 0; i < 7; i++){         
-                inputVal[i] = params[CHAN_1_KNOB + i].getValue(); //else we recall the values and set the knobs       
+                float inputVal = params[CHAN_1_KNOB + i].getValue(); //else we recall the values and set the knobs       
                 
                 if (channelButton[i]==0){
-                    outputs[CHAN_1_OUTPUT + i].setVoltage(inputVal[i]);//output the unmodified value
+                    outputs[CHAN_1_OUTPUT + i].setVoltage(inputVal);//output the unmodified value
                 } else if (channelButton[i]==1){               
                     //quantize the outputValue voltage by rounding to the nearest 1/12
-                    inputVal[i] = round(inputVal[i] * 12.0f) / 12.0f;                  
-                    outputs[CHAN_1_OUTPUT + i].setVoltage(inputVal[i]);//output the quantized value
+                    inputVal = round(inputVal * 12.0f) / 12.0f;                  
+                    outputs[CHAN_1_OUTPUT + i].setVoltage(inputVal);//output the quantized value
                 } else if (channelButton[i] == 2) {            
                     // Check if the pulse is still high
                     if (pulseGens[i].process(args.sampleTime)) {
