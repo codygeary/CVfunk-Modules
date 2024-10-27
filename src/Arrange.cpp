@@ -274,6 +274,9 @@ struct Arrange : Module {
                 outputValues[stage][channel] = 0.0f;  // Reset each element to 0.0f
             }
         }
+        for (int i = 0; i < 7; i++) {
+            params[CHAN_1_KNOB + i].setValue(0.f);  //set param knobs to zero
+        }       
     }
 
     void process(const ProcessArgs &args) override {    
