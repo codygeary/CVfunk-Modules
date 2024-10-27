@@ -146,6 +146,22 @@ struct TriDelay : Module {
     float filteredEnvelopeWetL = 0.0f;
     float filteredEnvelopeWetR = 0.0f;
     float filteredEnvelopeWet = 0.0f;
+    float delayLength = 3600.0f;
+    
+    // Save state to JSON
+    json_t* toJson() override {
+        json_t* rootJ = Module::toJson();
+        json_object_set_new(rootJ, "delayLength", json_real(delayLength));
+        return rootJ;
+    }
+
+    // Load state from JSON
+    void fromJson(json_t* rootJ) override {
+        Module::fromJson(rootJ);
+        json_t* delayLengthJ = json_object_get(rootJ, "delayLength");
+        if (delayLengthJ)
+            delayLength = json_real_value(delayLengthJ);
+    }  
     
     //For the display
     CircularBuffer<float, 1024> waveBuffers[2];
@@ -158,8 +174,8 @@ struct TriDelay : Module {
         buffer[1].resize(bufferSize, 0.f);
 
         // Global Delay
-        configParam(GLOBAL_DELAY, 0.f, 3600.f, 500.f, "Global Delay Time", " msec");
-        configParam(GLOBAL_DELAY_ATT, -360.f, 360.f, 0.f, "Global Delay Attenuverter");
+        configParam(GLOBAL_DELAY, 0.f, 1.f, 0.138888f, "Global Delay Time", " msec");
+        configParam(GLOBAL_DELAY_ATT, -1.f, 1.f, 0.f, "Global Delay Attenuverter");
 
         // Global WetDry
         configParam(GLOBAL_WETDRY, 0.f, 100.0f, 50.f, "Wet/Dry", "% Wet");
@@ -167,9 +183,9 @@ struct TriDelay : Module {
 
     
         // Per-tap Delay Offsets
-        configParam(TAP_1_DELAY, -3600.f, 3600.f, 0.f, "Tap 1 Delay Offset", " msec");
-        configParam(TAP_2_DELAY, -3600.f, 3600.f, 0.f, "Tap 2 Delay Offset", " msec");
-        configParam(TAP_3_DELAY, -3600.f, 3600.f, 0.f, "Tap 3 Delay Offset", " msec");
+        configParam(TAP_1_DELAY, -1.f, 1.f, 0.f, "Tap 1 Delay Offset", " msec");
+        configParam(TAP_2_DELAY, -1.f, 1.f, 0.f, "Tap 2 Delay Offset", " msec");
+        configParam(TAP_3_DELAY, -1.f, 1.f, 0.f, "Tap 3 Delay Offset", " msec");
     
         // Global Panning
         configParam(GLOBAL_PAN, -1.f, 1.f, 0.f, "Global Pan", " L/R");
@@ -259,9 +275,16 @@ struct TriDelay : Module {
             inputR = inputs[AUDIO_INPUT_R].getVoltage();
         }
     
+        paramQuantities[GLOBAL_DELAY]->displayMultiplier = static_cast<int> (delayLength);
+        paramQuantities[TAP_1_DELAY]->displayMultiplier = static_cast<int> (delayLength);
+        paramQuantities[TAP_2_DELAY]->displayMultiplier = static_cast<int> (delayLength);
+        paramQuantities[TAP_3_DELAY]->displayMultiplier = static_cast<int> (delayLength);
+//         paramQuantities[GLOBAL_DELAY_ATT]->displayMultiplier = static_cast<int> (delayLength/36);
+       
+    
         // Global delay (with CV and attenuverter)
-        float globalDelay = params[GLOBAL_DELAY].getValue() * 0.001f; // Convert to seconds
-        globalDelay += inputs[GLOBAL_DELAY_IN].isConnected() ? params[GLOBAL_DELAY_ATT].getValue() * inputs[GLOBAL_DELAY_IN].getVoltage() * 0.001f : 0.f;
+        float globalDelay = params[GLOBAL_DELAY].getValue() * 0.001f * delayLength; // Convert to seconds
+        globalDelay += inputs[GLOBAL_DELAY_IN].isConnected() ? params[GLOBAL_DELAY_ATT].getValue() * inputs[GLOBAL_DELAY_IN].getVoltage() * 0.001f * (delayLength/36) : 0.f;
     
         // Global panning (with CV and attenuverter)
         float globalPan = params[GLOBAL_PAN].getValue();
@@ -278,7 +301,7 @@ struct TriDelay : Module {
     
         // Compute tap-specific delay times, panning, feedback, and filter settings with offsets
         for (int i = 0; i < 3; i++) {
-            tapDelay[i] = clamp(globalDelay + params[TAP_1_DELAY + i].getValue() * 0.001f, 0.001f, 3.6f);
+            tapDelay[i] = clamp(globalDelay + params[TAP_1_DELAY + i].getValue() * 0.001f * delayLength, 0.0001f, (delayLength/1000.f) );
             tapPan[i] = clamp(globalPan + params[TAP_1_PAN + i].getValue(), -1.f, 1.f);
             tapFeedback[i] = clamp(globalFeedback + params[TAP_1_FEEDBACK + i].getValue() * 0.01f, 0.f, 0.99f);
         }
@@ -331,7 +354,7 @@ struct TriDelay : Module {
 
         //// For Envelope tracing
         // Calculate scale factor based on the current sample rate
-        float scaleFactor = sampleRate / 96000.0f; // Reference sample rate (96 kHz)
+        float scaleFactor = sampleRate / args.sampleRate; 
         // Adjust alpha and decayRate based on sample rate
         alpha = 0.01f / scaleFactor;  // Smoothing factor for envelope
         float decayRate = pow(0.999f, scaleFactor);  // Decay rate adjusted for sample rate
@@ -348,7 +371,7 @@ struct TriDelay : Module {
         filteredEnvelopeWetR = alpha * envPeakWetR + (1 - alpha) * filteredEnvelopeWetR; 
 
         //Wave display
-        float progress = bufferIndex/(3.6*sampleRate);
+        float progress = bufferIndex/((delayLength/1000.f)*sampleRate);
         oscPhase = clamp(progress, 0.f, 1.f);
         int sampleIndex = static_cast<int>(oscPhase * 1024); 
         sampleIndex = (sampleIndex) % 1024;
@@ -361,6 +384,8 @@ struct TriDelay : Module {
     
         // Increment buffer index (circular buffer wrap-around)
         bufferIndex = (bufferIndex + 1) % bufferSize;
+        
+//         bufferSize = static_cast<size_t>(delayLength/1000 * sampleRate);
     }
 
     void processTap(int tapIndex, float delayTime, float feedback, float pan, float inputL, float inputR) {
@@ -493,7 +518,7 @@ struct EnvDisplay : TransparentWidget {
             nvgBeginPath(args.vg);
         
             // Set position of the indicator based on delay time
-            nvgCircle(args.vg, box.size.x * (module->tapDelay[i] / 3.6f), centerY, 1.5f + module->tapFeedback[i] * 3.0f);
+            nvgCircle(args.vg, box.size.x * (module->tapDelay[i] / 3.6f) * ( 3600.f / module->delayLength ), centerY, module->tapFeedback[i] * 8.0f);
         
             // Get the pan value (-1 to 1)
             float pan = module->tapPan[i];
@@ -601,7 +626,46 @@ struct TriDelayWidget : ModuleWidget {
         envDisplay->module = module;
         addChild(envDisplay);
 
-    }    
+    }  
+    
+    void appendContextMenu(Menu* menu) override {
+        ModuleWidget::appendContextMenu(menu);
+    
+        TriDelay* module = dynamic_cast<TriDelay*>(this->module);
+        assert(module);
+    
+        menu->addChild(new MenuSeparator());
+        menu->addChild(createMenuLabel("Delay Time"));
+    
+        struct DelayLengthItem : MenuItem {
+            TriDelay* module;
+            float length;
+            void onAction(const event::Action& e) override {
+                module->delayLength = length;
+                module->bufferSize = static_cast<size_t>(length/1000 * module->sampleRate);
+
+            }
+            void step() override {
+                rightText = (module->delayLength == length) ? "✔" : "";
+                MenuItem::step();
+            }
+        };
+    
+        // Define delay options as pairs of label and length
+        std::pair<const char*, float> delayOptions[] = {
+            { "36 ms", 36.0f },
+            { "360 ms", 360.0f },
+            { "3600 ms", 3600.0f }
+        };
+    
+        for (const auto& option : delayOptions) {
+            DelayLengthItem* item = createMenuItem<DelayLengthItem>(option.first);
+            item->module = module;
+            item->length = option.second;
+            menu->addChild(item);
+        }
+    }
+      
 };
 
 Model* modelTriDelay = createModel<TriDelay, TriDelayWidget>("TriDelay");
