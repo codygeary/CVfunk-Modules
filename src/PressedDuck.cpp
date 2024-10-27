@@ -46,115 +46,178 @@ struct SecondOrderHPF {
     }
 };
 
+#include "Filter6pButter.h"
+#define OVERSAMPLING_FACTOR 8
+class OverSamplingShaper {
+public:
+    OverSamplingShaper() {
+        interpolatingFilter.setCutoffFreq(1.f / (OVERSAMPLING_FACTOR * 4));
+        decimatingFilter.setCutoffFreq(1.f / (OVERSAMPLING_FACTOR * 4));
+    }
+    float process(float input) {
+        float signal;
+        for (int i = 0; i < OVERSAMPLING_FACTOR; ++i) {
+            signal = (i == 0) ? input * OVERSAMPLING_FACTOR : 0.f;
+            signal = interpolatingFilter.process(signal);
+            signal = processShape(signal);
+            signal = decimatingFilter.process(signal);
+        }
+        return signal;
+    }
+private:
+    virtual float processShape(float) = 0;
+    Filter6PButter interpolatingFilter;
+    Filter6PButter decimatingFilter;
+};
+
+// Define the OverSamplingShaper derived class
+class SimpleShaper : public OverSamplingShaper {
+private:
+    float processShape(float input) override {
+        // No additional shaping; just pass through
+        return input;
+    }
+};
+
 struct PressedDuck : Module {
 
     enum ParamIds {
-        VOLUME1_PARAM, VOLUME2_PARAM, VOLUME3_PARAM, VOLUME4_PARAM, VOLUME5_PARAM, VOLUME6_PARAM,   
-        PAN1_PARAM, PAN2_PARAM, PAN3_PARAM, PAN4_PARAM, PAN5_PARAM, PAN6_PARAM,      
+        VOLUME1_PARAM, VOLUME2_PARAM, VOLUME3_PARAM, VOLUME4_PARAM, VOLUME5_PARAM, VOLUME6_PARAM,
+        PAN1_PARAM, PAN2_PARAM, PAN3_PARAM, PAN4_PARAM, PAN5_PARAM, PAN6_PARAM,
         SIDECHAIN_VOLUME_PARAM, DUCK_PARAM, DUCK_ATT,
-        PRESS_PARAM, PRESS_ATT, MASTER_VOL, MASTER_VOL_ATT, FEEDBACK_PARAM, FEEDBACK_ATT, 
+        PRESS_PARAM, PRESS_ATT, MASTER_VOL, MASTER_VOL_ATT, FEEDBACK_PARAM, FEEDBACK_ATT,
         MUTE1_PARAM, MUTE2_PARAM, MUTE3_PARAM, MUTE4_PARAM, MUTE5_PARAM, MUTE6_PARAM, MUTESIDE_PARAM,
         NUM_PARAMS
     };
     enum InputIds {
-        AUDIO_1L_INPUT, AUDIO_1R_INPUT, AUDIO_2L_INPUT, AUDIO_2R_INPUT, 
-        AUDIO_3L_INPUT, AUDIO_3R_INPUT, AUDIO_4L_INPUT, AUDIO_4R_INPUT, 
-        AUDIO_5L_INPUT, AUDIO_5R_INPUT, AUDIO_6L_INPUT, AUDIO_6R_INPUT,   
+        AUDIO_1L_INPUT, AUDIO_1R_INPUT, AUDIO_2L_INPUT, AUDIO_2R_INPUT,
+        AUDIO_3L_INPUT, AUDIO_3R_INPUT, AUDIO_4L_INPUT, AUDIO_4R_INPUT,
+        AUDIO_5L_INPUT, AUDIO_5R_INPUT, AUDIO_6L_INPUT, AUDIO_6R_INPUT,
         VCA_CV1_INPUT, VCA_CV2_INPUT, VCA_CV3_INPUT, VCA_CV4_INPUT, VCA_CV5_INPUT, VCA_CV6_INPUT, VCA_SIDECHAIN_INPUT,
-        PAN_CV1_INPUT, PAN_CV2_INPUT, PAN_CV3_INPUT, PAN_CV4_INPUT, PAN_CV5_INPUT, PAN_CV6_INPUT,  
+        PAN_CV1_INPUT, PAN_CV2_INPUT, PAN_CV3_INPUT, PAN_CV4_INPUT, PAN_CV5_INPUT, PAN_CV6_INPUT,
         SIDECHAIN_INPUT_L, SIDECHAIN_INPUT_R, DUCK_CV, PRESS_CV_INPUT, FEEDBACK_CV, MASTER_VOL_CV,
         MUTE_1_INPUT, MUTE_2_INPUT, MUTE_3_INPUT, MUTE_4_INPUT, MUTE_5_INPUT, MUTE_6_INPUT,
         NUM_INPUTS
     };
     enum OutputIds {
-        AUDIO_OUTPUT_L, AUDIO_OUTPUT_R, 
+        AUDIO_OUTPUT_L, AUDIO_OUTPUT_R,
         NUM_OUTPUTS
     };
     enum LightIds {
-        VOLUME1_LIGHT, VOLUME2_LIGHT, VOLUME3_LIGHT, VOLUME4_LIGHT, VOLUME5_LIGHT, VOLUME6_LIGHT, BASS_VOLUME_LIGHT, 
+        VOLUME1_LIGHT, VOLUME2_LIGHT, VOLUME3_LIGHT, VOLUME4_LIGHT, VOLUME5_LIGHT, VOLUME6_LIGHT, BASS_VOLUME_LIGHT,
 
         MUTE1_LIGHT, MUTE2_LIGHT, MUTE3_LIGHT, MUTE4_LIGHT, MUTE5_LIGHT, MUTE6_LIGHT, MUTESIDE_LIGHT,
 
-        PRESS_LIGHT1L,  PRESS_LIGHT2L,  PRESS_LIGHT3L,  PRESS_LIGHT4L,  PRESS_LIGHT5L,  
-        PRESS_LIGHT6L,  PRESS_LIGHT7L,  PRESS_LIGHT8L,  PRESS_LIGHT9L,  PRESS_LIGHT10L, 
-        PRESS_LIGHT11L,  PRESS_LIGHT12L,  PRESS_LIGHT13L,  PRESS_LIGHT14L,  PRESS_LIGHT15L,  
-        PRESS_LIGHT16L,  PRESS_LIGHT17L,  PRESS_LIGHT18L,  PRESS_LIGHT19L,  PRESS_LIGHT20L, 
-        PRESS_LIGHT1R,  PRESS_LIGHT2R,  PRESS_LIGHT3R,  PRESS_LIGHT4R,  PRESS_LIGHT5R,  
-        PRESS_LIGHT6R,  PRESS_LIGHT7R,  PRESS_LIGHT8R,  PRESS_LIGHT9R,  PRESS_LIGHT10R, 
-        PRESS_LIGHT11R,  PRESS_LIGHT12R,  PRESS_LIGHT13R,  PRESS_LIGHT14R,  PRESS_LIGHT15R,  
-        PRESS_LIGHT16R,  PRESS_LIGHT17R,  PRESS_LIGHT18R,  PRESS_LIGHT19R,  PRESS_LIGHT20R, 
+        PRESS_LIGHT1L,  PRESS_LIGHT2L,  PRESS_LIGHT3L,  PRESS_LIGHT4L,  PRESS_LIGHT5L,
+        PRESS_LIGHT6L,  PRESS_LIGHT7L,  PRESS_LIGHT8L,  PRESS_LIGHT9L,  PRESS_LIGHT10L,
+        PRESS_LIGHT11L,  PRESS_LIGHT12L,  PRESS_LIGHT13L,  PRESS_LIGHT14L,  PRESS_LIGHT15L,
+        PRESS_LIGHT16L,  PRESS_LIGHT17L,  PRESS_LIGHT18L,  PRESS_LIGHT19L,  PRESS_LIGHT20L,
+        PRESS_LIGHT1R,  PRESS_LIGHT2R,  PRESS_LIGHT3R,  PRESS_LIGHT4R,  PRESS_LIGHT5R,
+        PRESS_LIGHT6R,  PRESS_LIGHT7R,  PRESS_LIGHT8R,  PRESS_LIGHT9R,  PRESS_LIGHT10R,
+        PRESS_LIGHT11R,  PRESS_LIGHT12R,  PRESS_LIGHT13R,  PRESS_LIGHT14R,  PRESS_LIGHT15R,
+        PRESS_LIGHT16R,  PRESS_LIGHT17R,  PRESS_LIGHT18R,  PRESS_LIGHT19R,  PRESS_LIGHT20R,
 
-        FEED_LIGHT1L, FEED_LIGHT2L, FEED_LIGHT3L, FEED_LIGHT4L, FEED_LIGHT5L, 
-        FEED_LIGHT6L, FEED_LIGHT7L, FEED_LIGHT8L, FEED_LIGHT9L, FEED_LIGHT10L, 
-        FEED_LIGHT11L, FEED_LIGHT12L, FEED_LIGHT13L, FEED_LIGHT14L, FEED_LIGHT15L, 
-        FEED_LIGHT16L, FEED_LIGHT17L, FEED_LIGHT18L, FEED_LIGHT19L, FEED_LIGHT20L, 
-        FEED_LIGHT1R, FEED_LIGHT2R, FEED_LIGHT3R, FEED_LIGHT4R, FEED_LIGHT5R, 
-        FEED_LIGHT6R, FEED_LIGHT7R, FEED_LIGHT8R, FEED_LIGHT9R, FEED_LIGHT10R, 
-        FEED_LIGHT11R, FEED_LIGHT12R, FEED_LIGHT13R, FEED_LIGHT14R, FEED_LIGHT15R, 
-        FEED_LIGHT16R, FEED_LIGHT17R, FEED_LIGHT18R, FEED_LIGHT19R, FEED_LIGHT20R, 
+        FEED_LIGHT1L, FEED_LIGHT2L, FEED_LIGHT3L, FEED_LIGHT4L, FEED_LIGHT5L,
+        FEED_LIGHT6L, FEED_LIGHT7L, FEED_LIGHT8L, FEED_LIGHT9L, FEED_LIGHT10L,
+        FEED_LIGHT11L, FEED_LIGHT12L, FEED_LIGHT13L, FEED_LIGHT14L, FEED_LIGHT15L,
+        FEED_LIGHT16L, FEED_LIGHT17L, FEED_LIGHT18L, FEED_LIGHT19L, FEED_LIGHT20L,
+        FEED_LIGHT1R, FEED_LIGHT2R, FEED_LIGHT3R, FEED_LIGHT4R, FEED_LIGHT5R,
+        FEED_LIGHT6R, FEED_LIGHT7R, FEED_LIGHT8R, FEED_LIGHT9R, FEED_LIGHT10R,
+        FEED_LIGHT11R, FEED_LIGHT12R, FEED_LIGHT13R, FEED_LIGHT14R, FEED_LIGHT15R,
+        FEED_LIGHT16R, FEED_LIGHT17R, FEED_LIGHT18R, FEED_LIGHT19R, FEED_LIGHT20R,
 
-        VOL_LIGHT1, VOL_LIGHT2, VOL_LIGHT3, VOL_LIGHT4, VOL_LIGHT5, 
-        VOL_LIGHT6, VOL_LIGHT7, VOL_LIGHT8, VOL_LIGHT9, VOL_LIGHT10, 
-        VOL_LIGHT11, VOL_LIGHT12, VOL_LIGHT13, VOL_LIGHT14, VOL_LIGHT15, 
-        VOL_LIGHT16, VOL_LIGHT17, VOL_LIGHT18, VOL_LIGHT19, VOL_LIGHT20, 
-        VOL_LIGHT1R, VOL_LIGHT2R, VOL_LIGHT3R, VOL_LIGHT4R, VOL_LIGHT5R, 
-        VOL_LIGHT6R, VOL_LIGHT7R, VOL_LIGHT8R, VOL_LIGHT9R, VOL_LIGHT10R, 
-        VOL_LIGHT11R, VOL_LIGHT12R, VOL_LIGHT13R, VOL_LIGHT14R, VOL_LIGHT15R, 
-        VOL_LIGHT16R, VOL_LIGHT17R, VOL_LIGHT18R, VOL_LIGHT19R, VOL_LIGHT20R, 
+        VOL_LIGHT1, VOL_LIGHT2, VOL_LIGHT3, VOL_LIGHT4, VOL_LIGHT5,
+        VOL_LIGHT6, VOL_LIGHT7, VOL_LIGHT8, VOL_LIGHT9, VOL_LIGHT10,
+        VOL_LIGHT11, VOL_LIGHT12, VOL_LIGHT13, VOL_LIGHT14, VOL_LIGHT15,
+        VOL_LIGHT16, VOL_LIGHT17, VOL_LIGHT18, VOL_LIGHT19, VOL_LIGHT20,
+        VOL_LIGHT1R, VOL_LIGHT2R, VOL_LIGHT3R, VOL_LIGHT4R, VOL_LIGHT5R,
+        VOL_LIGHT6R, VOL_LIGHT7R, VOL_LIGHT8R, VOL_LIGHT9R, VOL_LIGHT10R,
+        VOL_LIGHT11R, VOL_LIGHT12R, VOL_LIGHT13R, VOL_LIGHT14R, VOL_LIGHT15R,
+        VOL_LIGHT16R, VOL_LIGHT17R, VOL_LIGHT18R, VOL_LIGHT19R, VOL_LIGHT20R,
         NUM_LIGHTS
     };
 
-    bool applyFilters = true;
+    bool applyFilters = true; // Filter out DC is on by default
+
+    // Initialize Butterworth filter for oversampling
+    SimpleShaper shaperL;  // Instance of the oversampling and shaping processor
+    SimpleShaper shaperR;  // Instance of the oversampling and shaping processor
+    Filter6PButter butterworthFilter;  // Butterworth filter instance
+    bool isSupersamplingEnabled = false;  // Enable supersampling is off by default
 
     //for tracking the mute state of each channel
     bool muteLatch[7] = {false,false,false,false,false,false,false};
     bool muteState[7] = {false,false,false,false,false,false,false};
+    bool muteStatePrevious[7] = {false,false,false,false,false,false,false};
+
+    // For mute transition
+    float transitionSamples = 100.f; // Number of samples to complete the transition, updated in config
+    float fadeLevel[7] = {1.0f};
+    int transitionCount[7] = {0};  // Array to track transition progress for each channel
+
     bool mutedSideDucks = false;
-    
+
     // Serialization method to save module state
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
-    
+
         // Save the state of applyFilters as a boolean
         json_object_set_new(rootJ, "applyFilters", json_boolean(applyFilters));
-    
+
         // Save the state of mutedSideDucks as a boolean
         json_object_set_new(rootJ, "mutedSideDucks", json_boolean(mutedSideDucks));
-    
+
+        // Save the state of isSupersamplingEnabled as a boolean
+        json_object_set_new(rootJ, "isSupersamplingEnabled", json_boolean(isSupersamplingEnabled));
+
         // Save the muteLatch and muteState arrays
         json_t* muteLatchJ = json_array();
         json_t* muteStateJ = json_array();
-    
+        json_t* fadeLevelJ = json_array();
+        json_t* transitionCountJ = json_array();
+
         for (int i = 0; i < 7; i++) {
             json_array_append_new(muteLatchJ, json_boolean(muteLatch[i]));
             json_array_append_new(muteStateJ, json_boolean(muteState[i]));
+            json_array_append_new(fadeLevelJ, json_real(fadeLevel[i]));
+            json_array_append_new(transitionCountJ, json_integer(transitionCount[i]));
+
         }
-    
+
         json_object_set_new(rootJ, "muteLatch", muteLatchJ);
         json_object_set_new(rootJ, "muteState", muteStateJ);
-    
+        json_object_set_new(rootJ, "fadeLevel", fadeLevelJ);
+        json_object_set_new(rootJ, "transitionCount", transitionCountJ);
+
         return rootJ;
     }
-    
+
     // Deserialization method to load module state
     void dataFromJson(json_t* rootJ) override {
         // Load the state of applyFilters
         json_t* applyFiltersJ = json_object_get(rootJ, "applyFilters");
         if (applyFiltersJ) {
-            // Use json_is_true() to check if the JSON value is true; otherwise, set to false
             applyFilters = json_is_true(applyFiltersJ);
         }
-    
+
         // Load the state of mutedSideDucks
         json_t* mutedSideDucksJ = json_object_get(rootJ, "mutedSideDucks");
         if (mutedSideDucksJ) {
             mutedSideDucks = json_is_true(mutedSideDucksJ);
         }
-    
+
+        // Load the state of isSupersamplingEnabled
+        json_t* isSupersamplingEnabledJ = json_object_get(rootJ, "isSupersamplingEnabled");
+        if (isSupersamplingEnabledJ) {
+            isSupersamplingEnabled = json_is_true(isSupersamplingEnabledJ);
+        }
+
         // Load muteLatch and muteState arrays
         json_t* muteLatchJ = json_object_get(rootJ, "muteLatch");
         json_t* muteStateJ = json_object_get(rootJ, "muteState");
-    
+        json_t* fadeLevelJ = json_object_get(rootJ, "fadeLevel");
+        json_t* transitionCountJ = json_object_get(rootJ, "transitionCount");
+
         if (muteLatchJ) {
             for (size_t i = 0; i < json_array_size(muteLatchJ) && i < 7; i++) {
                 json_t* muteLatchValue = json_array_get(muteLatchJ, i);
@@ -163,7 +226,7 @@ struct PressedDuck : Module {
                 }
             }
         }
-    
+
         if (muteStateJ) {
             for (size_t i = 0; i < json_array_size(muteStateJ) && i < 7; i++) {
                 json_t* muteStateValue = json_array_get(muteStateJ, i);
@@ -171,7 +234,25 @@ struct PressedDuck : Module {
                     muteState[i] = json_is_true(muteStateValue);
                 }
             }
-        }        
+        }
+
+        if (fadeLevelJ) {
+            for (size_t i = 0; i < json_array_size(fadeLevelJ) && i < 7; i++) {
+                json_t* fadeLevelValue = json_array_get(fadeLevelJ, i);
+                if (fadeLevelValue) {
+                    fadeLevel[i] = json_real_value(fadeLevelValue);  // Use json_real_value for float
+                }
+            }
+        }
+
+        if (transitionCountJ) {
+            for (size_t i = 0; i < json_array_size(transitionCountJ) && i < 7; i++) {
+                json_t* transitionCountValue = json_array_get(transitionCountJ, i);
+                if (transitionCountValue) {
+                    transitionCount[i] = json_integer_value(transitionCountValue);  // Use json_integer_value for int
+                }
+            }
+        }
     }
 
     // Variables for envelope followers and lights
@@ -179,8 +260,8 @@ struct PressedDuck : Module {
     float sidePeakR = 0.0f;
     float envPeakL[6] = {0.0f};
     float envPeakR[6] = {0.0f};
-    float envelopeL[6] = {0.0f}; 
-    float envelopeR[6] = {0.0f}; 
+    float envelopeL[6] = {0.0f};
+    float envelopeR[6] = {0.0f};
 
     int cycleCount = 0;
     float pressTotalL = 1.0f;
@@ -202,11 +283,11 @@ struct PressedDuck : Module {
     float inputR[6] = {0.0f};
     float panL[6] = {0.0f};
     float panR[6] = {0.0f};
-    float lastPan[6] = {0.0f}; 
-    bool initialized[6] = {false};  
-    float filteredEnvelopeL[6] = {0.0f}; 
-    float filteredEnvelopeR[6] = {0.0f}; 
-    float filteredEnvelope[6] = {0.0f}; 
+    float lastPan[6] = {0.0f};
+    bool initialized[6] = {false};
+    float filteredEnvelopeL[6] = {0.0f};
+    float filteredEnvelopeR[6] = {0.0f};
+    float filteredEnvelope[6] = {0.0f};
     float filteredSideEnvelopeL = 0.0f;
     float filteredSideEnvelopeR = 0.0f;
 
@@ -222,12 +303,6 @@ struct PressedDuck : Module {
 
     // Declare high-pass filter
     SecondOrderHPF hpfL, hpfR;
-
-    // For mute transition
-    float transitionSamples = 1.f; // Number of samples to complete the transition, updated in config
-    float fadeLevel[7] = {1.0f}; 
-    int transitionCount[7] = {0};  // Array to track transition progress for each channel
-    float targetFadeLevel[7] = {0.0f};
 
     PressedDuck() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
@@ -314,21 +389,21 @@ struct PressedDuck : Module {
         // Outputs
         configOutput(AUDIO_OUTPUT_L, "Main Out L");
         configOutput(AUDIO_OUTPUT_R, "Main Out R");
-        
-        transitionSamples = 0.005 * APP->engine->getSampleRate(); // 5 ms * sample rate        
+
+        transitionSamples = 0.01 * APP->engine->getSampleRate(); // 10 ms * sample rate
      }
 
     void onSampleRateChange() override {
          float sampleRate = APP->engine->getSampleRate();
-         transitionSamples = 0.005 * sampleRate; // 5 ms * sample rate
+         transitionSamples = 0.01 * sampleRate; // 10 ms * sample rate
     }
-    
+
     void process(const ProcessArgs& args) override {
         float mixL = 0.0f;
         float mixR = 0.0f;
         float sampleRate = args.sampleRate;
 
-        // Setup filters 
+        // Setup filters
         hpfL.setCutoffFrequency(args.sampleRate, 30.0f); // Set cutoff frequency
         hpfR.setCutoffFrequency(args.sampleRate, 30.0f);
 
@@ -350,32 +425,32 @@ struct PressedDuck : Module {
         int vcaChannels[6] = {0}; // Number of polyphonic channels for VCA CV inputs
         int panChannels[6] = {0};   // Number of polyphonic channels for PAN CV inputs
         int muteChannels[6] = {0};  // Number of polyphonic channels for MUTE inputs
-        
+
         // Arrays to store the current input signals and connectivity status
         int activeAudio[6] = {-1};        // Stores the number of the previous active channel for the AUDIO inputs
-        int activeVcaChannel[6] = {-1}; // Stores the number of the previous active channel for the VCA CV 
-        int activePanChannel[6] = {-1};   // Stores the number of the previous active channel for the PAN CV 
+        int activeVcaChannel[6] = {-1}; // Stores the number of the previous active channel for the VCA CV
+        int activePanChannel[6] = {-1};   // Stores the number of the previous active channel for the PAN CV
         int activeMuteChannel[6] = {-1};  // Stores the number of the previous active channel for the MUTE
         //initialize all active channels with -1, indicating nothing connected.
 
         // Scan all inputs to determine the polyphony
         for (int i = 0; i < 6; i++) {
-        
+
             // Check if L input is connected and get its number of channels
             if (inputs[AUDIO_1L_INPUT + 2 * i].isConnected()) {
                 lChannels[i] = inputs[AUDIO_1L_INPUT + 2 * i].getChannels();
             }
-        
+
             // Check if R input is connected and get its number of channels
             if (inputs[AUDIO_1R_INPUT + 2 * i].isConnected()) {
                 rChannels[i] = inputs[AUDIO_1R_INPUT + 2 * i].getChannels();
             }
-        
+
             // Determine the maximum number of channels between L and R
             audioChannels[i] = std::max(lChannels[i], rChannels[i]);
-        
+
             // Handle polyphonic AUDIO input distribution
-            if (audioChannels[i] > 0) { 
+            if (audioChannels[i] > 0) {
                 activeAudio[i] = i;
             } else if (i > 0 && activeAudio[i-1] != -1) {
                 if (audioChannels[activeAudio[i-1]] >= (i - activeAudio[i-1])) {
@@ -386,7 +461,7 @@ struct PressedDuck : Module {
             } else {
                 activeAudio[i] = -1; // Explicitly reset if not connected
             }
-        
+
             // Update the VCA CV channels
             if (inputs[VCA_CV1_INPUT + i].isConnected()) {
                 vcaChannels[i] = inputs[VCA_CV1_INPUT + i].getChannels();
@@ -400,7 +475,7 @@ struct PressedDuck : Module {
             } else {
                 activeVcaChannel[i] = -1; // Explicitly reset if not connected
             }
-        
+
             // Update the PAN CV channels
             if (inputs[PAN_CV1_INPUT + i].isConnected()) {
                 panChannels[i] = inputs[PAN_CV1_INPUT + i].getChannels();
@@ -414,7 +489,7 @@ struct PressedDuck : Module {
             } else {
                 activePanChannel[i] = -1; // Explicitly reset if not connected
             }
-        
+
             // Update the MUTE channels
             if (inputs[MUTE_1_INPUT + i].isConnected()) {
                 muteChannels[i] = inputs[MUTE_1_INPUT + i].getChannels();
@@ -440,13 +515,13 @@ struct PressedDuck : Module {
             isConnectedR[i] = inputs[AUDIO_1R_INPUT + 2 * i].isConnected();
 
             //if something is connected to any audio input we use the top value of that input. Normalizing if we only have 1 connection in either L or R.
-            if (activeAudio[i] == i) { 
+            if (activeAudio[i] == i) {
                 inputActive = true;
                 // Handle mono to stereo routing
                 if (!isConnectedR[i] && isConnectedL[i]) { //Left only
                     inputL[i]=inputs[AUDIO_1L_INPUT + 2 * i].getPolyVoltage(0);
                     inputR[i]=inputs[AUDIO_1L_INPUT + 2 * i].getPolyVoltage(0); //Normalize L to R
-                } 
+                }
                 if (!isConnectedL[i] && isConnectedR[i]) { //Right only
                     inputL[i]=inputs[AUDIO_1R_INPUT + 2 * i].getPolyVoltage(0); //Normalize R to L
                     inputR[i]=inputs[AUDIO_1R_INPUT + 2 * i].getPolyVoltage(0);
@@ -454,18 +529,18 @@ struct PressedDuck : Module {
                 if (isConnectedR[i] && isConnectedL[i]) { //Both
                     inputL[i]=inputs[AUDIO_1L_INPUT + 2 * i].getPolyVoltage(0);
                     inputR[i]=inputs[AUDIO_1R_INPUT + 2 * i].getPolyVoltage(0);
-                } 
+                }
             } else if (activeAudio[i] > -1){ //If channel is not active, then we look at activeAudio[i] to get the previous active channel number
                 // Now we compute which channel we need to grab
                 int diffBetween = i - activeAudio[i];
-                int currentChannelMax =  audioChannels[activeAudio[i]] ;    
+                int currentChannelMax =  audioChannels[activeAudio[i]] ;
                 if (currentChannelMax - diffBetween > 0){    //If we are before the last poly channel
                     inputActive = true;
                     // Handle mono to stereo routing
                     if (!isConnectedR[ activeAudio[i] ] && isConnectedL[ activeAudio[i] ]) { //Left only
                         inputL[i]=inputs[AUDIO_1L_INPUT + 2 * activeAudio[i]].getPolyVoltage(diffBetween);
                         inputR[i]=inputs[AUDIO_1L_INPUT + 2 * activeAudio[i]].getPolyVoltage(diffBetween); //Normalize L to R
-                    } 
+                    }
                     if (!isConnectedL[ activeAudio[i] ] && isConnectedR[ activeAudio[i] ]) { //Right only
                         inputL[i]=inputs[AUDIO_1R_INPUT + 2 * activeAudio[i]].getPolyVoltage(diffBetween); //Normalize R to L
                         inputR[i]=inputs[AUDIO_1R_INPUT + 2 * activeAudio[i]].getPolyVoltage(diffBetween);
@@ -473,8 +548,8 @@ struct PressedDuck : Module {
                     if (isConnectedR[ activeAudio[i] ] && isConnectedL[ activeAudio[i] ]) { //Both
                         inputL[i]=inputs[AUDIO_1L_INPUT + 2 * activeAudio[i]].getPolyVoltage(diffBetween);
                         inputR[i]=inputs[AUDIO_1R_INPUT + 2 * activeAudio[i]].getPolyVoltage(diffBetween);
-                    } 
-                } 
+                    }
+                }
             }
 
             if (inputActive) {
@@ -484,26 +559,30 @@ struct PressedDuck : Module {
                 filteredEnvelopeL[i] = 0.0f;
                 filteredEnvelopeR[i] = 0.0f;
                 filteredEnvelope[i] = 0.0f;
+
+                // Reset the mute transition and fader
+                transitionCount[i] = transitionSamples;
+                fadeLevel[i] = 1.0f;
             }
-      
+
             /////////////
             //// Deal with polyphonic Mute inputs
-            
+
             bool buttonMute = params[MUTE1_PARAM + i].getValue() > 0.5f;
             bool inputMute = false;
-        
+
             // Check if mute is triggered by the input or previous poly input
             if (activeMuteChannel[i] == i) { //if there's an input here
                 inputMute = inputs[MUTE_1_INPUT + i].getPolyVoltage(0) > 0.5f;
             } else if (activeMuteChannel[i] > -1) { //otherwise check the previous channel
                 // Now we compute which channel we need to grab
                 int diffBetween = i - activeMuteChannel[i];
-                int currentChannelMax =  muteChannels[activeMuteChannel[i]] ;    
+                int currentChannelMax =  muteChannels[activeMuteChannel[i]] ;
                 if (currentChannelMax - diffBetween > 0) {    //If we are before the last poly channel
                     inputMute = inputs[ MUTE_1_INPUT + activeMuteChannel[i] ].getPolyVoltage(diffBetween) > 0.5f;
                 }
             }
-         
+
             // Determine final mute state
             if (activeMuteChannel[i] > -1) {
                 // If CV is connected or if it's poly CV, ignore the button
@@ -516,32 +595,41 @@ struct PressedDuck : Module {
                     if (!muteLatch[i]) {
                         muteLatch[i] = true;
                         muteState[i] = !muteState[i];
-                        transitionCount[i] = transitionSamples;  // Reset the transition count
                     }
                 } else {
-                    muteLatch[i] = false; // Release latch if button is not Preeeeeeeeeeessed
+                    muteLatch[i] = false; // Release latch if button is not Pressed
                 }
-                
-                // Ensure the mute state is handled
                 muteState[i] = muteState[i];
             }
- 
- 			if (muteState[i] > 0){ inputCount += -1.0f; }//decrement the input count for each muted input
-			if (inputCount < 0.f){ inputCount = 0.f;} //prevent negative inputs
-      
+
+            if (muteStatePrevious[i] != muteState[i]){
+                muteStatePrevious[i] = muteState[i];
+                transitionCount[i] = transitionSamples;  // Reset the transition count
+            }
+
+            if ( (muteState[i] > 0) && (inputActive) && transitionCount[i]==0 ) { inputCount += -1.0f; }//decrement the input count for each muted input
+            if (inputCount < 0.f){ inputCount = 0.f;} //prevent negative inputs
+
             if (transitionCount[i] > 0) {
-                float fadeStep = (muteState[i] ? -1.0f : 1.0f) / transitionSamples;
-                fadeLevel[i] += fadeStep;
-                if ((muteState[i] && fadeLevel[i] < 0.0f) || (!muteState[i] && fadeLevel[i] > 1.0f)) {
+                if (muteState[i]){
+                    fadeLevel[i] += -1.0f/transitionSamples;
+                } else {
+                    fadeLevel[i] += 1.0f/transitionSamples;
+                }
+
+                // Clamp fade level at boundaries
+                if ((muteState[i] && fadeLevel[i] <= 0.0f) || (!muteState[i] && fadeLevel[i] >= 1.0f)) {
                     fadeLevel[i] = muteState[i] ? 0.0f : 1.0f;
                     transitionCount[i] = 0;  // End transition
+                } else {
+                    transitionCount[i]--;  // Decrease transition count
                 }
-                transitionCount[i]--;
             } else {
+                // Set fadeLevel to the target value once transition completes
                 fadeLevel[i] = muteState[i] ? 0.0f : 1.0f;
             }
 
-            inputL[i] *= fadeLevel[i];
+            inputL[i] *= fadeLevel[i];  //Fade the signal in/out based on the muteState[i]
             inputR[i] *= fadeLevel[i];
 
             // Apply VCA control and volume
@@ -551,7 +639,7 @@ struct PressedDuck : Module {
             } else if (activeVcaChannel[i] > -1) {
                 // Now we compute which channel we need to grab
                 int diffBetween = i - activeVcaChannel[i];
-                int currentChannelMax =  vcaChannels[activeVcaChannel[i]] ;    
+                int currentChannelMax =  vcaChannels[activeVcaChannel[i]] ;
                 if (currentChannelMax - diffBetween > 0) {    //If we are before the last poly channel
                     inputL[i] *= clamp(inputs[VCA_CV1_INPUT + activeVcaChannel[i]].getPolyVoltage(diffBetween) / 10.f, 0.f, 2.f);
                     inputR[i] *= clamp(inputs[VCA_CV1_INPUT + activeVcaChannel[i]].getPolyVoltage(diffBetween) / 10.f, 0.f, 2.f);
@@ -579,15 +667,15 @@ struct PressedDuck : Module {
 
             // Apply panning
             float pan = params[PAN1_PARAM + i].getValue();
- 
+
             if (activePanChannel[i]==i) {
                 pan += inputs[PAN_CV1_INPUT + i].getPolyVoltage(0) / 5.f;
             } else if (activePanChannel[i] > -1){
                 // Now we compute which channel we need to grab
                 int diffBetween = i - activePanChannel[i];
-                int currentChannelMax =  panChannels[activePanChannel[i]] ;    
+                int currentChannelMax =  panChannels[activePanChannel[i]] ;
                 if (currentChannelMax - diffBetween > 0) {    //If we are before the last poly channel
-                    pan += inputs[PAN_CV1_INPUT + activePanChannel[i]].getPolyVoltage(diffBetween) / 5.f; 
+                    pan += inputs[PAN_CV1_INPUT + activePanChannel[i]].getPolyVoltage(diffBetween) / 5.f;
                 }
             }
 
@@ -607,11 +695,11 @@ struct PressedDuck : Module {
             // Mix processed signals into left and right outputs
             inputL[i] *= panL[i];
             inputR[i] *= panR[i];
-            
-        }
 
-        compressionAmountL = compressionAmountL/((inputCount+1.f)*5.0f); //divide by the expected ceiling 
-        compressionAmountR = compressionAmountR/((inputCount+1.f)*5.0f); //process L and R separately 
+        } //end process channels
+
+        compressionAmountL = compressionAmountL/((inputCount+1.f)*5.0f); //divide by the expected ceiling
+        compressionAmountR = compressionAmountR/((inputCount+1.f)*5.0f); //process L and R separately
 
         float pressAmount = params[PRESS_PARAM].getValue();
         if(inputs[PRESS_CV_INPUT].isConnected()){
@@ -619,16 +707,16 @@ struct PressedDuck : Module {
         }
         pressAmount = clamp(pressAmount, 0.0f, 1.0f);
 
-		if (inputCount>0 && compressionAmountL > 0 && compressionAmountR > 0){  //div zero protection  
-			pressTotalL = ( (1.0f-pressAmount) + (pressAmount / compressionAmountL) ) * 6.0f / inputCount;
-			pressTotalR = ( (1.0f-pressAmount) + (pressAmount / compressionAmountR) ) * 6.0f / inputCount;
+        if (inputCount>0 && compressionAmountL > 0 && compressionAmountR > 0){  //div zero protection
+            pressTotalL = ( (1.0f-pressAmount) + (pressAmount / compressionAmountL) ) * 6.0f / inputCount;
+            pressTotalR = ( (1.0f-pressAmount) + (pressAmount / compressionAmountR) ) * 6.0f / inputCount;
         } else {
             pressTotalL = 0.0f;
             pressTotalR = 0.0f;
-		}
+        }
 
         // MIX the channels scaled by compression
-        for (int i=0; i<6; i++){  
+        for (int i=0; i<6; i++){
             if (compressionAmountL > 0.0f && inputCount>0.0f){ //avoid div by zero
                     mixL += inputL[i]*pressTotalL;
             } else { mixL = 0.0f;}
@@ -652,39 +740,39 @@ struct PressedDuck : Module {
         }
         if (!isSideConnectedR && isSideConnectedL) {
             sideR = sideL;
-        } 
+        }
         processSide(sideL, sideR, decayRate, mixL, mixR);
 
         float feedbackSetting = params[FEEDBACK_PARAM].getValue();
         if(inputs[FEEDBACK_CV].isConnected()){
             feedbackSetting += inputs[FEEDBACK_CV].getVoltage()*params[FEEDBACK_ATT].getValue();
         }
-                
-        feedbackSetting = 11.0f*pow(feedbackSetting/11.0f, 3.0f);       
+
+        feedbackSetting = 11.0f*pow(feedbackSetting/11.0f, 3.0f);
         feedbackSetting = clamp(feedbackSetting, 0.0f, 11.0f);
 
         float saturationEffect = 1 + feedbackSetting;
         mixL *= saturationEffect;
         mixR *= saturationEffect;
- 
+
         // Remove DC offsets by high pass filtering
         if(applyFilters){
             mixL = hpfL.process(mixL);
             mixR = hpfR.process(mixR);
-        } 
+        }
 
-        distortTotalL = log1p(fmax(mixL-35.f, 0.0f)) * (35.0f / log1p(35)); 
-        distortTotalR = log1p(fmax(mixR-35.f, 0.0f)) * (35.0f / log1p(35)); 
+        distortTotalL = log1p(fmax(mixL-35.f, 0.0f)) * (35.0f / log1p(35));
+        distortTotalR = log1p(fmax(mixR-35.f, 0.0f)) * (35.0f / log1p(35));
 
         // Apply ADAA
-        float maxHeadRoom = 46.f; //exceeding this number results in strange wavefolding due to the polytanh bad fit beyond this point
+        float maxHeadRoom = 46.f; //1.314*35 exceeding this number results in strange wavefolding due to the polytanh bad fit beyond this point
         mixL = clamp(mixL, -maxHeadRoom, maxHeadRoom);
         mixR = clamp(mixR, -maxHeadRoom, maxHeadRoom);
         mixL = applyADAA(mixL/35.f, lastOutputL, sampleRate); //35 is 7x5v
         mixR = applyADAA(mixR/35.f, lastOutputR, sampleRate);
         lastOutputL = mixL;
         lastOutputR = mixR;
-   
+
         // Set outputs
         float masterVol = params[MASTER_VOL].getValue();
         if (inputs[MASTER_VOL_CV].isConnected()){
@@ -699,8 +787,14 @@ struct PressedDuck : Module {
         volTotalL = fmax(outputL * decayRate, fabs(outputL)) ;
         volTotalR = fmax(outputR * decayRate, fabs(outputR)) ;
 
-		outputs[AUDIO_OUTPUT_L].setVoltage(outputL);
-		outputs[AUDIO_OUTPUT_R].setVoltage(outputR);
+        if (isSupersamplingEnabled) {
+            // Use the oversampling shaper for the signal
+            outputL = shaperL.process(outputL);
+            outputR = shaperR.process(outputR);
+        }
+
+        outputs[AUDIO_OUTPUT_L].setVoltage(outputL);
+        outputs[AUDIO_OUTPUT_R].setVoltage(outputR);
 
         // Update lights periodically
         updateLights();
@@ -770,7 +864,7 @@ struct PressedDuck : Module {
         } else {
             muteLatch[6] = false;
         }
-    
+
         if (transitionCount[6] > 0) {
             float fadeStep = (muteState[6] ? -1.0f : 1.0f) / transitionSamples;
             fadeLevel[6] += fadeStep;
@@ -787,7 +881,7 @@ struct PressedDuck : Module {
             sideL *= fadeLevel[6];
             sideR *= fadeLevel[6];
         }
-      
+
         // Check sidechain connection
         bool isSideConnectedL = inputs[SIDECHAIN_INPUT_L].isConnected();
         bool isSideConnectedR = inputs[SIDECHAIN_INPUT_R].isConnected();
@@ -805,11 +899,11 @@ struct PressedDuck : Module {
             sidePeakR = fmax(sidePeakR * decayRate, fabs(sideR));
             filteredSideEnvelopeL = alpha * sidePeakL + (1 - alpha) * filteredSideEnvelopeL;
             filteredSideEnvelopeR = alpha * sidePeakR + (1 - alpha) * filteredSideEnvelopeR;
-    
+
             // Apply the envelope to the side signals
             sideL *= filteredSideEnvelopeL;
             sideR *= filteredSideEnvelopeR;
-    
+
             // Calculate ducking based on the side envelope
             float duckAmount = params[DUCK_PARAM].getValue();
             if (inputs[DUCK_CV].isConnected()) {
@@ -827,15 +921,15 @@ struct PressedDuck : Module {
                 if (muteState[6]) {
                     mixL = (mixL * duckingFactorL) ;
                     mixR = (mixR * duckingFactorR) ;
-                    
+
                 } else {
                     mixL = (mixL * duckingFactorL) + sideL;
-                    mixR = (mixR * duckingFactorR) + sideR;                
+                    mixR = (mixR * duckingFactorR) + sideR;
                 }
             }
         }
     }//end process side
-   
+
     void updateLights() {
         if (++cycleCount >= 2000) {
             for (int i = 0; i < 6; i++) {
@@ -852,8 +946,8 @@ struct PressedDuck : Module {
                 lights[MUTESIDE_LIGHT].setBrightness(1.0f);
             } else {
                 lights[MUTESIDE_LIGHT].setBrightness(0.0f);
-            } 
-                       
+            }
+
             // Update PRESS lights with segmented levels
             updateSegmentedLights(PRESS_LIGHT1L, pressTotalL, 35.0f, 20);
             updateSegmentedLights(PRESS_LIGHT1R, pressTotalR, 35.0f, 20);
@@ -869,8 +963,8 @@ struct PressedDuck : Module {
 
             cycleCount = 0;
         }
-    } 
-    
+    }
+
     void updateSegmentedLights(int startLightId, float totalValue, float maxValue, int numLights) {
         float normalizedValue = totalValue / maxValue;
         int fullLights = static_cast<int>(normalizedValue * numLights);
@@ -882,12 +976,12 @@ struct PressedDuck : Module {
             } else if (i == fullLights) {
                 lights[startLightId + i].setBrightness(fractionalBrightness); // Partial brightness for the last partially covered segment
             } else {
-                float dimming = lights[startLightId + i].getBrightness(); 
-                lights[startLightId + i].setBrightness(dimming * 0.75f); 
+                float dimming = lights[startLightId + i].getBrightness();
+                lights[startLightId + i].setBrightness(dimming * 0.75f);
             }
         }
-    }    
-       
+    }
+
 };
 
 struct PressedDuckWidget : ModuleWidget {
@@ -918,7 +1012,7 @@ struct PressedDuckWidget : ModuleWidget {
         addInput(createInputCentered<ThemedPJ301MPort>(Vec(xPos, yPos), module, PressedDuck::SIDECHAIN_INPUT_L ));
         yPos += Spacing;
         addInput(createInputCentered<ThemedPJ301MPort>(Vec(xPos, yPos), module, PressedDuck::SIDECHAIN_INPUT_R ));
-   
+
         // Sidechain Volume slider with light
         yPos += 40+Spacing;
         addParam(createLightParamCentered<VCVLightSlider<YellowLight>>(Vec(xPos, yPos), module, PressedDuck::SIDECHAIN_VOLUME_PARAM , PressedDuck::BASS_VOLUME_LIGHT));
@@ -980,7 +1074,7 @@ struct PressedDuckWidget : ModuleWidget {
             // Reset yPos for next channel
             yPos = channelOffset.y;
         }
-            
+
         // Global controls for saturation and side processing (placing these at the end of channels)
         xPos += 1.75*sliderX; // Shift to the right of the last channel
         yPos = channelOffset.y + 0.5*Spacing;
@@ -1060,16 +1154,16 @@ struct PressedDuckWidget : ModuleWidget {
             float angle = startAngle + fraction * (endAngle - startAngle);
             float x = knobX + radius * cos(angle);
             float y = knobY + radius * sin(angle);
-        
+
             // Create and add the light
             if (i< .5*numLights){
                 addChild(createLightCentered<TinyLight<YellowLight>>(Vec(x, y), module, firstLightId + i));
             } else {
-                addChild(createLightCentered<TinyLight<RedLight>>(Vec(x, y), module, firstLightId + i));            
+                addChild(createLightCentered<TinyLight<RedLight>>(Vec(x, y), module, firstLightId + i));
             }
         }
     }
-    
+
     void appendContextMenu(Menu* menu) override {
         ModuleWidget::appendContextMenu(menu);
 
@@ -1092,12 +1186,12 @@ struct PressedDuckWidget : ModuleWidget {
                 MenuItem::step();
             }
         };
-        
+
         FilterMenuItem* filterItem = new FilterMenuItem();
         filterItem->text = "Apply Filters";
         filterItem->PressedDuckModule = PressedDuckModule;
         menu->addChild(filterItem);
-        
+
         // MutedSideDucks menu item
         struct MutedSideDucksMenuItem : MenuItem {
             PressedDuck* PressedDuckModule;
@@ -1111,14 +1205,36 @@ struct PressedDuckWidget : ModuleWidget {
                 MenuItem::step();
             }
         };
-        
+
         // Create the MutedSideDucks menu item and add it to the menu
         MutedSideDucksMenuItem* mutedSideDucksItem = new MutedSideDucksMenuItem();
         mutedSideDucksItem->text = "Muted Sidechain still Ducks";
         mutedSideDucksItem->PressedDuckModule = PressedDuckModule;
-        menu->addChild(mutedSideDucksItem);        
-        
-    }        
+        menu->addChild(mutedSideDucksItem);
+
+        // Supersampling menu item
+        struct SupersamplingMenuItem : MenuItem {
+            PressedDuck* PressedDuckModule;
+
+            void onAction(const event::Action& e) override {
+                // Toggle the "Supersampling" mode
+                PressedDuckModule->isSupersamplingEnabled = !PressedDuckModule->isSupersamplingEnabled;
+            }
+
+            void step() override {
+                // Update the display to show a checkmark when the mode is active
+                rightText = PressedDuckModule->isSupersamplingEnabled ? "✔" : "";
+                MenuItem::step();
+            }
+        };
+
+        // Create the Supersampling menu item and add it to the menu
+        SupersamplingMenuItem* supersamplingItem = new SupersamplingMenuItem();
+        supersamplingItem->text = "Enable Supersampling";
+        supersamplingItem->PressedDuckModule = PressedDuckModule;
+        menu->addChild(supersamplingItem);
+
+    }
 };
 
 Model* modelPressedDuck = createModel<PressedDuck, PressedDuckWidget>("PressedDuck");
