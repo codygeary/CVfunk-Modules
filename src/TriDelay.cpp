@@ -278,9 +278,7 @@ struct TriDelay : Module {
         paramQuantities[GLOBAL_DELAY]->displayMultiplier = static_cast<int> (delayLength);
         paramQuantities[TAP_1_DELAY]->displayMultiplier = static_cast<int> (delayLength);
         paramQuantities[TAP_2_DELAY]->displayMultiplier = static_cast<int> (delayLength);
-        paramQuantities[TAP_3_DELAY]->displayMultiplier = static_cast<int> (delayLength);
-//         paramQuantities[GLOBAL_DELAY_ATT]->displayMultiplier = static_cast<int> (delayLength/36);
-       
+        paramQuantities[TAP_3_DELAY]->displayMultiplier = static_cast<int> (delayLength);       
     
         // Global delay (with CV and attenuverter)
         float globalDelay = params[GLOBAL_DELAY].getValue() * 0.001f * delayLength; // Convert to seconds
@@ -303,7 +301,7 @@ struct TriDelay : Module {
         for (int i = 0; i < 3; i++) {
             tapDelay[i] = clamp(globalDelay + params[TAP_1_DELAY + i].getValue() * 0.001f * delayLength, 0.0001f, (delayLength/1000.f) );
             tapPan[i] = clamp(globalPan + params[TAP_1_PAN + i].getValue(), -1.f, 1.f);
-            tapFeedback[i] = clamp(globalFeedback + params[TAP_1_FEEDBACK + i].getValue() * 0.01f, 0.f, 0.99f);
+            tapFeedback[i] = 0.5f * clamp(globalFeedback + params[TAP_1_FEEDBACK + i].getValue() * 0.01f, 0.f, 0.99f);
         }
 
         // Monitor Buttons
@@ -338,11 +336,17 @@ struct TriDelay : Module {
             inputL = buffer[0][bufferIndex];
             inputR = buffer[1][bufferIndex];
         }
+ 
+        float feedbackAccumL = 0.f;
+        float feedbackAccumR = 0.f;
     
         // Process each tap (L and R independently for stereo delay)
         for (int i = 0; i < 3; i++) {
-            processTap(i, tapDelay[i], tapFeedback[i], tapPan[i], inputL, inputR);
+            processTap(i, tapDelay[i], tapFeedback[i], tapPan[i], inputL, inputR, feedbackAccumL, feedbackAccumR);
         }
+
+        buffer[0][bufferIndex] = clamp(inputL + feedbackAccumL, -10.f, 10.f);
+        buffer[1][bufferIndex] = clamp(inputR + feedbackAccumR, -10.f, 10.f);
     
         // Mix Wet/Dry signal for each channel
         float outputL = (1.0f - wetDry) * inputL + wetDry * stereoBuffer[0];  // Dry/Wet mix for left channel
@@ -385,10 +389,10 @@ struct TriDelay : Module {
         // Increment buffer index (circular buffer wrap-around)
         bufferIndex = (bufferIndex + 1) % bufferSize;
         
-//         bufferSize = static_cast<size_t>(delayLength/1000 * sampleRate);
+        bufferSize = static_cast<size_t>(delayLength/1000 * sampleRate);
     }
 
-    void processTap(int tapIndex, float delayTime, float feedback, float pan, float inputL, float inputR) {
+    void processTap(int tapIndex, float delayTime, float feedback, float pan, float inputL, float inputR, float& feedbackL, float& feedbackR) {
         float delaySamples = delayTime * sampleRate;
         int wholeDelaySamples = static_cast<int>(delaySamples);  // Integer part of delay
         float fractionalDelay = delaySamples - wholeDelaySamples; // Fractional part of delay
@@ -408,19 +412,19 @@ struct TriDelay : Module {
         float panRight = polySin(M_PI_2 * scaledPan);
 
         // Apply ADAA
-        float maxHeadRoom = 1.31f * 10.f; //exceeding this number results in strange wavefolding due to the polytanh bad fit beyond this point
+        float maxHeadRoom = 1.31f * 5.f; //exceeding this number results in strange wavefolding due to the polytanh bad fit beyond this point
         delayedSampleL = clamp(delayedSampleL, -maxHeadRoom, maxHeadRoom);
         delayedSampleR = clamp(delayedSampleR, -maxHeadRoom, maxHeadRoom);
-        delayedSampleL = applyADAA(delayedSampleL/10.f, lastOutputL[tapIndex], sampleRate); //max is 2x5V
-        delayedSampleR = applyADAA(delayedSampleR/10.f, lastOutputR[tapIndex], sampleRate);
+        delayedSampleL = applyADAA(delayedSampleL/5.f, lastOutputL[tapIndex], sampleRate); //max is 2x5V
+        delayedSampleR = applyADAA(delayedSampleR/5.f, lastOutputR[tapIndex], sampleRate);
         lastOutputL[tapIndex] = delayedSampleL;
         lastOutputR[tapIndex] = delayedSampleR; 
-        delayedSampleL *= 10.f; 
-        delayedSampleR *= 10.f; 
+        delayedSampleL *= 5.f; 
+        delayedSampleR *= 5.f; 
 
-        // Apply feedback: mix delayed sample with current input and pan the feedback
-        buffer[0][bufferIndex] = clamp(inputL + feedback * (delayedSampleL * panLeft + delayedSampleR * (1.0f - panRight)), -10.f, 10.f);
-        buffer[1][bufferIndex] = clamp(inputR + feedback * (delayedSampleL * (1.0f - panLeft) + delayedSampleR * panRight), -10.f, 10.f);
+        // Accumulate feedback contributions instead of writing to buffer
+        feedbackL += feedback * (delayedSampleL * panLeft + delayedSampleR * (1.0f - panRight));
+        feedbackR += feedback * (delayedSampleL * (1.0f - panLeft) + delayedSampleR * panRight);
     
         // Accumulate the delayed signals into the stereo output buffer
         stereoBuffer[0] += delayedSampleL;
@@ -518,7 +522,7 @@ struct EnvDisplay : TransparentWidget {
             nvgBeginPath(args.vg);
         
             // Set position of the indicator based on delay time
-            nvgCircle(args.vg, box.size.x * (module->tapDelay[i] / 3.6f) * ( 3600.f / module->delayLength ), centerY, module->tapFeedback[i] * 8.0f);
+            nvgCircle(args.vg, box.size.x * (module->tapDelay[i] / 3.6f) * ( 3600.f / module->delayLength ), centerY, module->tapFeedback[i] * 24.0f);
         
             // Get the pan value (-1 to 1)
             float pan = module->tapPan[i];
