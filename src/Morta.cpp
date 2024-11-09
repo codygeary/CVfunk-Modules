@@ -38,6 +38,8 @@ struct Morta : Module {
         NUM_LIGHTS
     };
 
+    std::atomic<bool> isEditing[1]; //For the master smart knob
+
     float inputValue = 0.f;
     float displayValue = 0.0f;
     DigitalDisplay* voltDisplay = nullptr;
@@ -58,6 +60,8 @@ struct Morta : Module {
         for (int i = 0; i < 16; i++) {
             configOutput(OUTPUT_1_1 + i, "Output " + std::to_string(i / 4 + 1) + "," + std::to_string(i % 4 + 1));
         }
+        
+        isEditing[0] = false; // Initialize editing state to false    
     }
 
     void process(const ProcessArgs &args) override {
@@ -81,9 +85,14 @@ struct Morta : Module {
         for (int c = 0; c < numChannels; c++) {
     
             // Override master knob value with input if input is connected
+            float topChannelVoltage = inputs[MAIN_INPUT].getVoltage(0);
             if (inputs[MAIN_INPUT].isConnected()) {
-                params[MASTER_KNOB].setValue(inputs[MAIN_INPUT].getVoltage(0));
-                displayValue = inputs[MAIN_INPUT].getVoltage(0);
+                if (!isEditing[0]){
+                    params[MASTER_KNOB].setValue(topChannelVoltage);
+                    displayValue = inputs[MAIN_INPUT].getVoltage(0);
+                } else {
+                    displayValue = params[MASTER_KNOB].getValue();                           
+                }
             } else {
                 displayValue = params[MASTER_KNOB].getValue();           
             }
@@ -97,7 +106,11 @@ struct Morta : Module {
             float inputValue = 0.0f;
 
             if (inputs[MAIN_INPUT].isConnected()) {
-                inputValue = inputs[MAIN_INPUT].getVoltage(c);
+                if (!isEditing[0]){
+                    inputValue = inputs[MAIN_INPUT].getVoltage(c);
+                } else {
+                    inputValue = params[MASTER_KNOB].getValue();          
+                }
             } else {
                 inputValue = params[MASTER_KNOB].getValue();
             }
@@ -124,6 +137,41 @@ struct Morta : Module {
 
 };
 
+//Define a SmartKnob that tracks if we are turning it
+template <typename BaseKnob>
+struct SmartKnob : BaseKnob {
+    void onDragStart(const event::DragStart& e) override {
+        if (ParamQuantity* paramQuantity = this->getParamQuantity()) {
+            if (Morta* module = dynamic_cast<Morta*>(paramQuantity->module)) {
+                int index = paramQuantity->paramId - Morta::MASTER_KNOB; //instance of 1st smart knob in the group
+                if (index >= 0 && index < 1) { //for 1 smart knobs
+                    module->isEditing[index].store(true);
+                }
+            }
+        }
+        BaseKnob::onDragStart(e);
+    }
+
+    void onDragEnd(const event::DragEnd& e) override {
+        if (ParamQuantity* paramQuantity = this->getParamQuantity()) {
+            if (Morta* module = dynamic_cast<Morta*>(paramQuantity->module)) {
+                int index = paramQuantity->paramId - Morta::MASTER_KNOB;
+                if (index >= 0 && index < 1) { //for 1 smart knobs
+                    module->isEditing[index].store(false);
+                }
+            }
+        }
+        BaseKnob::onDragEnd(e);
+    }
+};
+
+// Type aliases to apply 'Smart' to all the knob types we use
+using SmartRoundBlackKnob = SmartKnob<RoundBlackKnob>;
+using SmartTrimpot = SmartKnob<Trimpot>;
+using SmartRoundLargeBlackKnob = SmartKnob<RoundLargeBlackKnob>;
+using SmartRoundHugeBlackKnob = SmartKnob<RoundHugeBlackKnob>;
+
+
 struct MortaWidget : ModuleWidget {
     MortaWidget(Morta* module) {
         setModule(module);
@@ -142,7 +190,7 @@ struct MortaWidget : ModuleWidget {
         addInput(createInputCentered<ThemedPJ301MPort>(Vec(box.size.x / 2 - 50, 70), module, Morta::MAIN_INPUT));
 
         // Central giant knob
-        addParam(createParamCentered<RoundHugeBlackKnob>(Vec(box.size.x / 2, 70), module, Morta::MASTER_KNOB));
+        addParam(createParamCentered<SmartRoundHugeBlackKnob>(Vec(box.size.x / 2, 70), module, Morta::MASTER_KNOB));
 
         // CV input, trimpot, and knob for the range control at the bottom
         addInput(createInputCentered<ThemedPJ301MPort>(Vec(box.size.x / 2 + 30, 155), module, Morta::RANGE_CV_INPUT));

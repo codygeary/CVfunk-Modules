@@ -67,6 +67,8 @@ struct Arrange : Module {
         NUM_LIGHTS
     };
 
+    std::atomic<bool> isEditing[7]; //For the smart knobs
+
     DigitalDisplay* digitalDisplay = nullptr;
     DigitalDisplay* chanDisplays[7] = {nullptr};
    
@@ -259,6 +261,10 @@ struct Arrange : Module {
         configOutput(CHAN_5_OUTPUT, "Channel 5");
         configOutput(CHAN_6_OUTPUT, "Channel 6");
         configOutput(CHAN_7_OUTPUT, "Channel 7");
+
+        for (int i = 0; i < 7; i++) {
+            isEditing[i] = false; // Initialize editing state to false
+        }
     }
 
     void onRandomize(const RandomizeEvent& e) override {
@@ -383,7 +389,9 @@ struct Arrange : Module {
             for (int i = 0; i < 7; i++) {
                 // Recall the output values for the current stage and set them to the knobs
                 float recalledValue = outputValues[currentStage][i]; // Get the stored value for the current stage
-                paramQuantities[CHAN_1_KNOB + i]->setDisplayValue(recalledValue); 
+                if (!isEditing[i]){ //only change the knob if it's not being turned
+                    paramQuantities[CHAN_1_KNOB + i]->setDisplayValue(recalledValue); 
+                }
             
                 // Generate a random value for each gate based on the probability
                 float randVal = random::uniform(); // Generate a random number between 0 and 1
@@ -452,13 +460,21 @@ struct Arrange : Module {
                 float inputVal = knobVal; 
             
                 if (activeInputChannel[i]==i) {
-                    inputVal = inputs[CHAN_1_INPUT + i].getPolyVoltage(0);
+                    if (!isEditing[i]){
+                        inputVal = inputs[CHAN_1_INPUT + i].getPolyVoltage(0);
+                    } else {
+                        inputVal = knobVal;
+                    }
                 } else if (activeInputChannel[i] > -1){
                     // Now we compute which channel we need to grab
                     int diffBetween = i - activeInputChannel[i];
                     int currentChannelMax =  inputChannels[activeInputChannel[i]] ;    
                     if (currentChannelMax - diffBetween > 0) {    //If we are before the last poly channel
-                        inputVal = inputs[CHAN_1_INPUT + activeInputChannel[i]].getPolyVoltage(diffBetween); 
+                        if (!isEditing[i]){
+                            inputVal = inputs[CHAN_1_INPUT + activeInputChannel[i]].getPolyVoltage(diffBetween); 
+                        } else {
+                            inputVal = knobVal;
+                        }
                     }
                 }
         
@@ -478,7 +494,9 @@ struct Arrange : Module {
                 }  
                 
                 if (knobVal != inputVal){  //only update knobs to the set value if they are different
-                    paramQuantities[CHAN_1_KNOB + i]->setDisplayValue(inputVal); 
+                    if (!isEditing[i]){ //don't force set any knob currently being turned.
+                        paramQuantities[CHAN_1_KNOB + i]->setDisplayValue(inputVal); 
+                    }
                 }
         
                 //Store the output value in the 2D array for the current stage
@@ -585,6 +603,41 @@ struct ProgressDisplay : TransparentWidget {
     
 };
 
+//Define a SmartKnob that tracks if we are turning it
+template <typename BaseKnob>
+struct SmartKnob : BaseKnob {
+    void onDragStart(const event::DragStart& e) override {
+        if (ParamQuantity* paramQuantity = this->getParamQuantity()) {
+            if (Arrange* module = dynamic_cast<Arrange*>(paramQuantity->module)) {
+                int index = paramQuantity->paramId - Arrange::CHAN_1_KNOB; //instance of 1st smart knob in the group
+                if (index >= 0 && index < 7) { //for 7 smart knobs
+                    module->isEditing[index].store(true);
+                }
+            }
+        }
+        BaseKnob::onDragStart(e);
+    }
+
+    void onDragEnd(const event::DragEnd& e) override {
+        if (ParamQuantity* paramQuantity = this->getParamQuantity()) {
+            if (Arrange* module = dynamic_cast<Arrange*>(paramQuantity->module)) {
+                int index = paramQuantity->paramId - Arrange::CHAN_1_KNOB;
+                if (index >= 0 && index < 7) { //for 7 smart knobs
+                    module->isEditing[index].store(false);
+                }
+            }
+        }
+        BaseKnob::onDragEnd(e);
+    }
+};
+
+// Type aliases to apply 'Smart' to all the knob types we use
+using SmartRoundBlackKnob = SmartKnob<RoundBlackKnob>;
+using SmartTrimpot = SmartKnob<Trimpot>;
+using SmartRoundLargeBlackKnob = SmartKnob<RoundLargeBlackKnob>;
+using SmartRoundHugeBlackKnob = SmartKnob<RoundHugeBlackKnob>;
+
+
 struct ArrangeWidget : ModuleWidget {
     ArrangeWidget(Arrange* module) {
         setModule(module);
@@ -650,7 +703,7 @@ struct ArrangeWidget : ModuleWidget {
             addParam(createParamCentered<TL1105>                  (Vec(20 + 30, yPos), module, Arrange::CHAN_1_BUTTON + i));
             addChild(createLightCentered<LargeLight<BlueLight>>(Vec(20 + 30, yPos), module, Arrange::CHAN_1_LIGHT + i));
             addChild(createLightCentered<LargeLight<YellowLight>>(Vec(20 + 30, yPos), module, Arrange::CHAN_1_LIGHT_B + i));
-            addParam(createParamCentered<RoundBlackKnob>          (Vec(50 + 35, yPos), module, Arrange::CHAN_1_KNOB + i));
+            addParam(createParamCentered<SmartRoundBlackKnob>          (Vec(50 + 35, yPos), module, Arrange::CHAN_1_KNOB + i));
 
             if (module) {
                 // Ratio Displays Initialization
