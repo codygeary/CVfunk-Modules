@@ -500,7 +500,7 @@ struct Arrange : Module {
                 }
         
                 //Store the output value in the 2D array for the current stage
-                if (currentStage >= 0 && currentStage < 128) {
+                if (currentStage >= 0 && currentStage < maxStages) {
                     outputValues[currentStage][i] = inputVal; // Store input value at the current stage for the respective channel
                 }
             } 
