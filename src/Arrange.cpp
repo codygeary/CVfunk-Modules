@@ -12,6 +12,7 @@
 #include "rack.hpp"
 #include "plugin.hpp"
 #include "digital_display.hpp"
+#include <cmath>
 
 using namespace rack;
 
@@ -24,7 +25,7 @@ struct DiscreteRoundBlackKnob : RoundBlackKnob {
             float rawValue = paramQuantity->getValue();
             
             // Round the value to the nearest integer
-            float discreteValue = round(rawValue);
+            float discreteValue = std::roundf(rawValue);
             
             // Set the snapped value
             paramQuantity->setValue(discreteValue);
@@ -316,7 +317,7 @@ struct Arrange : Module {
 
         maxStages = static_cast<int>(maxNumStages);
         
-        currentStage = round(params[STAGE_SELECT].getValue() * (maxStages - 1));
+        currentStage = std::roundf(params[STAGE_SELECT].getValue() * (maxStages - 1));
         
         // Dynamically reconfigure the Stage knob based on the Max, if Max changes
         if (maxStages != prevMaxStages) {
@@ -482,7 +483,7 @@ struct Arrange : Module {
                     outputs[CHAN_1_OUTPUT + i].setVoltage(inputVal);//output the unmodified value
                 } else if (channelButton[i]==1){               
                     //quantize the outputValue voltage by rounding to the nearest 1/12
-                    inputVal = round(inputVal * 12.0f) / 12.0f;                  
+                    inputVal = std::roundf(inputVal * 12.0f) / 12.0f;                  
                     outputs[CHAN_1_OUTPUT + i].setVoltage(inputVal);//output the quantized value
                 } else if (channelButton[i] == 2) {            
                     // Check if the pulse is still high
@@ -512,7 +513,7 @@ struct Arrange : Module {
                     outputs[CHAN_1_OUTPUT + i].setVoltage(inputVal);//output the unmodified value
                 } else if (channelButton[i]==1){               
                     //quantize the outputValue voltage by rounding to the nearest 1/12
-                    inputVal = round(inputVal * 12.0f) / 12.0f;                  
+                    inputVal = std::roundf(inputVal * 12.0f) / 12.0f;                  
                     outputs[CHAN_1_OUTPUT + i].setVoltage(inputVal);//output the quantized value
                 } else if (channelButton[i] == 2) {            
                     // Check if the pulse is still high
@@ -750,7 +751,7 @@ struct ArrangeWidget : ModuleWidget {
                     
                     // Calculate the semitone
                     double fractionalPart = fmod(pitchVoltage, 1.0);
-                    int semitone = round(fractionalPart * 12);
+                    int semitone = std::roundf(fractionalPart * 12);
                     semitone = (semitone % 12 + 12) % 12;  // Ensure it's a valid semitone (0 to 11)
             
                     // Define the note names
