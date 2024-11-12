@@ -514,6 +514,14 @@ struct EnvDisplay : TransparentWidget {
         centerY = box.size.y / 2.0f;
         heightScale = centerY / 5; // Calculate based on current center Y
 
+        const float padding = 1.0f;
+        const float totalWidth = box.size.x - 2.0f * padding;
+        const float totalHeight = box.size.y - 2.0f * padding;
+
+        // Clip the drawing to the bounds of the widget
+        nvgScissor(args.vg, padding, padding, totalWidth, totalHeight);
+
+
         drawWaveform(args, module->waveBuffers[0], nvgRGBAf(1, 0.4, 0, 0.8));
         drawWaveform(args, module->waveBuffers[1], nvgRGBAf(0, 0.4, 1, 0.8));
 
