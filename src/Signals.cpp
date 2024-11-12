@@ -49,9 +49,9 @@ struct Signals : Module {
     bool retriggerToggleProcessed = false;
     double displayUpdateTime = 0.1; 
     double timeSinceLastUpdate = 0.0;
-    float scopeInput[6] = {0.0f};
-    int scopeChannels[6] = {0};  // Number of polyphonic channels for Scope inputs
-    int activeScopeChannel[6] = {-1};  // Stores the number of the previous active channel for the Scope
+    float scopeInput[6] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+    int scopeChannels[6] = {0, 0, 0, 0, 0, 0};  // Number of polyphonic channels for Scope inputs
+    int activeScopeChannel[6] = {-1, -1, -1, -1, -1, -1};  // Stores the number of the previous active channel for the Scope
 
 
     FramebufferWidget* fbWidget = nullptr;
@@ -107,16 +107,16 @@ struct Signals : Module {
 
         // Scan all inputs to determine the polyphony
         for (int i = 0; i < 6; i++) {        
-            scopeChannels[i] = 0;  // Number of polyphonic channels for Scope inputs
-            activeScopeChannel[i] = -1;  // Stores the number of the previous active channel for the Scope
+            scopeChannels[i] = 0;  // Reset number of polyphonic channels
+            activeScopeChannel[i] = -1;  // Reset active channel
         
             // Update the Scope channels
             if (inputs[ENV1_INPUT + i].isConnected()) {
                 scopeChannels[i] = inputs[ENV1_INPUT + i].getChannels();
                 activeScopeChannel[i] = i;
             } else if (i > 0 && activeScopeChannel[i-1] != -1) {
-                // Use >= to carry over the active polyphonic channel correctly
-                if (scopeChannels[activeScopeChannel[i-1]] >= (i - activeScopeChannel[i-1])) {
+                // Ensure that the previous channel has enough poly channels to cover the current index
+                if (scopeChannels[activeScopeChannel[i-1]] > (i - activeScopeChannel[i-1])) {
                     activeScopeChannel[i] = activeScopeChannel[i-1]; // Carry over the active channel
                 } else {
                     activeScopeChannel[i] = -1; // No valid polyphonic channel to carry over
@@ -125,7 +125,6 @@ struct Signals : Module {
                 activeScopeChannel[i] = -1; // Explicitly reset if not connected
             }
         }
-
         for (int i = 0; i < 6; ++i) { //for the 6 wave inputs
  
  
@@ -178,7 +177,7 @@ struct Signals : Module {
                 lastInputs[i] = scopeInput[i];
                 lastTriggerTime[i] = 0.0f;            
             }
-            
+           
         }
 
         if (params[TRIGGER_ON_PARAM].getValue() > 0.5f && !retriggerToggleProcessed) {
@@ -233,23 +232,26 @@ struct WaveformDisplay : TransparentWidget {
 
     void drawWaveform(const DrawArgs& args) {
         if (!module) return;
-
+    
         const auto& buffer = module->envelopeBuffers[channelId];
-        float range = pow(module->params[Signals::RANGE_PARAM].getValue(),3.0f) / (MAX_TIME / module->currentTimeSetting);
-
+        float range = pow(module->params[Signals::RANGE_PARAM].getValue(), 3.0f) / (MAX_TIME / module->currentTimeSetting);
+    
         int displaySamples = 1024;
         std::vector<Vec> points;
-
+    
         float firstSampleY = box.size.y;
         if ((module->activeScopeChannel[channelId] > -1) && !buffer.empty()) {
             firstSampleY = box.size.y * (1.0f - (buffer.front() / 15.0f));
         }
-
+    
         points.push_back(Vec(0, box.size.y));
         points.push_back(Vec(0, firstSampleY));
-
+    
         for (int i = 0; i < displaySamples; ++i) {
+            // Ensure bufferIndex does not exceed buffer.size() - 1
             int bufferIndex = int(i * ((buffer.size() - 1) * range + 1) / (displaySamples - 1));
+            bufferIndex = clamp(bufferIndex, 0, buffer.size() - 1);
+    
             float x = (static_cast<float>(i) / (displaySamples - 1)) * box.size.x;
             float y = box.size.y;
             if ((module->activeScopeChannel[channelId] > -1 )) {
@@ -257,17 +259,18 @@ struct WaveformDisplay : TransparentWidget {
             }
             points.push_back(Vec(x, y));
         }
-
-        //draw the wave
+    
+        // Draw the waveform
         nvgBeginPath(args.vg);
         nvgStrokeWidth(args.vg, 2.0f);
         nvgStrokeColor(args.vg, waveformColor);        
         nvgMoveTo(args.vg, points[0].x, points[0].y);
-        for (size_t i = 0; i < points.size()-1; ++i) {
+        for (size_t i = 1; i < points.size(); ++i) { // Start from 1 to avoid duplicating the first point
             nvgLineTo(args.vg, points[i].x, points[i].y);
         }
         nvgStroke(args.vg);
     }
+
 
     void drawLayer(const DrawArgs& args, int layer) override {
         if (layer == 1) {

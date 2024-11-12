@@ -427,10 +427,10 @@ struct PressedDuck : Module {
         int muteChannels[6] = {0};  // Number of polyphonic channels for MUTE inputs
 
         // Arrays to store the current input signals and connectivity status
-        int activeAudio[6] = {-1};        // Stores the number of the previous active channel for the AUDIO inputs
-        int activeVcaChannel[6] = {-1}; // Stores the number of the previous active channel for the VCA CV
-        int activePanChannel[6] = {-1};   // Stores the number of the previous active channel for the PAN CV
-        int activeMuteChannel[6] = {-1};  // Stores the number of the previous active channel for the MUTE
+        int activeAudio[6] = {-1, -1, -1, -1, -1, -1};        // Stores the number of the previous active channel for the AUDIO inputs
+        int activeVcaChannel[6] = {-1, -1, -1, -1, -1, -1}; // Stores the number of the previous active channel for the VCA CV
+        int activePanChannel[6] = {-1, -1, -1, -1, -1, -1};   // Stores the number of the previous active channel for the PAN CV
+        int activeMuteChannel[6] = {-1, -1, -1, -1, -1, -1};  // Stores the number of the previous active channel for the MUTE
         //initialize all active channels with -1, indicating nothing connected.
 
         // Scan all inputs to determine the polyphony
@@ -534,7 +534,7 @@ struct PressedDuck : Module {
                 // Now we compute which channel we need to grab
                 int diffBetween = i - activeAudio[i];
                 int currentChannelMax =  audioChannels[activeAudio[i]] ;
-                if (currentChannelMax - diffBetween > 0){    //If we are before the last poly channel
+                if (diffBetween >= 0 && diffBetween < currentChannelMax){    //If we are before the last poly channel
                     inputActive = true;
                     // Handle mono to stereo routing
                     if (!isConnectedR[ activeAudio[i] ] && isConnectedL[ activeAudio[i] ]) { //Left only
@@ -571,6 +571,7 @@ struct PressedDuck : Module {
             bool buttonMute = params[MUTE1_PARAM + i].getValue() > 0.5f;
             bool inputMute = false;
 
+
             // Check if mute is triggered by the input or previous poly input
             if (activeMuteChannel[i] == i) { //if there's an input here
                 inputMute = inputs[MUTE_1_INPUT + i].getPolyVoltage(0) > 0.5f;
@@ -578,7 +579,7 @@ struct PressedDuck : Module {
                 // Now we compute which channel we need to grab
                 int diffBetween = i - activeMuteChannel[i];
                 int currentChannelMax =  muteChannels[activeMuteChannel[i]] ;
-                if (currentChannelMax - diffBetween > 0) {    //If we are before the last poly channel
+                if (diffBetween >= 0 && diffBetween < currentChannelMax) {    //If we are before the last poly channel
                     inputMute = inputs[ MUTE_1_INPUT + activeMuteChannel[i] ].getPolyVoltage(diffBetween) > 0.5f;
                 }
             }
@@ -640,7 +641,7 @@ struct PressedDuck : Module {
                 // Now we compute which channel we need to grab
                 int diffBetween = i - activeVcaChannel[i];
                 int currentChannelMax =  vcaChannels[activeVcaChannel[i]] ;
-                if (currentChannelMax - diffBetween > 0) {    //If we are before the last poly channel
+                if (diffBetween >= 0 && diffBetween < currentChannelMax) {    //If we are before the last poly channel
                     inputL[i] *= clamp(inputs[VCA_CV1_INPUT + activeVcaChannel[i]].getPolyVoltage(diffBetween) / 10.f, 0.f, 2.f);
                     inputR[i] *= clamp(inputs[VCA_CV1_INPUT + activeVcaChannel[i]].getPolyVoltage(diffBetween) / 10.f, 0.f, 2.f);
                 }
@@ -674,7 +675,7 @@ struct PressedDuck : Module {
                 // Now we compute which channel we need to grab
                 int diffBetween = i - activePanChannel[i];
                 int currentChannelMax =  panChannels[activePanChannel[i]] ;
-                if (currentChannelMax - diffBetween > 0) {    //If we are before the last poly channel
+                if (diffBetween >= 0 && diffBetween < currentChannelMax) {    //If we are before the last poly channel
                     pan += inputs[PAN_CV1_INPUT + activePanChannel[i]].getPolyVoltage(diffBetween) / 5.f;
                 }
             }

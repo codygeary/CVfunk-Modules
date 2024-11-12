@@ -12,6 +12,7 @@
 #include "rack.hpp"
 #include "plugin.hpp"
 using namespace rack;
+#include <cmath>
 
 template<typename T, size_t Size>
 class CircularBuffer {
@@ -85,7 +86,7 @@ struct DiscreteRoundBlackKnob : RoundBlackKnob {
             float rawValue = paramQuantity->getValue();
             
             // Round the value to the nearest integer
-            float discreteValue = round(rawValue);
+            float discreteValue = std::roundf(rawValue);
             
             // Set the snapped value
             paramQuantity->setValue(discreteValue);
@@ -910,7 +911,7 @@ struct StepWave : Module {
             }
              
             if (quantizeCVOut){
-                slewedVoltage[j] = round(slewedVoltage[j]*12.f)/12.f;
+                slewedVoltage[j] = std::roundf(slewedVoltage[j]*12.f)/12.f;
             }
                              
             //Main Gate Output   

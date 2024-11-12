@@ -52,7 +52,7 @@ struct DiscreteRoundBlackKnob : RoundBlackKnob {
             float rawValue = paramQuantity->getValue();
             
             // Round the value to the nearest integer
-            float discreteValue = round(rawValue);
+            float discreteValue = std::roundf(rawValue);
             
             // Set the snapped value
             paramQuantity->setValue(discreteValue);
@@ -515,7 +515,7 @@ struct Strings : Module {
                     octavesDifference = -2.0f; // max is 2 octaves down
                 }       
                 
-                int noteIndex = static_cast<int>(round(chordInputVal * 12)); // Total semitones from C
+                int noteIndex = static_cast<int>(std::roundf(chordInputVal * 12)); // Total semitones from C
                 int noteRelativeToC = (noteIndex % 12 + 12) % 12; // Ensuring a positive result
 
                 // Dynamically select the appropriate noteToChordPosition array based on knobRowPosition
@@ -771,7 +771,7 @@ struct Strings : Module {
                         std::string currentFingeringPattern = currentChords[currentChordIndex][fingeringVersion];
                         // Update the fingering display text with the current fingering pattern
 
-                        int capoAmountInt = static_cast<int>(floor(CapoAmount*12)); // Round to the nearest whole number if necessary
+                        int capoAmountInt = static_cast<int>(std::floorf(CapoAmount*12)); // Round to the nearest whole number if necessary
                         std::string capoAmountStr = std::to_string(capoAmountInt); // Convert the integer to a string
 
                         // Compute the note name of the capoed root

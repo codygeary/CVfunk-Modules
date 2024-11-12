@@ -132,7 +132,7 @@ struct Ouros : Module {
     // Global variables for each channel
     dsp::PulseGenerator resetPulse[16];
     dsp::SchmittTrigger SyncTrigger[16];
-    CircularBuffer<float, 1024> waveBuffers[4];
+    CircularBuffer<float, 512> waveBuffers[4];
     
     float oscPhase[16][4] = {{0.0f}};
     float prevPhaseResetInput[16] = {0.0f};
@@ -514,8 +514,8 @@ struct Ouros : Module {
             
         }
         
-        int sampleIndex = static_cast<int>(oscPhase[0][2] * 1024); 
-        sampleIndex = clamp(sampleIndex, 0, 1023);
+        int sampleIndex = static_cast<int>(oscPhase[0][2] * 512); 
+        sampleIndex = clamp(sampleIndex, 0, 511);
         waveBuffers[0][sampleIndex] = outputs[L_OUTPUT].getVoltage(0);
         waveBuffers[1][sampleIndex] = outputs[R_OUTPUT].getVoltage(0);
                 
@@ -526,15 +526,8 @@ struct Ouros : Module {
 struct PolarXYDisplay : TransparentWidget {
     Ouros* module;
     float centerX, centerY;
-    float xScale = 2 * M_PI / 1023; 
     float radiusScale; 
-
-    static constexpr float twoPi = 2.0f * M_PI; // Precomputed constant for 2*pi
-
-    void draw(const DrawArgs& args) override {
-        // We do not need to clear the drawing area here if it is handled in drawLayer()
-        TransparentWidget::draw(args);
-    }
+    static constexpr float twoPi = 2.0f * M_PI; // Precomputed constant for 2π
 
     void drawLayer(const DrawArgs& args, int layer) override {
         if (!module) return;
@@ -542,7 +535,7 @@ struct PolarXYDisplay : TransparentWidget {
         if (layer == 1) {
             centerX = box.size.x / 2.0f;
             centerY = box.size.y / 2.0f;
-            radiusScale = centerY / 5; // Adjust scale factor for radius
+            radiusScale = centerY * 0.8f; // Adjust as needed
 
             // Clear the area before drawing the waveform
             nvgBeginPath(args.vg);
@@ -551,36 +544,27 @@ struct PolarXYDisplay : TransparentWidget {
             nvgFill(args.vg);
 
             // Draw waveforms
-            if (!waveBufferEmpty(module->waveBuffers[0])) {
                 drawWaveform(args, module->waveBuffers[0], nvgRGBAf(1, 0.4, 0, 0.8));
-            }
-
-            if (!waveBufferEmpty(module->waveBuffers[1])) {
                 drawWaveform(args, module->waveBuffers[1], nvgRGBAf(0, 0.4, 1, 0.8));
-            }
         }
 
         TransparentWidget::drawLayer(args, layer);
     }
 
-    bool waveBufferEmpty(const CircularBuffer<float, 1024>& waveBuffer) const {
-        // Check if the buffer has meaningful data; in this case, we'll assume
-        // that a buffer is "empty" if all values are zero (or some other criteria).
-        for (size_t i = 0; i < waveBuffer.size(); i++) {
-            if (waveBuffer[i] != 0.0f) {
-                return false;
-            }
-        }
-        return true;
-    }
+    void drawWaveform(const DrawArgs& args, const CircularBuffer<float, 512>& waveBuffer, NVGcolor color) {
 
-    void drawWaveform(const DrawArgs& args, const CircularBuffer<float, 1024>& waveBuffer, NVGcolor color) {
         nvgBeginPath(args.vg);
         bool firstPoint = true;
 
-        for (size_t i = 0; i < waveBuffer.size(); i++) {
-            float theta = i * xScale; // Compute angle based on index
-            float radius = waveBuffer[i] * radiusScale + centerY; // Adjust radius based on sample value
+        const int displaySamples = 512; // Adjust for performance
+        for (int i = 0; i < displaySamples; i++) {
+            size_t bufferIndex = i * (waveBuffer.size() - 1) / (displaySamples - 1);
+
+            float theta = ((float)i / (displaySamples - 1)) * twoPi; // From 0 to 2π
+
+            float amplitude = waveBuffer[bufferIndex] / 5.0f; // Normalize to -1 to +1
+            float radius = centerY + amplitude * radiusScale;
+
             Vec pos = polarToCartesian(theta, radius);
 
             if (firstPoint) {
@@ -591,19 +575,12 @@ struct PolarXYDisplay : TransparentWidget {
             }
         }
 
-        // Properly close the path to avoid any unintended lines
-        nvgClosePath(args.vg);
         nvgStrokeColor(args.vg, color); // Set the color for the waveform
         nvgStrokeWidth(args.vg, 1.0);
         nvgStroke(args.vg);
     }
 
     Vec polarToCartesian(float theta, float radius) const {
-        // Normalize theta to be between -pi and pi
-        theta = fmod(theta + M_PI, twoPi);
-        if (theta < 0) theta += twoPi;
-        theta -= M_PI;
-
         float x = centerX + radius * cos(theta);
         float y = centerY + radius * sin(theta);
         return Vec(x, y);

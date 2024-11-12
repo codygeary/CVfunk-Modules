@@ -13,6 +13,7 @@
 #include "plugin.hpp"
 #include "digital_display.hpp" // Include the DigitalDisplay header
 using namespace rack;
+#include <cmath>
 
 struct DiscreteTrimpot : Trimpot { 
     void onDragEnd(const DragEndEvent& e) override {
@@ -23,7 +24,7 @@ struct DiscreteTrimpot : Trimpot {
             float rawValue = paramQuantity->getValue();
             
             // Round the value to the nearest integer
-            float discreteValue = round(rawValue);
+            float discreteValue = std::roundf(rawValue);
             
             // Set the snapped value
             paramQuantity->setValue(discreteValue);
@@ -43,7 +44,7 @@ struct DiscreteRoundBlackKnob : RoundBlackKnob {
             float rawValue = paramQuantity->getValue();
             
             // Round the value to the nearest integer
-            float discreteValue = round(rawValue);
+            float discreteValue = std::roundf(rawValue);
             
             // Set the snapped value
             paramQuantity->setValue(discreteValue);
@@ -275,7 +276,7 @@ struct Syncro : Module {
         float width = params[WIDTH_KNOB].getValue() + (inputs[WIDTH_INPUT].isConnected() ? 0.1f * inputs[WIDTH_INPUT].getVoltage() * params[WIDTH_ATT].getValue() : 0.0f);
         width = clamp(width, 0.001f, 0.999f);
         float rotate = params[ROTATE_KNOB].getValue() + (inputs[ROTATE_INPUT].isConnected() ? 0.1f*inputs[ROTATE_INPUT].getVoltage() * params[ROTATE_ATT].getValue() : 0.0f);
-        clockRotate = static_cast<int>(round(fmod(-8.0f * rotate, 8.0f)));
+        clockRotate = static_cast<int>(std::roundf(fmod(-8.0f * rotate, 8.0f)));
 
         // Process clock sync input
         if (inputs[EXT_CLOCK_INPUT].isConnected()) {
@@ -360,13 +361,13 @@ struct Syncro : Module {
             }
         }
 
-        fillGlobal = static_cast<int>(round(params[FILL_KNOB].getValue() + (inputs[FILL_INPUT].isConnected() ? inputs[FILL_INPUT].getVoltage() * params[FILL_ATT].getValue() : 0.0f)));
+        fillGlobal = static_cast<int>(std::roundf(params[FILL_KNOB].getValue() + (inputs[FILL_INPUT].isConnected() ? inputs[FILL_INPUT].getVoltage() * params[FILL_ATT].getValue() : 0.0f)));
 
         // Calculate the LCM for each clock
         int lcmWithMaster[9];
         for (int i = 1; i < 9; ++i) {
-            int num = static_cast<int>(round(multiply[i]));
-            int denom = static_cast<int>(round(divide[i]));
+            int num = static_cast<int>(std::roundf(multiply[i]));
+            int denom = static_cast<int>(std::roundf(divide[i]));
             simplifyRatio(num, denom);
             lcmWithMaster[i] = lcm(denom, 1); // Master clock is 1:1
 
@@ -436,8 +437,8 @@ struct Syncro : Module {
                            index += 8; // Adjust for negative values to wrap around correctly
                         }
 
-                        multiply[j] = round(params[MULTIPLY_KNOB_1 + index].getValue()) + (fill[j-1] ? fillGlobal : 0);
-                        divide[j] = round(params[DIVIDE_KNOB_1 + index].getValue());
+                        multiply[j] = std::roundf(params[MULTIPLY_KNOB_1 + index].getValue()) + (fill[j-1] ? fillGlobal : 0);
+                        divide[j] = std::roundf(params[DIVIDE_KNOB_1 + index].getValue());
                         if (divide[j] <= 0) {
                             divide[j] = 1.0f; // Now safe to use divide[j] for divisions
                         }
