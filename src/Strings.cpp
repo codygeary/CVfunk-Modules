@@ -16,6 +16,7 @@
 #include "dsp/digital.hpp"
 #include "digital_display.hpp"  
 #include "chord_display.hpp"
+#include <cmath>
 using namespace rack;
 
 const int MAX_CHORDS_PER_ROW = 7;
@@ -771,7 +772,7 @@ struct Strings : Module {
                         std::string currentFingeringPattern = currentChords[currentChordIndex][fingeringVersion];
                         // Update the fingering display text with the current fingering pattern
 
-                        int capoAmountInt = static_cast<int>(std::floorf(CapoAmount*12)); // Round to the nearest whole number if necessary
+                        int capoAmountInt = static_cast<int>(std::roundf(CapoAmount*12)); // Round to the nearest whole number if necessary
                         std::string capoAmountStr = std::to_string(capoAmountInt); // Convert the integer to a string
 
                         // Compute the note name of the capoed root
