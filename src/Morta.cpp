@@ -137,42 +137,43 @@ struct Morta : Module {
 
 };
 
-//Define a SmartKnob that tracks if we are turning it
-template <typename BaseKnob>
-struct SmartKnob : BaseKnob {
-    void onDragStart(const event::DragStart& e) override {
-        if (ParamQuantity* paramQuantity = this->getParamQuantity()) {
-            if (Morta* module = dynamic_cast<Morta*>(paramQuantity->module)) {
-                int index = paramQuantity->paramId - Morta::MASTER_KNOB; //instance of 1st smart knob in the group
-                if (index >= 0 && index < 1) { //for 1 smart knobs
-                    module->isEditing[index].store(true);
-                }
-            }
-        }
-        BaseKnob::onDragStart(e);
-    }
-
-    void onDragEnd(const event::DragEnd& e) override {
-        if (ParamQuantity* paramQuantity = this->getParamQuantity()) {
-            if (Morta* module = dynamic_cast<Morta*>(paramQuantity->module)) {
-                int index = paramQuantity->paramId - Morta::MASTER_KNOB;
-                if (index >= 0 && index < 1) { //for 1 smart knobs
-                    module->isEditing[index].store(false);
-                }
-            }
-        }
-        BaseKnob::onDragEnd(e);
-    }
-};
-
-// Type aliases to apply 'Smart' to all the knob types we use
-using SmartRoundBlackKnob = SmartKnob<RoundBlackKnob>;
-using SmartTrimpot = SmartKnob<Trimpot>;
-using SmartRoundLargeBlackKnob = SmartKnob<RoundLargeBlackKnob>;
-using SmartRoundHugeBlackKnob = SmartKnob<RoundHugeBlackKnob>;
-
-
 struct MortaWidget : ModuleWidget {
+
+    //Define a SmartKnob that tracks if we are turning it
+    template <typename BaseKnob>
+    struct SmartKnob : BaseKnob {
+        void onDragStart(const event::DragStart& e) override {
+            if (ParamQuantity* paramQuantity = this->getParamQuantity()) {
+                if (Morta* module = dynamic_cast<Morta*>(paramQuantity->module)) {
+                    int index = paramQuantity->paramId - Morta::MASTER_KNOB; //instance of 1st smart knob in the group
+                    if (index >= 0 && index < 1) { //for 1 smart knobs
+                        module->isEditing[index].store(true);
+                    }
+                }
+            }
+            BaseKnob::onDragStart(e);
+        }
+    
+        void onDragEnd(const event::DragEnd& e) override {
+            if (ParamQuantity* paramQuantity = this->getParamQuantity()) {
+                if (Morta* module = dynamic_cast<Morta*>(paramQuantity->module)) {
+                    int index = paramQuantity->paramId - Morta::MASTER_KNOB;
+                    if (index >= 0 && index < 1) { //for 1 smart knobs
+                        module->isEditing[index].store(false);
+                    }
+                }
+            }
+            BaseKnob::onDragEnd(e);
+        }
+    };
+    
+    // Type aliases to apply 'Smart' to all the knob types we use
+    using SmartRoundBlackKnob = SmartKnob<RoundBlackKnob>;
+    using SmartTrimpot = SmartKnob<Trimpot>;
+    using SmartRoundLargeBlackKnob = SmartKnob<RoundLargeBlackKnob>;
+    using SmartRoundHugeBlackKnob = SmartKnob<RoundHugeBlackKnob>;
+
+
     MortaWidget(Morta* module) {
         setModule(module);
         setPanel(createPanel(

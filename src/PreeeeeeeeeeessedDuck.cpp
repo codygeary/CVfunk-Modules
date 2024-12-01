@@ -179,6 +179,7 @@ struct PreeeeeeeeeeessedDuck : Module {
     int transitionCount[17] = {0};  // Array to track transition progress for each channel
     float targetFadeLevel[17] = {0.0f};
 
+    alignas(std::atomic<bool>) std::atomic<bool> isShifted[16]; // For shift modified detection on the mute buttons
 
     // Serialization method to save module state
     json_t* dataToJson() override {
@@ -494,6 +495,10 @@ struct PreeeeeeeeeeessedDuck : Module {
         configOutput(AUDIO_OUTPUT_L, "Main Out L");
         configOutput(AUDIO_OUTPUT_R, "Main Out R");
 
+        for (int i = 0; i < 16; ++i) {
+            isShifted[i].store(false);
+        }
+
         transitionSamples = 0.01f * APP->engine->getSampleRate(); // 10 ms * sample rate
      }
 
@@ -502,6 +507,16 @@ struct PreeeeeeeeeeessedDuck : Module {
          transitionSamples = 0.01f * sampleRate; // 10 ms * sample rate
     }
 
+    void onReset(const ResetEvent& e) override {
+        // Reset all parameters
+        Module::onReset(e);
+
+        for (int i=0; i<17; i++){
+			muteLatch[i] = false;
+			muteState[i] = false;
+			muteStatePrevious[i] = false;
+		}       
+    }
 
     void process(const ProcessArgs& args) override {
         float mixL = 0.0f;
@@ -675,6 +690,7 @@ struct PreeeeeeeeeeessedDuck : Module {
             /////////////
             //// Deal with polyphonic Mute inputs
 
+            bool buttonMute = params[MUTE1_PARAM + i].getValue() > 0.5f;
             bool inputMute = false;
 
             // Check if mute is triggered by the input or previous poly input
@@ -696,7 +712,7 @@ struct PreeeeeeeeeeessedDuck : Module {
                 muteLatch[i] = false; // Reset the latch
             } else {
                 // If no CV is connected, use the button for muting
-                if (params[MUTE1_PARAM + i].getValue() > 0.5f) {
+                if (buttonMute) {
                     if (!muteLatch[i]) {
                         muteLatch[i] = true;
                         muteState[i] = !muteState[i];
@@ -706,6 +722,16 @@ struct PreeeeeeeeeeessedDuck : Module {
                 }
                 muteState[i] = muteState[i];
             }
+
+			if(!isShifted[i].load() && buttonMute){ //Check for solo
+			   muteState[i] = false;
+
+               for (int m=0; m<16; m++){
+				   if (m != i){
+                       muteState[m] = true;
+                   } 
+                }
+			}
 
             if (muteStatePrevious[i] != muteState[i]){
                 muteStatePrevious[i] = muteState[i];
@@ -1090,6 +1116,32 @@ struct PreeeeeeeeeeessedDuck : Module {
 };
 
 struct PreeeeeeeeeeessedDuckWidget : ModuleWidget {
+
+	// Define ShiftButton template
+	template <typename BaseButton>
+	struct ShiftButton : BaseButton {
+		void onButton(const event::Button& e) override {
+			if (e.action != GLFW_PRESS || e.button != GLFW_MOUSE_BUTTON_LEFT) {
+				BaseButton::onButton(e);
+				return;
+			}
+	
+			auto paramQuantity = this->getParamQuantity();
+			if (paramQuantity == nullptr) {
+				BaseButton::onButton(e);
+				return;
+			}
+			if (PreeeeeeeeeeessedDuck* module = dynamic_cast<PreeeeeeeeeeessedDuck*>(paramQuantity->module)) {
+				int index = paramQuantity->paramId - PreeeeeeeeeeessedDuck::MUTE1_PARAM;
+				if (index >= 0 && index < 16) {  // isShifted has size 16
+					module->isShifted[index].store((e.mods & GLFW_MOD_SHIFT) == 0);
+				}
+			}
+			e.consume(this);
+		}
+	};
+	struct ShiftLEDButton : ShiftButton<LEDButton> {};
+
     PreeeeeeeeeeessedDuckWidget(PreeeeeeeeeeessedDuck* module) {
         setModule(module);
 
@@ -1171,7 +1223,7 @@ struct PreeeeeeeeeeessedDuckWidget : ModuleWidget {
 
             // Mute
             yPos += 1.2*Spacing;
-            addParam(createParamCentered<LEDButton>           (Vec(xPos, yPos), module, PreeeeeeeeeeessedDuck::MUTE1_PARAM + i));
+            addParam(createParamCentered<ShiftLEDButton>           (Vec(xPos, yPos), module, PreeeeeeeeeeessedDuck::MUTE1_PARAM + i));
             addChild(createLightCentered<SmallLight<RedLight>>(Vec(xPos, yPos), module, PreeeeeeeeeeessedDuck::MUTE1_LIGHT + i));
             yPos += 0.8*Spacing;
             addInput(createInputCentered<ThemedPJ301MPort> (Vec(xPos, yPos), module, PreeeeeeeeeeessedDuck::MUTE_1_INPUT + i));

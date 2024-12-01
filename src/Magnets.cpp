@@ -194,12 +194,12 @@ struct Magnets : Module {
                 }
             }
 
-            // After updating, set the light states
-            for (int i = 0; i < GRID_WIDTH * GRID_HEIGHT; ++i) {
-                int lightIndex = LIGHTS_START + i;
-                bool spinUp = spinStates[i] > 0;
-                lights[lightIndex].setBrightness(spinUp ? 1.f : 0.f);
-            }         
+//             // After updating, set the light states
+//             for (int i = 0; i < GRID_WIDTH * GRID_HEIGHT; ++i) {
+//                 int lightIndex = LIGHTS_START + i;
+//                 bool spinUp = spinStates[i] > 0;
+//                 lights[lightIndex].setBrightness(spinUp ? 1.f : 0.f);
+//             }         
                         
             phase = 0.f; // Reset phase for the next interval
             outputInterpolationPhase = 0.f; // Reset interpolation phase
@@ -454,7 +454,19 @@ struct MagnetsWidget : ModuleWidget {
         menu->addChild(item);
     }
 
-   
+    void draw(const DrawArgs& args) override {
+        ModuleWidget::draw(args);
+        Magnets* module = dynamic_cast<Magnets*>(this->module);
+        if (!module) return;
+
+        // After updating, set the light states
+        for (int i = 0; i < GRID_WIDTH * GRID_HEIGHT; ++i) {
+            int lightIndex = module->LIGHTS_START + i;
+            bool spinUp = module->spinStates[i] > 0;
+            module->lights[lightIndex].setBrightness(spinUp ? 1.f : 0.f);
+        }         
+    } 
+      
 };
 
 Model* modelMagnets = createModel<Magnets, MagnetsWidget>("Magnets");

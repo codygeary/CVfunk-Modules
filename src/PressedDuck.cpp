@@ -157,6 +157,8 @@ struct PressedDuck : Module {
 
     bool mutedSideDucks = false;
 
+    alignas(std::atomic<bool>) std::atomic<bool> isShifted[6]; // For shift modified detection on the mute buttons
+
     // Serialization method to save module state
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
@@ -253,6 +255,7 @@ struct PressedDuck : Module {
                 }
             }
         }
+                
     }
 
     // Variables for envelope followers and lights
@@ -390,6 +393,10 @@ struct PressedDuck : Module {
         configOutput(AUDIO_OUTPUT_L, "Main Out L");
         configOutput(AUDIO_OUTPUT_R, "Main Out R");
 
+        for (int i = 0; i < 6; ++i) {
+            isShifted[i].store(false);
+        }
+
         transitionSamples = 0.01 * APP->engine->getSampleRate(); // 10 ms * sample rate
      }
 
@@ -397,6 +404,18 @@ struct PressedDuck : Module {
          float sampleRate = APP->engine->getSampleRate();
          transitionSamples = 0.01 * sampleRate; // 10 ms * sample rate
     }
+
+    void onReset(const ResetEvent& e) override {
+        // Reset all parameters
+        Module::onReset(e);
+
+        for (int i=0; i<7; i++){
+			muteLatch[i] = false;
+			muteState[i] = false;
+			muteStatePrevious[i] = false;
+		}       
+    }
+
 
     void process(const ProcessArgs& args) override {
         float mixL = 0.0f;
@@ -602,6 +621,16 @@ struct PressedDuck : Module {
                 }
                 muteState[i] = muteState[i];
             }
+            
+			if(!isShifted[i].load() && buttonMute){ //Check for solo
+			   muteState[i] = false;
+
+               for (int m=0; m<6; m++){
+				   if (m != i){
+                       muteState[m] = true;
+                   } 
+                }
+			}
 
             if (muteStatePrevious[i] != muteState[i]){
                 muteStatePrevious[i] = muteState[i];
@@ -985,7 +1014,34 @@ struct PressedDuck : Module {
 
 };
 
+
 struct PressedDuckWidget : ModuleWidget {
+
+	// Define ShiftButton template
+	template <typename BaseButton>
+	struct ShiftButton : BaseButton {
+		void onButton(const event::Button& e) override {
+			if (e.action != GLFW_PRESS || e.button != GLFW_MOUSE_BUTTON_LEFT) {
+				BaseButton::onButton(e);
+				return;
+			}
+	
+			auto paramQuantity = this->getParamQuantity();
+			if (paramQuantity == nullptr) {
+				BaseButton::onButton(e);
+				return;
+			}
+			if (PressedDuck* module = dynamic_cast<PressedDuck*>(paramQuantity->module)) {
+				int index = paramQuantity->paramId - PressedDuck::MUTE1_PARAM;
+				if (index >= 0 && index < 6) {  // isShifted has size 6
+					module->isShifted[index].store((e.mods & GLFW_MOD_SHIFT) == 0);
+				}
+			}
+			e.consume(this);
+		}
+	};
+	struct ShiftLEDButton : ShiftButton<LEDButton> {};
+
     PressedDuckWidget(PressedDuck* module) {
         setModule(module);
 
@@ -1067,7 +1123,7 @@ struct PressedDuckWidget : ModuleWidget {
 
             // Mute
             yPos += 1.2*Spacing;
-            addParam(createParamCentered<LEDButton>           (Vec(xPos, yPos), module, PressedDuck::MUTE1_PARAM + i));
+            addParam(createParamCentered<ShiftLEDButton>           (Vec(xPos, yPos), module, PressedDuck::MUTE1_PARAM + i));
             addChild(createLightCentered<SmallLight<RedLight>>(Vec(xPos, yPos), module, PressedDuck::MUTE1_LIGHT + i));
             yPos += 0.8*Spacing;
             addInput(createInputCentered<ThemedPJ301MPort> (Vec(xPos, yPos), module, PressedDuck::MUTE_1_INPUT + i));

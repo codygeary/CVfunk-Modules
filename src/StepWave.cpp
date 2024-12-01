@@ -77,26 +77,6 @@ private:
     }
 };
 
-struct DiscreteRoundBlackKnob : RoundBlackKnob {
-    void onDragEnd(const DragEndEvent& e) override {
-        ParamQuantity* paramQuantity = getParamQuantity();
-        
-        if (paramQuantity) {
-            // Get the raw value from the knob
-            float rawValue = paramQuantity->getValue();
-            
-            // Round the value to the nearest integer
-            float discreteValue = std::roundf(rawValue);
-            
-            // Set the snapped value
-            paramQuantity->setValue(discreteValue);
-        }
-        
-        // Call the base class implementation to ensure proper behavior
-        RoundBlackKnob::onDragEnd(e);
-    }
-};
-
 struct StepWave : Module {
     enum ParamIds {
         STEP_1_VAL, STEP_2_VAL, STEP_3_VAL, STEP_4_VAL,
@@ -1044,6 +1024,29 @@ struct WaveDisplay : TransparentWidget {
 };
 
 struct StepWaveWidget : ModuleWidget {
+
+	struct DiscreteRoundBlackKnob : RoundBlackKnob {
+		void onDragEnd(const DragEndEvent& e) override {
+			ParamQuantity* paramQuantity = getParamQuantity();
+			
+			if (paramQuantity) {
+				// Get the raw value from the knob
+				float rawValue = paramQuantity->getValue();
+				
+				// Round the value to the nearest integer
+				float discreteValue = std::roundf(rawValue);
+				
+				// Set the snapped value
+				paramQuantity->setValue(discreteValue);
+			}
+			
+			// Call the base class implementation to ensure proper behavior
+			RoundBlackKnob::onDragEnd(e);
+		}
+	};
+	
+
+
     StepWaveWidget(StepWave* module) {
         setModule(module);
         setPanel(createPanel(

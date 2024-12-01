@@ -44,26 +44,6 @@ std::array<int, 6> fingeringToSemitoneShifts(const std::string& fingering) {
     return semitoneShifts;
 }
 
-struct DiscreteRoundBlackKnob : RoundBlackKnob { 
-    void onDragEnd(const DragEndEvent& e) override {
-        ParamQuantity* paramQuantity = getParamQuantity();
-        
-        if (paramQuantity) {
-            // Get the raw value from the knob
-            float rawValue = paramQuantity->getValue();
-            
-            // Round the value to the nearest integer
-            float discreteValue = std::roundf(rawValue);
-            
-            // Set the snapped value
-            paramQuantity->setValue(discreteValue);
-        }
-        
-        // Call the base class implementation to ensure proper behavior
-        RoundBlackKnob::onDragEnd(e);
-    }
-};
-
 struct Strings : Module {
 
     enum ParamIds {
@@ -928,6 +908,27 @@ struct Strings : Module {
 };
 
 struct StringsWidget : ModuleWidget {
+
+    struct DiscreteRoundBlackKnob : RoundBlackKnob { 
+        void onDragEnd(const DragEndEvent& e) override {
+            ParamQuantity* paramQuantity = getParamQuantity();
+            
+            if (paramQuantity) {
+                // Get the raw value from the knob
+                float rawValue = paramQuantity->getValue();
+                
+                // Round the value to the nearest integer
+                float discreteValue = std::roundf(rawValue);
+                
+                // Set the snapped value
+                paramQuantity->setValue(discreteValue);
+            }
+            
+            // Call the base class implementation to ensure proper behavior
+            RoundBlackKnob::onDragEnd(e);
+        }
+    };
+
     StringsWidget(Strings* module) {
         setModule(module);
         setPanel(createPanel(

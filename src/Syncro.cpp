@@ -15,46 +15,6 @@
 using namespace rack;
 #include <cmath>
 
-struct DiscreteTrimpot : Trimpot { 
-    void onDragEnd(const DragEndEvent& e) override {
-        ParamQuantity* paramQuantity = getParamQuantity();
-        
-        if (paramQuantity) {
-            // Get the raw value from the knob
-            float rawValue = paramQuantity->getValue();
-            
-            // Round the value to the nearest integer
-            float discreteValue = std::roundf(rawValue);
-            
-            // Set the snapped value
-            paramQuantity->setValue(discreteValue);
-        }
-        
-        // Call the base class implementation to ensure proper behavior
-        Trimpot::onDragEnd(e);
-    }
-};
-
-struct DiscreteRoundBlackKnob : RoundBlackKnob { 
-    void onDragEnd(const DragEndEvent& e) override {
-        ParamQuantity* paramQuantity = getParamQuantity();
-        
-        if (paramQuantity) {
-            // Get the raw value from the knob
-            float rawValue = paramQuantity->getValue();
-            
-            // Round the value to the nearest integer
-            float discreteValue = std::roundf(rawValue);
-            
-            // Set the snapped value
-            paramQuantity->setValue(discreteValue);
-        }
-        
-        // Call the base class implementation to ensure proper behavior
-        RoundBlackKnob::onDragEnd(e);
-    }
-};
-
 struct Syncro : Module {
     enum ParamIds {
         CLOCK_KNOB, CLOCK_ATT,
@@ -548,6 +508,47 @@ struct Syncro : Module {
 };
 
 struct SyncroWidget : ModuleWidget {
+
+	struct DiscreteTrimpot : Trimpot { 
+		void onDragEnd(const DragEndEvent& e) override {
+			ParamQuantity* paramQuantity = getParamQuantity();
+			
+			if (paramQuantity) {
+				// Get the raw value from the knob
+				float rawValue = paramQuantity->getValue();
+				
+				// Round the value to the nearest integer
+				float discreteValue = std::roundf(rawValue);
+				
+				// Set the snapped value
+				paramQuantity->setValue(discreteValue);
+			}
+			
+			// Call the base class implementation to ensure proper behavior
+			Trimpot::onDragEnd(e);
+		}
+	};
+	
+	struct DiscreteRoundBlackKnob : RoundBlackKnob { 
+		void onDragEnd(const DragEndEvent& e) override {
+			ParamQuantity* paramQuantity = getParamQuantity();
+			
+			if (paramQuantity) {
+				// Get the raw value from the knob
+				float rawValue = paramQuantity->getValue();
+				
+				// Round the value to the nearest integer
+				float discreteValue = std::roundf(rawValue);
+				
+				// Set the snapped value
+				paramQuantity->setValue(discreteValue);
+			}
+			
+			// Call the base class implementation to ensure proper behavior
+			RoundBlackKnob::onDragEnd(e);
+		}
+	};
+
     SyncroWidget(Syncro* module) {
         setModule(module);
         setPanel(createPanel(

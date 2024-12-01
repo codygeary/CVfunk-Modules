@@ -16,26 +16,6 @@
 
 using namespace rack;
 
-struct DiscreteRoundBlackKnob : RoundBlackKnob { 
-    void onDragEnd(const DragEndEvent& e) override {
-        ParamQuantity* paramQuantity = getParamQuantity();
-        
-        if (paramQuantity) {
-            // Get the raw value from the knob
-            float rawValue = paramQuantity->getValue();
-            
-            // Round the value to the nearest integer
-            float discreteValue = std::roundf(rawValue);
-            
-            // Set the snapped value
-            paramQuantity->setValue(discreteValue);
-        }
-        
-        // Call the base class implementation to ensure proper behavior
-        RoundBlackKnob::onDragEnd(e);
-    }
-};
-
 // Define our Module derived from Rack's Module class
 struct Arrange : Module {
     enum ParamIds {
@@ -68,7 +48,10 @@ struct Arrange : Module {
         NUM_LIGHTS
     };
 
-    std::atomic<bool> isEditing[7]; //For the smart knobs
+    alignas(std::atomic<bool>) std::atomic<bool> isEditing[7]; //For the smart knobs
+    alignas(std::atomic<bool>) std::atomic<bool> smartKnobStates[7]; //For the smart knobs
+
+    alignas(std::atomic<bool>) std::atomic<bool> isShiftHeld; // For the copy to all feature
 
     DigitalDisplay* digitalDisplay = nullptr;
     DigitalDisplay* chanDisplays[7] = {nullptr};
@@ -263,8 +246,11 @@ struct Arrange : Module {
         configOutput(CHAN_6_OUTPUT, "Channel 6");
         configOutput(CHAN_7_OUTPUT, "Channel 7");
 
+        isShiftHeld.store(false);
+
         for (int i = 0; i < 7; i++) {
             isEditing[i] = false; // Initialize editing state to false
+            smartKnobStates[i].store(false);
         }
     }
 
@@ -504,6 +490,16 @@ struct Arrange : Module {
                 if (currentStage >= 0 && currentStage < maxStages) {
                     outputValues[currentStage][i] = inputVal; // Store input value at the current stage for the respective channel
                 }
+                
+                // If Shift was held, map this parameter value to all sequence steps
+                if (smartKnobStates[i].load()) {
+                    for (int step = 0; step < 2048; step++) {
+                        outputValues[step][i] = outputValues[currentStage][i];
+                    }
+                    smartKnobStates[i].store(false);  // Reset the state after applying
+                }
+                
+                
             } 
         } else {
             for (int i = 0; i < 7; i++){         
@@ -604,42 +600,56 @@ struct ProgressDisplay : TransparentWidget {
     
 };
 
-//Define a SmartKnob that tracks if we are turning it
-template <typename BaseKnob>
-struct SmartKnob : BaseKnob {
-    void onDragStart(const event::DragStart& e) override {
-        if (ParamQuantity* paramQuantity = this->getParamQuantity()) {
-            if (Arrange* module = dynamic_cast<Arrange*>(paramQuantity->module)) {
-                int index = paramQuantity->paramId - Arrange::CHAN_1_KNOB; //instance of 1st smart knob in the group
-                if (index >= 0 && index < 7) { //for 7 smart knobs
-                    module->isEditing[index].store(true);
-                }
-            }
-        }
-        BaseKnob::onDragStart(e);
-    }
-
-    void onDragEnd(const event::DragEnd& e) override {
-        if (ParamQuantity* paramQuantity = this->getParamQuantity()) {
-            if (Arrange* module = dynamic_cast<Arrange*>(paramQuantity->module)) {
-                int index = paramQuantity->paramId - Arrange::CHAN_1_KNOB;
-                if (index >= 0 && index < 7) { //for 7 smart knobs
-                    module->isEditing[index].store(false);
-                }
-            }
-        }
-        BaseKnob::onDragEnd(e);
-    }
-};
-
-// Type aliases to apply 'Smart' to all the knob types we use
-using SmartRoundBlackKnob = SmartKnob<RoundBlackKnob>;
-using SmartTrimpot = SmartKnob<Trimpot>;
-using SmartRoundLargeBlackKnob = SmartKnob<RoundLargeBlackKnob>;
-using SmartRoundHugeBlackKnob = SmartKnob<RoundHugeBlackKnob>;
-
-
 struct ArrangeWidget : ModuleWidget {
+
+    //Define a SmartKnob that tracks if we are turning it
+    template <typename BaseKnob>
+    struct SmartKnob : BaseKnob {
+        using BaseKnob::BaseKnob; // Inherit constructors
+    
+        ParamQuantity* getParamQuantity()  {
+            return BaseKnob::getParamQuantity();
+        }
+    
+        void onDragStart(const event::DragStart& e) override {
+            if (ParamQuantity* paramQuantity = this->getParamQuantity()) {
+                if (Arrange* module = dynamic_cast<Arrange*>(paramQuantity->module)) {
+                    int index = paramQuantity->paramId - Arrange::CHAN_1_KNOB;
+                    if (index >= 0 && index < 7) {
+                        module->isEditing[index].store(true);
+    
+                        // Use APP->window->getMods() to check Shift key
+                        module->isShiftHeld.store((APP->window->getMods() & GLFW_MOD_SHIFT) != 0);
+                    }
+                }
+            }
+            BaseKnob::onDragStart(e);
+        }
+    
+        void onDragEnd(const event::DragEnd& e) override {
+            if (ParamQuantity* paramQuantity = this->getParamQuantity()) {
+                if (Arrange* module = dynamic_cast<Arrange*>(paramQuantity->module)) {
+                    int index = paramQuantity->paramId - Arrange::CHAN_1_KNOB;
+                    if (index >= 0 && index < 7) {
+                        module->isEditing[index].store(false);
+    
+                        // Store boolean if Shift was held
+                        if (module->isShiftHeld.load()) {
+                            module->smartKnobStates[index].store(true);
+                        }
+                    }
+                }
+            }
+            BaseKnob::onDragEnd(e);
+        }
+    };
+    // Type aliases to apply 'Smart' to all the knob types we use
+    using SmartRoundBlackKnob = SmartKnob<RoundBlackKnob>;
+    using SmartTrimpot = SmartKnob<Trimpot>;
+    using SmartRoundLargeBlackKnob = SmartKnob<RoundLargeBlackKnob>;
+    using SmartRoundHugeBlackKnob = SmartKnob<RoundHugeBlackKnob>;
+
+
     ArrangeWidget(Arrange* module) {
         setModule(module);
 
