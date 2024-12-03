@@ -16,6 +16,9 @@ struct PentaSequencer : Module {
 
     // Initialize variables for trigger detection
     dsp::SchmittTrigger resetTrigger;
+    dsp::SchmittTrigger manualResetTrigger;
+    dsp::SchmittTrigger manualTrig;
+    dsp::SchmittTrigger trigTrig;
 
     // Initialize timer dsps
     dsp::Timer triggerIntervalTimer;
@@ -69,13 +72,17 @@ struct PentaSequencer : Module {
 
     // Variables for internal logic
     int mode = 0; // Operation mode: 0 = CW_CIRC, 1 = CCW_CIRC, 2 = CW_STAR, 3 = CCW_STAR
-    float lastTriggerTime = 0; // Time of the last trigger input
-    float triggerInterval = 100;
+    float lastTriggerTime = 0.0f; // Time of the last trigger input
+    float triggerInterval = 1.0f;
     float lastTargetVoltages[5] = {0.f, 0.f, 0.f, 0.f, 0.f}; // Initialize with default voltages, assuming start at 0V
     int dimmingCounter = 0;
     const int dimmingRate = 100; // Number of process calls before dimming, adjust for desired timing
     bool previousTriggerState = false;
     int prevMapping[5] = {0, 1, 2, 3, 4};  // Initialize with default mapping or actual initial mapping
+    float knobValues[5] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+    float slewedVoltage = 0.0f;
+    int knobMapping[5] = {0, 1, 2, 3, 4};
+
 
     bool onTarget = true;
 
@@ -139,13 +146,9 @@ struct PentaSequencer : Module {
         triggerIntervalTimer.process(args.sampleTime);
 
         // Read knob values and update outputs
-        float knobValues[5] = {
-            params[KNOB1_PARAM].getValue(),
-            params[KNOB2_PARAM].getValue(),
-            params[KNOB3_PARAM].getValue(),
-            params[KNOB4_PARAM].getValue(),
-            params[KNOB5_PARAM].getValue()
-        };
+        for (int i=0; i<5; i++){
+            knobValues[i] = { params[KNOB1_PARAM + i].getValue() };
+        }
 
         bool manualResetPressed = params[MANUAL_RESET_PARAM].getValue() > 0.0f;
 
@@ -189,7 +192,6 @@ struct PentaSequencer : Module {
             ccwMode = false;
         }
 
-
         int* newMapping = CIRC_CW_map;  // map to default
 
         // Determine the new mapping based on the mode
@@ -225,8 +227,8 @@ struct PentaSequencer : Module {
         }
          
         // Detect a rising signal on TRIG_INPUT or manual trigger button press
-        bool manualTriggerPressed = params[MANUAL_TRIGGER_PARAM].getValue() > 0.0f;
-        bool currentTriggerState = (inputs[TRIG_INPUT].isConnected() && inputs[TRIG_INPUT].getVoltage() > 1.0f) || manualTriggerPressed;  // Include manual trigger
+        bool manualTriggerPressed = manualTrig.process( params[MANUAL_TRIGGER_PARAM].getValue());
+        bool currentTriggerState = (inputs[TRIG_INPUT].isConnected() && trigTrig.process(inputs[TRIG_INPUT].getVoltage()) ) || manualTriggerPressed;  // Include manual trigger
 
         if (currentTriggerState && !previousTriggerState) {
                for (int i = 0; i < 5; ++i) {
@@ -245,8 +247,7 @@ struct PentaSequencer : Module {
         previousTriggerState = currentTriggerState;
 
         // Map the knobs and set output voltages with dynamic slew limiting based on trigger interval
-        int knobMapping[5];
-        for (int i = 0; i < 5; ++i) {
+        for (int i = 0; i < 5; i++) {
     
             int knobIndex;
                 // For CW mode, use the standard incrementing mapping
@@ -263,26 +264,30 @@ struct PentaSequencer : Module {
             targetVoltage = knobValues[knobIndex];
             float slewRate = params[SLEW_PARAM].getValue(); // This gives a value between 0 and 1
 
-            // Calculate the absolute voltage difference from the last target
-            float voltageDifference = fabs(targetVoltage - lastTargetVoltages[i]);
-
-            // Adjust slewSpeed based on the voltage difference and trigger interval
-            // Ensure triggerInterval is non-zero to avoid division by zero
-            float adjustedTriggerInterval = fmax(triggerInterval, 1e-6f);
-            float slewSpeed = voltageDifference / adjustedTriggerInterval; // Voltage difference per second
-
-            // Apply the SLEW_PARAM knob to scale the slewSpeed, adding 1e-6 to avoid division by zero
-            slewSpeed *= 1.0f / (slewRate + 1e-6f);
-
-            // Set the rise and fall speeds of the slew limiter to the calculated slew speed
-            slewLimiters[i].setRiseFall(slewSpeed, slewSpeed);
-
-            // Process the target voltage through the slew limiter
-            float slewedVoltage = slewLimiters[i].process(args.sampleTime, targetVoltage);
-
+            if (slewRate > 0.0f){
+                // Calculate the absolute voltage difference from the last target
+                float voltageDifference = fabs(targetVoltage - lastTargetVoltages[i]);
+    
+                // Adjust slewSpeed based on the voltage difference and trigger interval
+                // Ensure triggerInterval is non-zero to avoid division by zero
+                float adjustedTriggerInterval = fmax(triggerInterval, 1e-6f);
+                float slewSpeed = voltageDifference / adjustedTriggerInterval; // Voltage difference per second
+    
+                // Apply the SLEW_PARAM knob to scale the slewSpeed, fmax of 1e-6 to avoid division by zero
+                slewSpeed *= 1.0f / (fmax(slewRate, 1e-6f));
+    
+                // Set the rise and fall speeds of the slew limiter to the calculated slew speed
+                slewLimiters[i].setRiseFall(slewSpeed, slewSpeed);
+    
+                // Process the target voltage through the slew limiter
+                slewedVoltage = slewLimiters[i].process(args.sampleTime, targetVoltage);
+            } else {
+                slewedVoltage = targetVoltage;
+            }
+            
             //Transpose the output voltage by the transpose input
             float transpose = inputs[SHIFT_INPUT].getVoltage();         
-            float outputVoltage = slewedVoltage+transpose;
+            float outputVoltage = slewedVoltage + transpose;
         
             //Clamp the output voltage to normal range
             outputVoltage = clamp(outputVoltage, -10.0f, 10.0f);
@@ -291,7 +296,7 @@ struct PentaSequencer : Module {
             outputs[A_OUTPUT + i].setVoltage(outputVoltage);
         }
  
-        // Increment dimming counter and check if it's time to dim the lights
+         // Increment dimming counter and check if it's time to dim the lights
         if (++dimmingCounter >= dimmingRate) {
             for (int i = 0; i < LIGHTS_LEN; ++i) {
                 float currentBrightness = lights[i].getBrightness();
@@ -409,9 +414,7 @@ struct PentaSequencer : Module {
         } else {
             outputs[A_OUTPUT].setChannels(1);  // Set the number of channels to 1
         }
-        
-        
-        
+               
     }//void
 };//module
 
