@@ -964,66 +964,66 @@ struct StepWave : Module {
     }           
 };
 
-struct WaveDisplay : TransparentWidget {
-    StepWave* module;
-    float centerX, centerY;
-    float heightScale; 
-
-    void draw(const DrawArgs& args) override {
-        // Draw non-illuminating elements if any
-    }
-
-    void drawLayer(const DrawArgs& args, int layer) override {
-        if (!module) return;
-
-        if (layer == 1) {
-            centerX = box.size.x / 2.0f;
-            centerY = box.size.y / 2.0f;
-            heightScale = centerY / 5; // Calculate based on current center Y
-
-            if (!module->isSupersamplingEnabled) {
-                // Draw the sequence progress bar
-                float progressBarX = box.size.x * (module->sequenceProgress / 8.0f); // X position of the progress bar
-                float progressBarWidth = 1.0f;  // Width of the progress bar
-    
-                // Draw a vertical rectangle as the progress bar
-                nvgBeginPath(args.vg);
-                nvgRect(args.vg, progressBarX, -box.size.y*0.2, progressBarWidth, box.size.y * 1.39); // Full height of the widget
-                nvgFillColor(args.vg, nvgRGBAf(0.5f, 0.5f, 0.5f, 0.8f)); // Light grey color
-                nvgFill(args.vg); // Fill the progress bar
-            }
-
-            drawWaveform(args, module->waveBuffers[0], nvgRGBAf(0.3, 0.3, 0.3, 0.8));
-            drawWaveform(args, module->waveBuffers[1], nvgRGBAf(0, 0.4, 1, 0.8));
-            drawWaveform(args, module->waveBuffers[2], nvgRGBAf(0.5, 0.5, 0.6, 0.8));            
-        }
-
-        TransparentWidget::drawLayer(args, layer);
-    }
-
-    void drawWaveform(const DrawArgs& args, const CircularBuffer<float, 1024>& waveBuffer, NVGcolor color) {
-        nvgBeginPath(args.vg);
-    
-        for (size_t i = 0; i < 1024; i++) {
-            // Calculate x position based on the index
-            float xPos = (float)i / 1023 * box.size.x;
-            
-            // Scale and center y position based on buffer value
-            float yPos = centerY - waveBuffer[i] * heightScale;
-    
-            if (i == 0)
-                nvgMoveTo(args.vg, xPos, yPos);
-            else
-                nvgLineTo(args.vg, xPos, yPos);
-        }
-    
-        nvgStrokeColor(args.vg, color); // Set the color for the waveform
-        nvgStrokeWidth(args.vg, 1.0);
-        nvgStroke(args.vg);
-    }
-};
-
 struct StepWaveWidget : ModuleWidget {
+
+	struct WaveDisplay : TransparentWidget {
+		StepWave* module;
+		float centerX, centerY;
+		float heightScale; 
+	
+		void draw(const DrawArgs& args) override {
+			// Draw non-illuminating elements if any
+		}
+	
+		void drawLayer(const DrawArgs& args, int layer) override {
+			if (!module) return;
+	
+			if (layer == 1) {
+				centerX = box.size.x / 2.0f;
+				centerY = box.size.y / 2.0f;
+				heightScale = centerY / 5; // Calculate based on current center Y
+	
+				if (!module->isSupersamplingEnabled) {
+					// Draw the sequence progress bar
+					float progressBarX = box.size.x * (module->sequenceProgress / 8.0f); // X position of the progress bar
+					float progressBarWidth = 1.0f;  // Width of the progress bar
+		
+					// Draw a vertical rectangle as the progress bar
+					nvgBeginPath(args.vg);
+					nvgRect(args.vg, progressBarX, -box.size.y*0.2, progressBarWidth, box.size.y * 1.39); // Full height of the widget
+					nvgFillColor(args.vg, nvgRGBAf(0.5f, 0.5f, 0.5f, 0.8f)); // Light grey color
+					nvgFill(args.vg); // Fill the progress bar
+				}
+	
+				drawWaveform(args, module->waveBuffers[0], nvgRGBAf(0.3, 0.3, 0.3, 0.8));
+				drawWaveform(args, module->waveBuffers[1], nvgRGBAf(0, 0.4, 1, 0.8));
+				drawWaveform(args, module->waveBuffers[2], nvgRGBAf(0.5, 0.5, 0.6, 0.8));            
+			}
+	
+			TransparentWidget::drawLayer(args, layer);
+		}
+	
+		void drawWaveform(const DrawArgs& args, const CircularBuffer<float, 1024>& waveBuffer, NVGcolor color) {
+			nvgBeginPath(args.vg);
+		
+			for (size_t i = 0; i < 1024; i++) {
+				// Calculate x position based on the index
+				float xPos = (float)i / 1023 * box.size.x;
+				
+				// Scale and center y position based on buffer value
+				float yPos = centerY - waveBuffer[i] * heightScale;
+		
+				if (i == 0)
+					nvgMoveTo(args.vg, xPos, yPos);
+				else
+					nvgLineTo(args.vg, xPos, yPos);
+			}
+		
+			nvgStrokeColor(args.vg, color); // Set the color for the waveform
+			nvgStrokeWidth(args.vg, 1.0);
+			nvgStroke(args.vg);
+		}
+	};
 
 	struct DiscreteRoundBlackKnob : RoundBlackKnob {
 		void onDragEnd(const DragEndEvent& e) override {

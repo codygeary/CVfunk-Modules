@@ -29,6 +29,7 @@ void init(Plugin* p) {
 	p->addModel(modelPreeeeeeeeeeessedDuck);
 	p->addModel(modelArrange);
 	p->addModel(modelTriDelay);
+	p->addModel(modelTatami);
 
 	
 	// Any other plugin initialization may go here.
