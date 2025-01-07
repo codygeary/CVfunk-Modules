@@ -176,6 +176,10 @@ struct Tatami : Module {
     };
 
     float sampleRate = APP->engine->getSampleRate();
+    float scaleFactor = sampleRate / 96000.0f; // Reference sample rate (96 kHz)
+    float decayRate = pow(0.999f, scaleFactor);  // Decay rate adjusted for sample rate
+    float increment_factor = 44100.f/(1024.f * sampleRate);
+
     float alpha = 0.01f;
     float inputL[16] = {0.0f};
     float inputR[16] = {0.0f};
@@ -191,7 +195,7 @@ struct Tatami : Module {
     float outputR[16] = {0.0f};
     bool initialize = true;
     bool applyFilters = true;
-
+    
     // Declare high-pass filter
     SecondOrderHPF hpfL[16], hpfR[16];
 
@@ -262,13 +266,22 @@ struct Tatami : Module {
 
     }
 
+    void onSampleRateChange() override {
+        // Calculate scale factor based on the current sample rate
+        scaleFactor = sampleRate / 96000.0f; // Reference sample rate (96 kHz)
+        // Adjust alpha and decayRate based on sample rate
+        alpha = 0.01f / scaleFactor;  // Smoothing factor for envelope
+        decayRate = pow(0.999f, scaleFactor);  // Decay rate adjusted for sample rate
+        increment_factor = 44100.f/(1024.f * sampleRate);
+    }
+    
     void process(const ProcessArgs& args) override {
 
         // Setup filters
         if (initialize){
             for (int i=0; i<16; i++){
-                hpfL[i].setCutoffFrequency(args.sampleRate, 10.0f); // Set cutoff frequency
-                hpfR[i].setCutoffFrequency(args.sampleRate, 10.0f);
+                hpfL[i].setCutoffFrequency(sampleRate, 10.0f); // Set cutoff frequency
+                hpfR[i].setCutoffFrequency(sampleRate, 10.0f);
             }
             initialize = false;
         }
@@ -280,13 +293,6 @@ struct Tatami : Module {
         numChannels = std::max(numChannels, 1);
         outputs[AUDIO_L_OUTPUT].setChannels(numChannels);
         outputs[AUDIO_R_OUTPUT].setChannels(numChannels);
-
-        // Calculate scale factor based on the current sample rate
-        float scaleFactor = sampleRate / 96000.0f; // Reference sample rate (96 kHz)
-
-        // Adjust alpha and decayRate based on sample rate
-        alpha = 0.01f / scaleFactor;  // Smoothing factor for envelope
-        float decayRate = pow(0.999f, scaleFactor);  // Decay rate adjusted for sample rate
 
         // Check if each input is monophonic
         bool isShapeMonophonic = inputs[SHAPE_INPUT].isConnected() && (inputs[SHAPE_INPUT].getChannels() == 1);
@@ -422,7 +428,6 @@ struct Tatami : Module {
             lastOutputL = outputL[c];
             lastOutputR = outputR[c];
 
-
             outputL[c] *= 5.0f;
             outputR[c] *= 5.0f;
 
@@ -453,8 +458,6 @@ struct Tatami : Module {
 
         }//end channels
 
-
-        float increment_factor = 0.0009765625f * (44100.f/args.sampleRate);
 
         //Wave display
         oscPhase += increment_factor;

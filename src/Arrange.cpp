@@ -84,9 +84,9 @@ struct Arrange : Module {
     bool recordLatched = false;
     bool prevRecordState = false;
     bool computedProb[7] = {false};
-    bool enablePolyOut = false;
-    bool prevEnablePolyOut = false;
     bool stopRecordAtEnd = false;
+    int polyphonyChannels = 1;
+    int prevPolyphonyChannels = 1;
 
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
@@ -114,6 +114,10 @@ struct Arrange : Module {
         json_object_set_new(rootJ, "prevRecordState", json_boolean(prevRecordState));
         json_object_set_new(rootJ, "stopRecordAtEnd", json_boolean(stopRecordAtEnd));
 
+        // Store the number of poly output channels from Channel 1 output
+        json_object_set_new(rootJ, "polyphonyChannels", json_integer(polyphonyChannels));
+        json_object_set_new(rootJ, "prevPolyphonyChannels", json_integer(prevPolyphonyChannels));
+
     
         // Store computedProb array as a JSON array
         json_t* computedProbJ = json_array();
@@ -122,9 +126,6 @@ struct Arrange : Module {
         }
         json_object_set_new(rootJ, "computedProb", computedProbJ);
     
-        // Store enablePolyOut as a JSON boolean
-        json_object_set_new(rootJ, "enablePolyOut", json_boolean(enablePolyOut));
-
         // Store maxSequenceLength as a JSON integer
         json_object_set_new(rootJ, "maxSequenceLength", json_integer(maxSequenceLength)); 
    
@@ -172,6 +173,16 @@ struct Arrange : Module {
         if (stopRecordAtEndJ) {
             stopRecordAtEnd = json_is_true(stopRecordAtEndJ);
         }
+
+        json_t* polyphonyChannelsJ = json_object_get(rootJ, "polyphonyChannels");
+        if (polyphonyChannelsJ) {
+            polyphonyChannels = json_integer_value(polyphonyChannelsJ);
+        }
+
+        json_t* prevPolyphonyChannelsJ = json_object_get(rootJ, "prevPolyphonyChannels");
+        if (prevPolyphonyChannelsJ) {
+            prevPolyphonyChannels = json_integer_value(prevPolyphonyChannelsJ);
+        }
  
         // Load computedProb array
         json_t* computedProbJ = json_object_get(rootJ, "computedProb");
@@ -182,13 +193,7 @@ struct Arrange : Module {
                     computedProb[i] = json_is_true(probJ);
             }
         }
-    
-        // Load enablePolyOut
-        json_t* enablePolyOutJ = json_object_get(rootJ, "enablePolyOut");
-        if (enablePolyOutJ) {
-            enablePolyOut = json_is_true(enablePolyOutJ);
-        }
-        
+            
         // Load maxSequenceLength
         json_t* maxSequenceLengthJ = json_object_get(rootJ, "maxSequenceLength");
         if (maxSequenceLengthJ) {
@@ -498,8 +503,7 @@ struct Arrange : Module {
                     }
                     smartKnobStates[i].store(false);  // Reset the state after applying
                 }
-                
-                
+                                
             } 
         } else {
             for (int i = 0; i < 7; i++){         
@@ -522,29 +526,28 @@ struct Arrange : Module {
             }                    
         } 
         
-        // Detect if the enablePolyOut state has changed
-        if (enablePolyOut != prevEnablePolyOut) {
-            if (enablePolyOut) {
-                // Update tooltips to reflect polyphonic output
-                configOutput(CHAN_1_OUTPUT, "Poly Channel 1");
+        // Check if the polyphonyChannels value has changed
+        if (polyphonyChannels != prevPolyphonyChannels) {
+            // Update tooltip to reflect polyphonic output
+            if (polyphonyChannels > 1) {
+                configOutput(CHAN_1_OUTPUT, "Polyphonic Channel 1 (" + std::to_string(polyphonyChannels) + " channels)");
             } else {
-                // Revert tooltips to reflect monophonic output
-                configOutput(CHAN_1_OUTPUT, "Channel 1");
+                // Revert tooltip to reflect monophonic output
+                configOutput(CHAN_1_OUTPUT, "Monophonic Channel 1");
             }
         
             // Update the previous state to the current state
-            prevEnablePolyOut = enablePolyOut;
+            prevPolyphonyChannels = polyphonyChannels;
         }
         
-        // Ensure correct number of channels is set based on the current state of enablePolyOut
-        if (enablePolyOut) {
-            outputs[CHAN_1_OUTPUT].setChannels(7);  // Set the number of channels to 7
-            // Set the polyphonic voltage for the first output
-            for ( int part = 1; part < 7; part++) {
-                outputs[CHAN_1_OUTPUT].setVoltage(outputs[CHAN_1_OUTPUT + part].getVoltage(), part);  // Set voltage for the polyphonic channels
-            }
-        } else {
-            outputs[CHAN_1_OUTPUT].setChannels(1);  // Set the number of channels to 1
+        // Set the number of channels and voltages for CHAN_1_OUTPUT
+        outputs[CHAN_1_OUTPUT].setChannels(polyphonyChannels);
+        
+        // Set the voltages for each polyphonic channel
+        for (int channel = 0; channel < polyphonyChannels; ++channel) {
+            // Assuming the voltages for each channel are calculated or retrieved elsewhere:
+            float voltage = (channel == 0) ? outputs[CHAN_1_OUTPUT].getVoltage() : outputs[CHAN_1_OUTPUT + channel].getVoltage();
+            outputs[CHAN_1_OUTPUT].setVoltage(voltage, channel);
         }
 
     }//void process
@@ -854,6 +857,10 @@ struct ArrangeWidget : ModuleWidget {
                 }
                 return subMenu;
             }
+            void step() override {
+                rightText = ">"; // Add ">" to indicate a submenu
+                MenuItem::step();
+            }
         };
     
         MaxSequenceLengthSubMenu* maxLengthSubMenu = new MaxSequenceLengthSubMenu();
@@ -888,26 +895,50 @@ struct ArrangeWidget : ModuleWidget {
         // Separator for new section
         menu->addChild(new MenuSeparator);
         
-        // Enable Poly Output
-        struct EnablePolyOutItem : MenuItem {
+        // Polyphony Channel Count Submenu
+        struct PolyphonyChannelSubMenu : MenuItem {
             Arrange* arrangeModule;
         
-            void onAction(const event::Action& e) override {
-                // Toggle the enablePolyOut variable in the module
-                arrangeModule->enablePolyOut = !arrangeModule->enablePolyOut;
-            }
+            Menu* createChildMenu() override {
+                Menu* subMenu = new Menu;
+                std::vector<int> channelCounts = {1, 2, 3, 4, 5, 6, 7};
         
+                for (int channelCount : channelCounts) {
+                    struct PolyphonyChannelItem : MenuItem {
+                        Arrange* arrangeModule;
+                        int channelCount;
+        
+                        void onAction(const event::Action& e) override {
+                            // Set the number of polyphony channels in the module
+                            arrangeModule->polyphonyChannels = channelCount;
+                        }
+        
+                        void step() override {
+                            rightText = (arrangeModule->polyphonyChannels == channelCount) ? "✔" : "";
+                            MenuItem::step();
+                        }
+                    };
+        
+                    PolyphonyChannelItem* channelItem = new PolyphonyChannelItem();
+                    channelItem->text = std::to_string(channelCount) + " Channels";
+                    channelItem->arrangeModule = arrangeModule; // Pass the module to the item
+                    channelItem->channelCount = channelCount;  // Set the channel count
+                    subMenu->addChild(channelItem);
+                }
+                return subMenu;
+            }
             void step() override {
-                rightText = arrangeModule->enablePolyOut ? "✔" : ""; // Show checkmark if true
+                rightText = ">"; // Add ">" to indicate a submenu
                 MenuItem::step();
             }
+            
         };
         
-        // Create the Enable Poly Out menu item
-        EnablePolyOutItem* enablePolyOutItem = new EnablePolyOutItem();
-        enablePolyOutItem->text = "Enable Poly Out"; // Set menu item text
-        enablePolyOutItem->arrangeModule = arrangeModule; // Pass the module to the item
-        menu->addChild(enablePolyOutItem); // Add the item to the menu
+        // Add the Polyphony Channel Count submenu
+        PolyphonyChannelSubMenu* polyphonySubMenu = new PolyphonyChannelSubMenu();
+        polyphonySubMenu->text = "Set Polyphony for Channel 1";
+        polyphonySubMenu->arrangeModule = arrangeModule; // Pass the module to the submenu
+        menu->addChild(polyphonySubMenu);
 
     }    
 };

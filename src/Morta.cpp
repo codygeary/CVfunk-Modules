@@ -19,6 +19,8 @@ struct Morta : Module {
         MASTER_KNOB,
         RANGE_KNOB,
         RANGE_TRIMPOT,
+        MAIN_GAIN,
+        MAIN_OFFSET,
         NUM_PARAMS
     };
     enum InputIds {
@@ -52,15 +54,33 @@ struct Morta : Module {
         configParam(RANGE_KNOB, 0.0f, 10.0f, 5.0f, "Range Knob");
         configParam(RANGE_TRIMPOT, -1.0f, 1.0f, 0.0f, "Range Attenuvertor");
 
+        configParam(MAIN_GAIN, -2.0f, 2.0f, 1.0f, "Input Gain");
+        configParam(MAIN_OFFSET, -10.0f, 10.0f, 0.0f, "Input Offset");
+
         // Configure the inputs
         configInput(MAIN_INPUT, "Main");
         configInput(RANGE_CV_INPUT, "Range CV");
-
-        // Configure the outputs
-        for (int i = 0; i < 16; i++) {
-            configOutput(OUTPUT_1_1 + i, "Output " + std::to_string(i / 4 + 1) + "," + std::to_string(i % 4 + 1));
-        }
         
+        configOutput(OUTPUT_1_1, "0→1" );
+        configOutput(OUTPUT_1_2, "0→5" );
+        configOutput(OUTPUT_1_3, "0→10");
+        configOutput(OUTPUT_1_4, "0→R" );
+
+        configOutput(OUTPUT_2_1, "-1→1" );
+        configOutput(OUTPUT_2_2, "-5→5" );
+        configOutput(OUTPUT_2_3, "-10→10");
+        configOutput(OUTPUT_2_4, "-R→R" );
+
+        configOutput(OUTPUT_3_1, "1→-1" );
+        configOutput(OUTPUT_3_2, "5→-5" );
+        configOutput(OUTPUT_3_3, "10→-10");
+        configOutput(OUTPUT_3_4, "R→-R" );
+
+        configOutput(OUTPUT_4_1, "1→0" );
+        configOutput(OUTPUT_4_2, "5→0" );
+        configOutput(OUTPUT_4_3, "10→0");
+        configOutput(OUTPUT_4_4, "R→0" );
+      
         isEditing[0] = false; // Initialize editing state to false    
     }
 
@@ -86,10 +106,16 @@ struct Morta : Module {
     
             // Override master knob value with input if input is connected
             float topChannelVoltage = inputs[MAIN_INPUT].getVoltage(0);
+            topChannelVoltage = topChannelVoltage*params[MAIN_GAIN].getValue() + params[MAIN_OFFSET].getValue();
+            topChannelVoltage = clamp(topChannelVoltage, -10.f, 10.f);            
+        
             if (inputs[MAIN_INPUT].isConnected()) {
                 if (!isEditing[0]){
                     params[MASTER_KNOB].setValue(topChannelVoltage);
                     displayValue = inputs[MAIN_INPUT].getVoltage(0);
+                    displayValue = displayValue*params[MAIN_GAIN].getValue() + params[MAIN_OFFSET].getValue();
+                    displayValue = clamp(displayValue, -10.f, 10.f);
+
                 } else {
                     displayValue = params[MASTER_KNOB].getValue();                           
                 }
@@ -108,8 +134,13 @@ struct Morta : Module {
             if (inputs[MAIN_INPUT].isConnected()) {
                 if (!isEditing[0]){
                     inputValue = inputs[MAIN_INPUT].getVoltage(c);
+                    inputValue = inputValue*params[MAIN_GAIN].getValue() + params[MAIN_OFFSET].getValue();
+                    inputValue = clamp(inputValue, -10.f, 10.f);
+                    
                 } else {
                     inputValue = params[MASTER_KNOB].getValue();          
+                    inputValue = inputValue*params[MAIN_GAIN].getValue() + params[MAIN_OFFSET].getValue();
+                    inputValue = clamp(inputValue, -10.f, 10.f);
                 }
             } else {
                 inputValue = params[MASTER_KNOB].getValue();
@@ -189,6 +220,10 @@ struct MortaWidget : ModuleWidget {
 
         // Main input and output at the top
         addInput(createInputCentered<ThemedPJ301MPort>(Vec(box.size.x / 2 - 50, 70), module, Morta::MAIN_INPUT));
+
+        addParam(createParamCentered<Trimpot>(Vec(box.size.x / 2 - 50, 45), module, Morta::MAIN_GAIN));
+        addParam(createParamCentered<Trimpot>(Vec(box.size.x / 2 - 50, 95), module, Morta::MAIN_OFFSET));
+
 
         // Central giant knob
         addParam(createParamCentered<SmartRoundHugeBlackKnob>(Vec(box.size.x / 2, 70), module, Morta::MASTER_KNOB));
