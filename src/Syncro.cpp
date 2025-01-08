@@ -155,23 +155,23 @@ struct Syncro : Module {
         configParam(CLOCK_ATT, -1.f, 1.f, 0.0f, "Clock Attenuvertor");
         configParam(SWING_KNOB, -99.0f, 99.0f, 0.0f, "Swing", " %");
         configParam(SWING_ATT, -1.f, 1.f, 0.0f, "Swing Attenuvertor");
-        configParam(MULTIPLY_KNOB_1, 0.0f, 128.0f, 1.0f, "Multiply 1");
-        configParam(MULTIPLY_KNOB_2, 0.0f, 128.0f, 1.0f, "Multiply 2");
-        configParam(MULTIPLY_KNOB_3, 0.0f, 128.0f, 1.0f, "Multiply 3");
-        configParam(MULTIPLY_KNOB_4, 0.0f, 128.0f, 1.0f, "Multiply 4");
-        configParam(MULTIPLY_KNOB_5, 0.0f, 128.0f, 1.0f, "Multiply 5");
-        configParam(MULTIPLY_KNOB_6, 0.0f, 128.0f, 1.0f, "Multiply 6");
-        configParam(MULTIPLY_KNOB_7, 0.0f, 128.0f, 1.0f, "Multiply 7");
-        configParam(MULTIPLY_KNOB_8, 0.0f, 128.0f, 1.0f, "Multiply 8");
-        configParam(DIVIDE_KNOB_1, 1.0f, 256.0f, 1.0f, "Divide 1");
-        configParam(DIVIDE_KNOB_2, 1.0f, 256.0f, 1.0f, "Divide 2");
-        configParam(DIVIDE_KNOB_3, 1.0f, 256.0f, 1.0f, "Divide 3");
-        configParam(DIVIDE_KNOB_4, 1.0f, 256.0f, 1.0f, "Divide 4");
-        configParam(DIVIDE_KNOB_5, 1.0f, 256.0f, 1.0f, "Divide 5");
-        configParam(DIVIDE_KNOB_6, 1.0f, 256.0f, 1.0f, "Divide 6");
-        configParam(DIVIDE_KNOB_7, 1.0f, 256.0f, 1.0f, "Divide 7");
-        configParam(DIVIDE_KNOB_8, 1.0f, 256.0f, 1.0f, "Divide 8");
-        configParam(FILL_KNOB, 0.0f, 8.0f, 3.0f, "Fill");
+        configParam(MULTIPLY_KNOB_1, 0.0f, 128.0f, 1.0f, "Multiply 1")->snapEnabled=true;
+        configParam(MULTIPLY_KNOB_2, 0.0f, 128.0f, 1.0f, "Multiply 2")->snapEnabled=true;
+        configParam(MULTIPLY_KNOB_3, 0.0f, 128.0f, 1.0f, "Multiply 3")->snapEnabled=true;
+        configParam(MULTIPLY_KNOB_4, 0.0f, 128.0f, 1.0f, "Multiply 4")->snapEnabled=true;
+        configParam(MULTIPLY_KNOB_5, 0.0f, 128.0f, 1.0f, "Multiply 5")->snapEnabled=true;
+        configParam(MULTIPLY_KNOB_6, 0.0f, 128.0f, 1.0f, "Multiply 6")->snapEnabled=true;
+        configParam(MULTIPLY_KNOB_7, 0.0f, 128.0f, 1.0f, "Multiply 7")->snapEnabled=true;
+        configParam(MULTIPLY_KNOB_8, 0.0f, 128.0f, 1.0f, "Multiply 8")->snapEnabled=true;
+        configParam(DIVIDE_KNOB_1, 1.0f, 256.0f, 1.0f, "Divide 1")->snapEnabled=true;
+        configParam(DIVIDE_KNOB_2, 1.0f, 256.0f, 1.0f, "Divide 2")->snapEnabled=true;
+        configParam(DIVIDE_KNOB_3, 1.0f, 256.0f, 1.0f, "Divide 3")->snapEnabled=true;
+        configParam(DIVIDE_KNOB_4, 1.0f, 256.0f, 1.0f, "Divide 4")->snapEnabled=true;
+        configParam(DIVIDE_KNOB_5, 1.0f, 256.0f, 1.0f, "Divide 5")->snapEnabled=true;
+        configParam(DIVIDE_KNOB_6, 1.0f, 256.0f, 1.0f, "Divide 6")->snapEnabled=true;
+        configParam(DIVIDE_KNOB_7, 1.0f, 256.0f, 1.0f, "Divide 7")->snapEnabled=true;
+        configParam(DIVIDE_KNOB_8, 1.0f, 256.0f, 1.0f, "Divide 8")->snapEnabled=true;
+        configParam(FILL_KNOB, 0.0f, 8.0f, 3.0f, "Fill")->snapEnabled=true;
         configParam(FILL_ATT, -1.0f, 1.0f, 0.0f, "Fill Attenuvertor");
         configParam(WIDTH_KNOB, 0.0f, 1.0f, 0.5f, "Gate Width");
         configParam(WIDTH_ATT, -1.0f, 1.0f, 0.0f, "Gate Width Attenuvertor");
@@ -509,46 +509,6 @@ struct Syncro : Module {
 
 struct SyncroWidget : ModuleWidget {
 
-	struct DiscreteTrimpot : Trimpot { 
-		void onDragEnd(const DragEndEvent& e) override {
-			ParamQuantity* paramQuantity = getParamQuantity();
-			
-			if (paramQuantity) {
-				// Get the raw value from the knob
-				float rawValue = paramQuantity->getValue();
-				
-				// Round the value to the nearest integer
-				float discreteValue = std::roundf(rawValue);
-				
-				// Set the snapped value
-				paramQuantity->setValue(discreteValue);
-			}
-			
-			// Call the base class implementation to ensure proper behavior
-			Trimpot::onDragEnd(e);
-		}
-	};
-	
-	struct DiscreteRoundBlackKnob : RoundBlackKnob { 
-		void onDragEnd(const DragEndEvent& e) override {
-			ParamQuantity* paramQuantity = getParamQuantity();
-			
-			if (paramQuantity) {
-				// Get the raw value from the knob
-				float rawValue = paramQuantity->getValue();
-				
-				// Round the value to the nearest integer
-				float discreteValue = std::roundf(rawValue);
-				
-				// Set the snapped value
-				paramQuantity->setValue(discreteValue);
-			}
-			
-			// Call the base class implementation to ensure proper behavior
-			RoundBlackKnob::onDragEnd(e);
-		}
-	};
-
     SyncroWidget(Syncro* module) {
         setModule(module);
         setPanel(createPanel(
@@ -570,7 +530,7 @@ struct SyncroWidget : ModuleWidget {
             addChild(createLight<SmallLight<RedLight>>(Vec(42 + i * 10, 120 ), module, Syncro::FILL_LIGHT_1 + i));
         }
 
-        addParam(createParamCentered<DiscreteRoundBlackKnob>  (Vec(55,     145), module, Syncro::FILL_KNOB));
+        addParam(createParamCentered<RoundBlackKnob>  (Vec(55,     145), module, Syncro::FILL_KNOB));
         addParam(createParamCentered<Trimpot>         (Vec(81.25,  145), module, Syncro::FILL_ATT));
         addInput(createInputCentered<ThemedPJ301MPort>(Vec(103.58, 145), module, Syncro::FILL_INPUT));
 
@@ -597,8 +557,8 @@ struct SyncroWidget : ModuleWidget {
 
         for (int i = 0; i < 8; i++) {
             // Add Multiply and Divide Knobs
-            addParam(createParamCentered<DiscreteTrimpot>             (Vec( 165, 35 + 38 + i * 38 ), module, Syncro::MULTIPLY_KNOB_1 + i));
-            addParam(createParamCentered<DiscreteTrimpot>             (Vec( 190, 35 + 38 + i * 38 ), module, Syncro::DIVIDE_KNOB_1 + i));
+            addParam(createParamCentered<Trimpot>             (Vec( 165, 35 + 38 + i * 38 ), module, Syncro::MULTIPLY_KNOB_1 + i));
+            addParam(createParamCentered<Trimpot>             (Vec( 190, 35 + 38 + i * 38 ), module, Syncro::DIVIDE_KNOB_1 + i));
 
             addParam(createParamCentered<TL1105>              (Vec(280, 35 + 38 + i * 38 ), module, Syncro::FILL_BUTTON_1 + i));
             addChild(createLightCentered<SmallLight<YellowLight>>    (Vec(280, 35 + 38 + i * 38 ), module, Syncro::FILL_INDICATE_1 + i ));

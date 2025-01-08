@@ -295,14 +295,14 @@ struct StepWave : Module {
         configParam(STEP_7_VAL, -5.f, 5.f, 0.0f, "Stage 7 Value");
         configParam(STEP_8_VAL, -5.f, 5.f, 0.0f, "Stage 8 Value");
 
-        configParam(STEP_1_BEATS, 0.f, 10.f, 1.0f, "Stage 1 Beats");
-        configParam(STEP_2_BEATS, 0.f, 10.f, 1.0f, "Stage 2 Beats");
-        configParam(STEP_3_BEATS, 0.f, 10.f, 1.0f, "Stage 3 Beats");
-        configParam(STEP_4_BEATS, 0.f, 10.f, 1.0f, "Stage 4 Beats");
-        configParam(STEP_5_BEATS, 0.f, 10.f, 1.0f, "Stage 5 Beats");
-        configParam(STEP_6_BEATS, 0.f, 10.f, 1.0f, "Stage 6 Beats");
-        configParam(STEP_7_BEATS, 0.f, 10.f, 1.0f, "Stage 7 Beats");
-        configParam(STEP_8_BEATS, 0.f, 10.f, 1.0f, "Stage 8 Beats");
+        configParam(STEP_1_BEATS, 0.f, 10.f, 1.0f, "Stage 1 Beats")->snapEnabled=true;
+        configParam(STEP_2_BEATS, 0.f, 10.f, 1.0f, "Stage 2 Beats")->snapEnabled=true;
+        configParam(STEP_3_BEATS, 0.f, 10.f, 1.0f, "Stage 3 Beats")->snapEnabled=true;
+        configParam(STEP_4_BEATS, 0.f, 10.f, 1.0f, "Stage 4 Beats")->snapEnabled=true;
+        configParam(STEP_5_BEATS, 0.f, 10.f, 1.0f, "Stage 5 Beats")->snapEnabled=true;
+        configParam(STEP_6_BEATS, 0.f, 10.f, 1.0f, "Stage 6 Beats")->snapEnabled=true;
+        configParam(STEP_7_BEATS, 0.f, 10.f, 1.0f, "Stage 7 Beats")->snapEnabled=true;
+        configParam(STEP_8_BEATS, 0.f, 10.f, 1.0f, "Stage 8 Beats")->snapEnabled=true;
  
         configParam(STEP_1_SHAPE, 1.f, 12.f, 1.0f, "Stage 1 Shape");
         configParam(STEP_2_SHAPE, 1.f, 12.f, 1.0f, "Stage 2 Shape");
@@ -1025,28 +1025,6 @@ struct StepWaveWidget : ModuleWidget {
 		}
 	};
 
-	struct DiscreteRoundBlackKnob : RoundBlackKnob {
-		void onDragEnd(const DragEndEvent& e) override {
-			ParamQuantity* paramQuantity = getParamQuantity();
-			
-			if (paramQuantity) {
-				// Get the raw value from the knob
-				float rawValue = paramQuantity->getValue();
-				
-				// Round the value to the nearest integer
-				float discreteValue = std::roundf(rawValue);
-				
-				// Set the snapped value
-				paramQuantity->setValue(discreteValue);
-			}
-			
-			// Call the base class implementation to ensure proper behavior
-			RoundBlackKnob::onDragEnd(e);
-		}
-	};
-	
-
-
     StepWaveWidget(StepWave* module) {
         setModule(module);
         setPanel(createPanel(
@@ -1109,7 +1087,7 @@ struct StepWaveWidget : ModuleWidget {
 
             // Beats knob
             yPos += Spacing + 10;
-            addParam(createParamCentered<DiscreteRoundBlackKnob>(Vec(xPos, yPos), module, StepWave::STEP_1_BEATS + i));
+            addParam(createParamCentered<RoundBlackKnob>(Vec(xPos, yPos), module, StepWave::STEP_1_BEATS + i));
 
 
             // Stage Gate and Button

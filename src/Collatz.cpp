@@ -16,26 +16,6 @@
 
 using namespace rack;
 
-struct DiscreteRoundBlackKnob : RoundBlackKnob { 
-    void onDragEnd(const DragEndEvent& e) override {
-        ParamQuantity* paramQuantity = getParamQuantity();
-        
-        if (paramQuantity) {
-            // Get the raw value from the knob
-            float rawValue = paramQuantity->getValue();
-            
-            // Round the value to the nearest integer
-            float discreteValue = round(rawValue);
-            
-            // Set the snapped value
-            paramQuantity->setValue(discreteValue);
-        }
-        
-        // Call the base class implementation to ensure proper behavior
-        RoundBlackKnob::onDragEnd(e);
-    }
-};
-
 // Define our Module derived from Rack's Module class
 struct Collatz : Module {
     enum ParamIds {
@@ -99,8 +79,8 @@ struct Collatz : Module {
     Collatz() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
 
-        configParam(START_NUMBER, 2.f, 1000.f, 5.f, "Starting Number");
-        configParam(BEAT_MODULUS, 1.f, 100.f, 24.f, "Beat Modulus");
+        configParam(START_NUMBER, 2.f, 1000.f, 5.f, "Starting Number")->snapEnabled=true;
+        configParam(BEAT_MODULUS, 1.f, 100.f, 24.f, "Beat Modulus")->snapEnabled=true;
         configParam(START_NUMBER_ATT, -1.f, 1.f, 0.f, "Starting Number Attenuation");
         configParam(BEAT_MODULUS_ATT, -1.f, 1.f, 0.f, "Beat Modulus Attenuation");
 
@@ -354,8 +334,8 @@ struct CollatzWidget : ModuleWidget {
         box.size = Vec(8 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT); // 8HP wide module
 
         // Knobs
-        addParam(createParamCentered<DiscreteRoundBlackKnob>(mm2px(Vec(10, 28.738+7.5)), module, Collatz::START_NUMBER));
-        addParam(createParamCentered<DiscreteRoundBlackKnob>(mm2px(Vec(30, 28.738+7.5)), module, Collatz::BEAT_MODULUS));
+        addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(10, 28.738+7.5)), module, Collatz::START_NUMBER));
+        addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(30, 28.738+7.5)), module, Collatz::BEAT_MODULUS));
 
         addParam(createParamCentered<Trimpot>(mm2px(Vec(10, 41.795+7)), module, Collatz::START_NUMBER_ATT));
         addParam(createParamCentered<Trimpot>(mm2px(Vec(30, 41.795+7)), module, Collatz::BEAT_MODULUS_ATT));

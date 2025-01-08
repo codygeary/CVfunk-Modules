@@ -257,6 +257,9 @@ struct Arrange : Module {
             isEditing[i] = false; // Initialize editing state to false
             smartKnobStates[i].store(false);
         }
+        
+        paramQuantities[STAGE_SELECT]->displayOffset = 1.0f;                
+        
     }
 
     void onRandomize(const RandomizeEvent& e) override {

@@ -369,9 +369,9 @@ struct Strings : Module {
         }
 
         //Initialize Knobs
-        configParam(CHORD_SELECTOR_PARAM, 1.f, 7.5f, 1.f, "Chord Selection");
-        configParam(ROW_SELECTOR_PARAM, 1.f, 4.5f, 1.f, "Chord Bank");
-        configParam(CAPO_PARAM, -12.f, 12.f, 0.f, "Capo Position");
+        configParam(CHORD_SELECTOR_PARAM, 1.f, 7.5f, 1.f, "Chord Selection")->snapEnabled=true;
+        configParam(ROW_SELECTOR_PARAM, 1.f, 4.5f, 1.f, "Chord Bank")->snapEnabled=true;
+        configParam(CAPO_PARAM, -12.f, 12.f, 0.f, "Capo Position")->snapEnabled=true;
 
         // Initialize inputs
         configInput(CHORD_SELECTOR_CV, "Chord Selector CV");
@@ -909,26 +909,6 @@ struct Strings : Module {
 
 struct StringsWidget : ModuleWidget {
 
-    struct DiscreteRoundBlackKnob : RoundBlackKnob { 
-        void onDragEnd(const DragEndEvent& e) override {
-            ParamQuantity* paramQuantity = getParamQuantity();
-            
-            if (paramQuantity) {
-                // Get the raw value from the knob
-                float rawValue = paramQuantity->getValue();
-                
-                // Round the value to the nearest integer
-                float discreteValue = std::roundf(rawValue);
-                
-                // Set the snapped value
-                paramQuantity->setValue(discreteValue);
-            }
-            
-            // Call the base class implementation to ensure proper behavior
-            RoundBlackKnob::onDragEnd(e);
-        }
-    };
-
     StringsWidget(Strings* module) {
         setModule(module);
         setPanel(createPanel(
@@ -942,13 +922,13 @@ struct StringsWidget : ModuleWidget {
         addChild(createWidget<ThemedScrew>(Vec(box.size.x - 5 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 
         // Knobs
-        addParam(createParamCentered<DiscreteRoundBlackKnob>(Vec(30,  30), module, Strings::CHORD_SELECTOR_PARAM));
+        addParam(createParamCentered<RoundBlackKnob>(Vec(30,  30), module, Strings::CHORD_SELECTOR_PARAM));
         addInput(createInputCentered<ThemedPJ301MPort>(Vec(30,   65), module, Strings::CHORD_SELECTOR_CV));
 
-        addParam(createParamCentered<DiscreteRoundBlackKnob>(Vec(30, 40+80), module, Strings::ROW_SELECTOR_PARAM));
+        addParam(createParamCentered<RoundBlackKnob>(Vec(30, 40+80), module, Strings::ROW_SELECTOR_PARAM));
         addInput(createInputCentered<ThemedPJ301MPort>(Vec(30,  75+80), module, Strings::ROW_SELECTOR_CV));
 
-        addParam(createParamCentered<DiscreteRoundBlackKnob>(Vec(270, 30), module, Strings::CAPO_PARAM));
+        addParam(createParamCentered<RoundBlackKnob>(Vec(270, 30), module, Strings::CAPO_PARAM));
         addInput(createInputCentered<ThemedPJ301MPort>(Vec(270,  65), module, Strings::CAPO_CV));
 
         // CV Mode Indicator
