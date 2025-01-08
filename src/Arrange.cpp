@@ -330,7 +330,7 @@ struct Arrange : Module {
                     recordLatched = false;
                 }
             }
-            paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage);
+            paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage+1);
         } else if (inputs[FORWARD_INPUT].isConnected()) {
             bool forwardCurrentState = forwardInput.process(inputs[FORWARD_INPUT].getVoltage());
             if (forwardCurrentState && !prevForwardState) { // Rising edge detected
@@ -342,7 +342,7 @@ struct Arrange : Module {
                         recordLatched = false;
                     }
                 }
-                paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage);
+                paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage+1);
             }
             prevForwardState = forwardCurrentState; // Update previous state
         }
@@ -353,7 +353,7 @@ struct Arrange : Module {
             if (currentStage < 0) {
                 currentStage = maxStages - 1;  // Wrap around to the last stage
             }
-            paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage);
+            paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage+1);
         } else if (inputs[BACKWARDS_INPUT].isConnected()) {
             bool backwardCurrentState = backwardInput.process(inputs[BACKWARDS_INPUT].getVoltage());
             if (backwardCurrentState && !prevBackwardState) { // Rising edge detected
@@ -361,7 +361,7 @@ struct Arrange : Module {
                 if (currentStage < 0) {
                     currentStage = maxStages - 1;  // Wrap around to the last stage
                 }
-                paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage);
+                paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage+1);
             }
             prevBackwardState = backwardCurrentState; // Update previous state
         } 
@@ -369,12 +369,12 @@ struct Arrange : Module {
         // Handle button press for Reset last
         if (resetTrigger.process(params[RESET_BUTTON].getValue())) {
             currentStage = 0;  // Reset to the first stage
-            paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage);
+            paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage+1);
         } else if (inputs[RESET_INPUT].isConnected()) {
             bool resetCurrentState = resetInput.process(inputs[RESET_INPUT].getVoltage());
             if (resetCurrentState && !prevResetState) { // Rising edge detected
                 currentStage = 0;  // Reset to the first stage
-                paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage);
+                paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage+1);
             }
             prevResetState = resetCurrentState; // Update previous state
         }
