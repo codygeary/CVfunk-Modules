@@ -30,4 +30,5 @@ extern Model* modelPreeeeeeeeeeessedDuck;
 extern Model* modelArrange;
 extern Model* modelTriDelay;
 extern Model* modelTatami;
+extern Model* modelCartesia;
 

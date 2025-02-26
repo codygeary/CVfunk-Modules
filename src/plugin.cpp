@@ -30,6 +30,8 @@ void init(Plugin* p) {
 	p->addModel(modelArrange);
 	p->addModel(modelTriDelay);
 	p->addModel(modelTatami);
+	p->addModel(modelCartesia);
+	
 
 	
 	// Any other plugin initialization may go here.
