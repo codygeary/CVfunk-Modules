@@ -166,6 +166,9 @@ struct Cartesia : Module {
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
 
+        json_object_set_new(rootJ, "knobMin", json_real(knobMin));
+        json_object_set_new(rootJ, "knobRange", json_real(knobRange));
+
         // Save knobStates
         json_t* knobStatesJ = json_array();
         for (int i = 0; i < 16; i++) {
@@ -201,10 +204,35 @@ struct Cartesia : Module {
         // Save quantize
         json_object_set_new(rootJ, "quantize", json_boolean(quantize));
 
+        // Store stage positions (xStage, yStage, zStage)
+        json_object_set_new(rootJ, "xStage", json_integer(xStage));
+        json_object_set_new(rootJ, "yStage", json_integer(yStage));
+        json_object_set_new(rootJ, "zStage", json_integer(zStage));
+
         return rootJ;
     }
 
     void dataFromJson(json_t* rootJ) override {
+
+        json_t *knobMinJ = json_object_get(rootJ, "knobMin");
+        if (knobMinJ) {
+            knobMin = json_real_value(knobMinJ);
+        }
+    
+        json_t *knobRangeJ = json_object_get(rootJ, "knobRange");
+        if (knobRangeJ) {
+            knobRange = json_real_value(knobRangeJ);
+        }
+
+        // Update Knob Ranges - now that knobMin and knobRange are loaded
+        for (int x = 0; x < 4; x++) {
+            for (int y = 0; y < 4; y++) {
+                int i = y * 4 + x;  // Row-major index
+                paramQuantities[KNOB00_PARAM + i]->displayOffset = knobMin;
+                paramQuantities[KNOB00_PARAM + i]->displayMultiplier = knobRange;
+            }
+        }
+
         // Load knobStates
         json_t* knobStatesJ = json_object_get(rootJ, "knobStates");
         if (knobStatesJ) {
@@ -259,6 +287,24 @@ struct Cartesia : Module {
         if (quantizeJ) {
             quantize = json_boolean_value(quantizeJ);
         }
+
+        // Load stage positions (xStage, yStage, zStage)
+        json_t *xStageJ = json_object_get(rootJ, "xStage");
+        if (xStageJ) {
+            xStage = json_integer_value(xStageJ);
+        }
+    
+        json_t *yStageJ = json_object_get(rootJ, "yStage");
+        if (yStageJ) {
+            yStage = json_integer_value(yStageJ);
+        }
+    
+        json_t *zStageJ = json_object_get(rootJ, "zStage");
+        if (zStageJ) {
+            zStage = json_integer_value(zStageJ);
+        }
+        
+        displayUpdate = true;
     }
 
     Cartesia() {
