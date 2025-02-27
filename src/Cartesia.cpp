@@ -122,6 +122,7 @@ struct Cartesia : Module {
     int previousYStage = 0;
     int previousZStage = 0;
     bool displayUpdate = true; //track if the display need updating
+    bool initializing = true;
 
     float knobStates[16][4] = {{0.f,0.f,0.f,0.f},{0.f,0.f,0.f,0.f},{0.f,0.f,0.f,0.f},{0.f,0.f,0.f,0.f},
                                 {0.f,0.f,0.f,0.f},{0.f,0.f,0.f,0.f},{0.f,0.f,0.f,0.f},{0.f,0.f,0.f,0.f},
@@ -152,16 +153,6 @@ struct Cartesia : Module {
     DigitalDisplay* minDisplay = nullptr;
     DigitalDisplay* maxDisplay = nullptr;
     DigitalDisplay* noteDisplays[16] = {nullptr};
-
-    //Align atomics
-    alignas(std::atomic<bool>) std::atomic<bool> isEditing[16]; // For 'smart' knobs, array to keep track if a knob is being turned
-    alignas(std::atomic<bool>) std::atomic<bool> isPressing[16]; // For 'smart' buttons, array to keep track if a button is being held
-    alignas(std::atomic<bool>) std::atomic<bool> isShiftHeld; // For the copy to all feature
-    alignas(std::atomic<bool>) std::atomic<bool> smartKnobStates[16]; //For the copy to all feature
-    alignas(std::atomic<bool>) std::atomic<bool> paramEdit; // For editing params
-    alignas(std::atomic<bool>) std::atomic<bool> shiftForceStore; // For forcing the update of shift-held params
-    alignas(std::atomic<bool>) std::atomic<bool> stageButtonEdit; // For stage buttons
-
 
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
@@ -222,15 +213,6 @@ struct Cartesia : Module {
         json_t *knobRangeJ = json_object_get(rootJ, "knobRange");
         if (knobRangeJ) {
             knobRange = json_real_value(knobRangeJ);
-        }
-
-        // Update Knob Ranges - now that knobMin and knobRange are loaded
-        for (int x = 0; x < 4; x++) {
-            for (int y = 0; y < 4; y++) {
-                int i = y * 4 + x;  // Row-major index
-                paramQuantities[KNOB00_PARAM + i]->displayOffset = knobMin;
-                paramQuantities[KNOB00_PARAM + i]->displayMultiplier = knobRange;
-            }
         }
 
         // Load knobStates
@@ -336,7 +318,7 @@ struct Cartesia : Module {
 
         // Configure range parameters
         configParam(MIN_PARAM, -10.f, 10.f, 0.f, "Knob Min");
-        configParam(RANGE_PARAM, 0.f, 20.f, 5.f, "Knob Range (V)");
+        configParam(RANGE_PARAM, 1.f, 20.f, 5.f, "Knob Range (V)");
         configParam(MINATT_PARAM, -1.f, 1.f, 0.f, "Knob Min Attenuverter");
         configParam(RANGEATT_PARAM, -1.f, 1.f, 0.f, "Range Attenuverter");
         configParam(POLYKNOB_PARAM, 1.f, 4.f, 1.f, "Z Poly")->snapEnabled=true;
@@ -350,19 +332,6 @@ struct Cartesia : Module {
         for (int i = 0; i < OUTPUTS_LEN; i++) {
             configOutput(static_cast<OutputId>(i), "");
         }
-
-        //Initialize atomic arrays
-        for (int i = 0; i < 16; ++i) {
-            isEditing[i].store(false);
-            smartKnobStates[i].store(false);
-        }
-        for (int i = 0; i < 16; ++i) {
-            isPressing[i].store(false);
-        }
-        isShiftHeld.store(false);
-        paramEdit.store(false);
-        shiftForceStore.store(false);
-        stageButtonEdit.store(false);
 
     }
 
@@ -433,7 +402,29 @@ struct Cartesia : Module {
            knobRange += params[RANGEATT_PARAM].getValue()*inputs[RANGECV_INPUT].getVoltage();
         }
         knobRange = fmin(knobRange, 10.f-knobMin);
-        knobRange = clamp(knobRange, 0.f, 20.f);
+        knobRange = clamp(knobRange, 1.f, 20.f);
+
+        if (initializing){
+            //Update Knob Ranges
+            for (int x = 0; x < 4; x++) {
+                for (int y = 0; y < 4; y++) {
+                    int i = y * 4 + x;
+                    paramQuantities[KNOB00_PARAM + i]->displayOffset = knobMin;
+                    paramQuantities[KNOB00_PARAM + i]->displayMultiplier = knobRange;
+                }
+            }
+            for (int x = 0; x < 4; x++) {
+                for (int y = 0; y < 4; y++) {
+                    int i = y * 4 + x;  // Row-major index calculation
+//                     paramQuantities[KNOB00_PARAM + i]->setDisplayValue( clamp( (knobStates[i][zStage])* knobRange + knobMin, -10.f, 10.f) );  // Recall stored knob value    
+                    paramQuantities[KNOB00_PARAM + i]->setValue( knobStates[i][zStage] );  // Recall stored knob value    
+
+                    // Apply clamping to avoid out-of-bounds values
+                    finalNotes[i] = clamp(params[KNOB00_PARAM + i].getValue() * knobRange + knobMin, -10.f, 10.f);
+                }
+            }            
+            initializing = false;
+        }
 
         if (quantizeTrigger.process(params[QUANTIZEBUTTON_PARAM].getValue())) {
             quantize = !quantize;
@@ -558,7 +549,7 @@ struct Cartesia : Module {
                 int i = y * 4 + x;  // Row-major index calculation
 
                 if (displayUpdate) {
-                    paramQuantities[KNOB00_PARAM + i]->setDisplayValue( clamp( (knobStates[i][zStage])* knobRange + knobMin, -10.f, 10.f) );  // Recall stored knob value
+                    paramQuantities[KNOB00_PARAM + i]->setValue( knobStates[i][zStage] );  // Recall stored knob value
                 } else {
                     knobStates[i][zStage] = params[KNOB00_PARAM + i].getValue();  // Save current knob state
                 }
@@ -614,79 +605,6 @@ struct Cartesia : Module {
 };
 
 struct CartesiaWidget : ModuleWidget {
-
-    //Define a SmartKnob that tracks if we are turning it
-    template <typename BaseKnob>
-    struct SmartKnob : BaseKnob {
-        using BaseKnob::BaseKnob; // Inherit constructors
-
-        ParamQuantity* getParamQuantity()  {
-            return BaseKnob::getParamQuantity();
-        }
-
-        void onDragStart(const event::DragStart& e) override {
-            if (ParamQuantity* paramQuantity = this->getParamQuantity()) {
-                if (Cartesia* module = dynamic_cast<Cartesia*>(paramQuantity->module)) {
-                    int index = paramQuantity->paramId - Cartesia::KNOB00_PARAM;
-                    if (index >= 0 && index < 16) {
-                        module->isEditing[index].store(true);
-                        module->paramEdit.store(true);
-
-                        // Use APP->window->getMods() to check Shift key
-                        module->isShiftHeld.store((APP->window->getMods() & GLFW_MOD_SHIFT) != 0);
-                    }
-                }
-            }
-            BaseKnob::onDragStart(e);
-        }
-
-        void onDragEnd(const event::DragEnd& e) override {
-            if (ParamQuantity* paramQuantity = this->getParamQuantity()) {
-                if (Cartesia* module = dynamic_cast<Cartesia*>(paramQuantity->module)) {
-                    int index = paramQuantity->paramId - Cartesia::KNOB00_PARAM;
-                    if (index >= 0 && index < 16) {
-                        module->isEditing[index].store(false);
-                        module->paramEdit.store(true);
-
-                        // Store boolean if Shift was held
-                        if (module->isShiftHeld.load()) {
-                            module->smartKnobStates[index].store(true);
-                            module->shiftForceStore.store(true);
-                        }
-                    }
-                }
-            }
-            BaseKnob::onDragEnd(e);
-        }
-    };
-    // Type aliases to apply 'Smart' to all the knob types we use
-    using SmartRoundLargeBlackKnob = SmartKnob<RoundLargeBlackKnob>;
-    using SmartRoundHugeBlackKnob = SmartKnob<RoundHugeBlackKnob>;
-
-    // Define SmartButton
-    template <typename BaseButton>
-    struct SmartButton : BaseButton {
-        void onButton(const event::Button& e) override {
-            if (e.action == GLFW_PRESS || e.action == GLFW_RELEASE) {
-                if (ParamQuantity* paramQuantity = this->getParamQuantity()) {
-                    if (Cartesia* module = dynamic_cast<Cartesia*>(paramQuantity->module)) {
-                        int index = paramQuantity->paramId - Cartesia::KNOB00_BUTTON;
-                        if (index >= 0 && index < 16) {
-                            module->isPressing[index].store(e.action == GLFW_PRESS);
-                            module->stageButtonEdit.store(true);
-
-                            // Use APP->window->getMods() to check Shift key
-                            module->isShiftHeld.store((APP->window->getMods() & GLFW_MOD_SHIFT) != 0);
-                        }
-                    }
-                }
-            }
-            BaseButton::onButton(e);
-        }
-    };
-    struct SmartTL1105 : SmartButton<TL1105> {};
-    struct SmartLEDButton : SmartButton<LEDButton> {};
-
     CartesiaWidget(Cartesia* module) {
         setModule(module);
 
@@ -715,46 +633,46 @@ struct CartesiaWidget : ModuleWidget {
         addChild(createLightCentered<MediumLight<YellowLight>>(Vec(scale*188.316, scale*40.08), module, Cartesia::SLICE4BUTTON_LIGHT));
 
         //Main Knobs
-        addParam(createParamCentered<SmartRoundLargeBlackKnob>(Vec(scale*249.463, scale*67.39  ), module, Cartesia::KNOB00_PARAM));
-        addParam(createParamCentered<SmartRoundLargeBlackKnob>(Vec(scale*307.762, scale*67.39  ), module, Cartesia::KNOB10_PARAM));
-        addParam(createParamCentered<SmartRoundLargeBlackKnob>(Vec(scale*366.062, scale*67.39  ), module, Cartesia::KNOB20_PARAM));
-        addParam(createParamCentered<SmartRoundLargeBlackKnob>(Vec(scale*424.361, scale*67.39  ), module, Cartesia::KNOB30_PARAM));
+        addParam(createParamCentered<RoundLargeBlackKnob>(Vec(scale*249.463, scale*67.39  ), module, Cartesia::KNOB00_PARAM));
+        addParam(createParamCentered<RoundLargeBlackKnob>(Vec(scale*307.762, scale*67.39  ), module, Cartesia::KNOB10_PARAM));
+        addParam(createParamCentered<RoundLargeBlackKnob>(Vec(scale*366.062, scale*67.39  ), module, Cartesia::KNOB20_PARAM));
+        addParam(createParamCentered<RoundLargeBlackKnob>(Vec(scale*424.361, scale*67.39  ), module, Cartesia::KNOB30_PARAM));
 
-        addParam(createParamCentered<SmartRoundLargeBlackKnob>(Vec(scale*249.463, scale*130.414), module, Cartesia::KNOB01_PARAM));
-        addParam(createParamCentered<SmartRoundLargeBlackKnob>(Vec(scale*307.762, scale*130.414), module, Cartesia::KNOB11_PARAM));
-        addParam(createParamCentered<SmartRoundLargeBlackKnob>(Vec(scale*366.062, scale*130.414), module, Cartesia::KNOB21_PARAM));
-        addParam(createParamCentered<SmartRoundLargeBlackKnob>(Vec(scale*424.361, scale*130.414), module, Cartesia::KNOB31_PARAM));
+        addParam(createParamCentered<RoundLargeBlackKnob>(Vec(scale*249.463, scale*130.414), module, Cartesia::KNOB01_PARAM));
+        addParam(createParamCentered<RoundLargeBlackKnob>(Vec(scale*307.762, scale*130.414), module, Cartesia::KNOB11_PARAM));
+        addParam(createParamCentered<RoundLargeBlackKnob>(Vec(scale*366.062, scale*130.414), module, Cartesia::KNOB21_PARAM));
+        addParam(createParamCentered<RoundLargeBlackKnob>(Vec(scale*424.361, scale*130.414), module, Cartesia::KNOB31_PARAM));
 
-        addParam(createParamCentered<SmartRoundLargeBlackKnob>(Vec(scale*249.463, scale*192.335), module, Cartesia::KNOB02_PARAM));
-        addParam(createParamCentered<SmartRoundLargeBlackKnob>(Vec(scale*307.762, scale*192.335), module, Cartesia::KNOB12_PARAM));
-        addParam(createParamCentered<SmartRoundLargeBlackKnob>(Vec(scale*366.062, scale*192.335), module, Cartesia::KNOB22_PARAM));
-        addParam(createParamCentered<SmartRoundLargeBlackKnob>(Vec(scale*424.361, scale*192.335), module, Cartesia::KNOB32_PARAM));
+        addParam(createParamCentered<RoundLargeBlackKnob>(Vec(scale*249.463, scale*192.335), module, Cartesia::KNOB02_PARAM));
+        addParam(createParamCentered<RoundLargeBlackKnob>(Vec(scale*307.762, scale*192.335), module, Cartesia::KNOB12_PARAM));
+        addParam(createParamCentered<RoundLargeBlackKnob>(Vec(scale*366.062, scale*192.335), module, Cartesia::KNOB22_PARAM));
+        addParam(createParamCentered<RoundLargeBlackKnob>(Vec(scale*424.361, scale*192.335), module, Cartesia::KNOB32_PARAM));
 
-        addParam(createParamCentered<SmartRoundLargeBlackKnob>(Vec(scale*249.463, scale*256.447), module, Cartesia::KNOB03_PARAM));
-        addParam(createParamCentered<SmartRoundLargeBlackKnob>(Vec(scale*307.762, scale*256.447), module, Cartesia::KNOB13_PARAM));
-        addParam(createParamCentered<SmartRoundLargeBlackKnob>(Vec(scale*366.062, scale*256.447), module, Cartesia::KNOB23_PARAM));
-        addParam(createParamCentered<SmartRoundLargeBlackKnob>(Vec(scale*424.361, scale*256.447), module, Cartesia::KNOB33_PARAM));
+        addParam(createParamCentered<RoundLargeBlackKnob>(Vec(scale*249.463, scale*256.447), module, Cartesia::KNOB03_PARAM));
+        addParam(createParamCentered<RoundLargeBlackKnob>(Vec(scale*307.762, scale*256.447), module, Cartesia::KNOB13_PARAM));
+        addParam(createParamCentered<RoundLargeBlackKnob>(Vec(scale*366.062, scale*256.447), module, Cartesia::KNOB23_PARAM));
+        addParam(createParamCentered<RoundLargeBlackKnob>(Vec(scale*424.361, scale*256.447), module, Cartesia::KNOB33_PARAM));
 
         //Stage Buttons
-        addParam(createParamCentered<SmartTL1105>(Vec(scale*249.463, scale*67.39  ), module, Cartesia::KNOB00_BUTTON));
-        addParam(createParamCentered<SmartTL1105>(Vec(scale*307.762, scale*67.39  ), module, Cartesia::KNOB10_BUTTON));
-        addParam(createParamCentered<SmartTL1105>(Vec(scale*366.062, scale*67.39  ), module, Cartesia::KNOB20_BUTTON));
-        addParam(createParamCentered<SmartTL1105>(Vec(scale*424.361, scale*67.39  ), module, Cartesia::KNOB30_BUTTON));
+        addParam(createParamCentered<TL1105>(Vec(scale*249.463, scale*67.39  ), module, Cartesia::KNOB00_BUTTON));
+        addParam(createParamCentered<TL1105>(Vec(scale*307.762, scale*67.39  ), module, Cartesia::KNOB10_BUTTON));
+        addParam(createParamCentered<TL1105>(Vec(scale*366.062, scale*67.39  ), module, Cartesia::KNOB20_BUTTON));
+        addParam(createParamCentered<TL1105>(Vec(scale*424.361, scale*67.39  ), module, Cartesia::KNOB30_BUTTON));
 
-        addParam(createParamCentered<SmartTL1105>(Vec(scale*249.463, scale*130.414), module, Cartesia::KNOB01_BUTTON));
-        addParam(createParamCentered<SmartTL1105>(Vec(scale*307.762, scale*130.414), module, Cartesia::KNOB11_BUTTON));
-        addParam(createParamCentered<SmartTL1105>(Vec(scale*366.062, scale*130.414), module, Cartesia::KNOB21_BUTTON));
-        addParam(createParamCentered<SmartTL1105>(Vec(scale*424.361, scale*130.414), module, Cartesia::KNOB31_BUTTON));
+        addParam(createParamCentered<TL1105>(Vec(scale*249.463, scale*130.414), module, Cartesia::KNOB01_BUTTON));
+        addParam(createParamCentered<TL1105>(Vec(scale*307.762, scale*130.414), module, Cartesia::KNOB11_BUTTON));
+        addParam(createParamCentered<TL1105>(Vec(scale*366.062, scale*130.414), module, Cartesia::KNOB21_BUTTON));
+        addParam(createParamCentered<TL1105>(Vec(scale*424.361, scale*130.414), module, Cartesia::KNOB31_BUTTON));
 
-        addParam(createParamCentered<SmartTL1105>(Vec(scale*249.463, scale*192.335), module, Cartesia::KNOB02_BUTTON));
-        addParam(createParamCentered<SmartTL1105>(Vec(scale*307.762, scale*192.335), module, Cartesia::KNOB12_BUTTON));
-        addParam(createParamCentered<SmartTL1105>(Vec(scale*366.062, scale*192.335), module, Cartesia::KNOB22_BUTTON));
-        addParam(createParamCentered<SmartTL1105>(Vec(scale*424.361, scale*192.335), module, Cartesia::KNOB32_BUTTON));
+        addParam(createParamCentered<TL1105>(Vec(scale*249.463, scale*192.335), module, Cartesia::KNOB02_BUTTON));
+        addParam(createParamCentered<TL1105>(Vec(scale*307.762, scale*192.335), module, Cartesia::KNOB12_BUTTON));
+        addParam(createParamCentered<TL1105>(Vec(scale*366.062, scale*192.335), module, Cartesia::KNOB22_BUTTON));
+        addParam(createParamCentered<TL1105>(Vec(scale*424.361, scale*192.335), module, Cartesia::KNOB32_BUTTON));
 
-        addParam(createParamCentered<SmartTL1105>(Vec(scale*249.463, scale*256.447), module, Cartesia::KNOB03_BUTTON));
-        addParam(createParamCentered<SmartTL1105>(Vec(scale*307.762, scale*256.447), module, Cartesia::KNOB13_BUTTON));
-        addParam(createParamCentered<SmartTL1105>(Vec(scale*366.062, scale*256.447), module, Cartesia::KNOB23_BUTTON));
-        addParam(createParamCentered<SmartTL1105>(Vec(scale*424.361, scale*256.447), module, Cartesia::KNOB33_BUTTON));
+        addParam(createParamCentered<TL1105>(Vec(scale*249.463, scale*256.447), module, Cartesia::KNOB03_BUTTON));
+        addParam(createParamCentered<TL1105>(Vec(scale*307.762, scale*256.447), module, Cartesia::KNOB13_BUTTON));
+        addParam(createParamCentered<TL1105>(Vec(scale*366.062, scale*256.447), module, Cartesia::KNOB23_BUTTON));
+        addParam(createParamCentered<TL1105>(Vec(scale*424.361, scale*256.447), module, Cartesia::KNOB33_BUTTON));
 
         //Main Control Grid
         addInput(createInputCentered<ThemedPJ301MPort>(Vec(scale*38.88, scale*175.2  ), module, Cartesia::XCV_INPUT));
@@ -1102,26 +1020,39 @@ struct CartesiaWidget : ModuleWidget {
         }
 
         //Update Stage Light and Map Lights
-        for (int x = 0; x < 4; x++){
-            for (int y = 0; y < 4; y++){
-                for (int z = 0; z < 4; z++){
+        for (int x = 0; x < 4; x++) {
+            for (int y = 0; y < 4; y++) {
+                for (int z = 0; z < 4; z++) {
                     int i = (x * 16) + (y * 4) + z;
-                    if ( z == module->zStage ){
-                        if ( x == module->xStage && y == module->yStage){
+        
+                    // Reset all lights first to ensure no "leftover" lights stay on
+                    module->lights[Cartesia::LED000_LIGHT + i].setBrightness(0.0f);
+                    module->lights[Cartesia::STAGE00_LIGHT + 4 * y + x].setBrightness(0.0f);
+        
+                    // If this is the active Z stage
+                    if (z == module->zStage) {
+                        if (x == module->xStage && y == module->yStage) {
                             module->lights[Cartesia::LED000_LIGHT + i].setBrightness(1.0f);
-                            module->lights[Cartesia::STAGE00_LIGHT + 4*y + x].setBrightness(0.5f);
+                            module->lights[Cartesia::STAGE00_LIGHT + 4 * y + x].setBrightness(0.5f);
                             module->lights[Cartesia::SLICE1BUTTON_LIGHT + z].setBrightness(1.0f);
-                    } else {
+                        } else {
                             module->lights[Cartesia::LED000_LIGHT + i].setBrightness(0.12f);
-                            module->lights[Cartesia::STAGE00_LIGHT + 4*y + x].setBrightness(0.0f);
                         }
                     } else {
-                        module->lights[Cartesia::LED000_LIGHT + i].setBrightness(0.0f);
                         module->lights[Cartesia::SLICE1BUTTON_LIGHT + z].setBrightness(0.0f);
+                    }
+
+                    // Apply Z-stack polyphony, making sure to wrap around at 4
+                    for (int p = 1; p < module->polyLevels; p++) {  // Start at 1 to avoid double-lighting zStage itself
+                        int zWrapped = (module->zStage + p) % 4;
+                        if (z == zWrapped && x == module->xStage && y == module->yStage) {
+                            module->lights[Cartesia::LED000_LIGHT + i].setBrightness(0.25f);
+                        }
                     }
                 }
             }
         }
+
 
         //Update Knob Ranges
         for (int x = 0; x < 4; x++) {
