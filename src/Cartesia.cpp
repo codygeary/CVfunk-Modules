@@ -121,6 +121,7 @@ struct Cartesia : Module {
     int previousXStage = 0;
     int previousYStage = 0;
     int previousZStage = 0;
+    bool isSampled = false;    //Sample and Hold active steps
     bool displayUpdate = true; //track if the display need updating
     bool initializing = true;
 
@@ -195,6 +196,9 @@ struct Cartesia : Module {
         // Save quantize
         json_object_set_new(rootJ, "quantize", json_boolean(quantize));
 
+        // Save S/H setting
+        json_object_set_new(rootJ, "isSampled", json_boolean(isSampled));
+
         // Store stage positions (xStage, yStage, zStage)
         json_object_set_new(rootJ, "xStage", json_integer(xStage));
         json_object_set_new(rootJ, "yStage", json_integer(yStage));
@@ -268,6 +272,12 @@ struct Cartesia : Module {
         json_t* quantizeJ = json_object_get(rootJ, "quantize");
         if (quantizeJ) {
             quantize = json_boolean_value(quantizeJ);
+        }
+
+        // Load S/H Setting
+        json_t* isSampledJ = json_object_get(rootJ, "isSampled");
+        if (isSampledJ) {
+            isSampled = json_boolean_value(isSampledJ);
         }
 
         // Load stage positions (xStage, yStage, zStage)
@@ -416,7 +426,6 @@ struct Cartesia : Module {
             for (int x = 0; x < 4; x++) {
                 for (int y = 0; y < 4; y++) {
                     int i = y * 4 + x;  // Row-major index calculation
-//                     paramQuantities[KNOB00_PARAM + i]->setDisplayValue( clamp( (knobStates[i][zStage])* knobRange + knobMin, -10.f, 10.f) );  // Recall stored knob value    
                     paramQuantities[KNOB00_PARAM + i]->setValue( knobStates[i][zStage] );  // Recall stored knob value    
 
                     // Apply clamping to avoid out-of-bounds values
@@ -583,9 +592,21 @@ struct Cartesia : Module {
 
             if (quantize) {
                 float quantizedNote = std::roundf(layerNote * 12.f) / 12.f;  // Quantize to nearest semitone
-                outputs[OUTPUT_OUTPUT].setVoltage(quantizedNote, i);
+                if (isSampled){
+                    if (buttonStates[xStage+4*yStage][wrappedZ]){
+                        outputs[OUTPUT_OUTPUT].setVoltage(quantizedNote, i);                  
+                    }
+                } else {
+                    outputs[OUTPUT_OUTPUT].setVoltage(quantizedNote, i);
+                }
             } else {
-                outputs[OUTPUT_OUTPUT].setVoltage(layerNote, i);
+                if (isSampled){
+                    if (buttonStates[xStage+4*yStage][wrappedZ]){
+                        outputs[OUTPUT_OUTPUT].setVoltage(layerNote, i);                  
+                    }
+                } else {
+                    outputs[OUTPUT_OUTPUT].setVoltage(layerNote, i);
+                }
             }
 
             if (buttonStates[xStage+4*yStage][wrappedZ]){
@@ -1025,9 +1046,7 @@ struct CartesiaWidget : ModuleWidget {
                 for (int z = 0; z < 4; z++) {
                     int i = (x * 16) + (y * 4) + z;
         
-                    // Reset all lights first to ensure no "leftover" lights stay on
                     module->lights[Cartesia::LED000_LIGHT + i].setBrightness(0.0f);
-                    module->lights[Cartesia::STAGE00_LIGHT + 4 * y + x].setBrightness(0.0f);
         
                     // If this is the active Z stage
                     if (z == module->zStage) {
@@ -1037,6 +1056,7 @@ struct CartesiaWidget : ModuleWidget {
                             module->lights[Cartesia::SLICE1BUTTON_LIGHT + z].setBrightness(1.0f);
                         } else {
                             module->lights[Cartesia::LED000_LIGHT + i].setBrightness(0.12f);
+                            module->lights[Cartesia::STAGE00_LIGHT + 4 * y + x].setBrightness(0.0f);
                         }
                     } else {
                         module->lights[Cartesia::SLICE1BUTTON_LIGHT + z].setBrightness(0.0f);
@@ -1113,5 +1133,36 @@ struct CartesiaWidget : ModuleWidget {
         display->setFontSize(14.0f);
         return display;
     }
+    
+    void appendContextMenu(Menu* menu) override {
+        ModuleWidget::appendContextMenu(menu);
+    
+        Cartesia* cartesiaModule = dynamic_cast<Cartesia*>(module);
+        assert(cartesiaModule); // Ensure the cast succeeds
+    
+        // Separator for visual grouping in the context menu
+        menu->addChild(new MenuSeparator());
+     
+        // Sample and Hold CV controls Active Step menu item
+        struct SampleAndHoldMenuItem : MenuItem {
+            Cartesia* cartesiaModule;
+            void onAction(const event::Action& e) override {
+                // Trigger the Sample and Hold functionality based on the active step
+                cartesiaModule->isSampled = !cartesiaModule->isSampled;
+            }
+            void step() override {
+                // You could also add a visual indicator here if you need to, like a checkmark.
+                rightText = cartesiaModule->isSampled ? "✔" : "";
+                MenuItem::step();
+            }
+        };
+    
+        SampleAndHoldMenuItem* sampleAndHoldItem = new SampleAndHoldMenuItem();
+        sampleAndHoldItem->text = "Sample and Hold Active Step";
+        sampleAndHoldItem->cartesiaModule = cartesiaModule;
+        menu->addChild(sampleAndHoldItem);
+    
+    }
+    
 };
 Model* modelCartesia = createModel<Cartesia, CartesiaWidget>("Cartesia");
