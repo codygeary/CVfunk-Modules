@@ -121,7 +121,7 @@ struct Cartesia : Module {
     int previousXStage = 0;
     int previousYStage = 0;
     int previousZStage = 0;
-    bool isSampled = false;    //Sample and Hold active steps
+    bool isSampled = true;    //Sample and Hold active steps
     bool displayUpdate = true; //track if the display need updating
     bool initializing = true;
 
@@ -926,10 +926,10 @@ struct CartesiaWidget : ModuleWidget {
         //Text Displays
         if (module) {
             // (Vec(28.32, 17.76))  display size
-            module->minDisplay = createDigitalDisplay((Vec(scale*149.520, scale*153.12)), "Min");
+            module->minDisplay = createDigitalDisplay((Vec(scale*149.520, scale*154.62)), "Min");
             addChild(module->minDisplay);
 
-            module->maxDisplay = createDigitalDisplay((Vec(scale*180.310, scale*153.12)), "Max");
+            module->maxDisplay = createDigitalDisplay((Vec(scale*180.310, scale*154.62)), "Max");
             addChild(module->maxDisplay);
 
             for (int i=0; i<4; i++){
