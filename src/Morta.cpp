@@ -212,7 +212,7 @@ struct MortaWidget : ModuleWidget {
 
         if (module) {
             // Volt Display Initialization
-            module->voltDisplay = createDigitalDisplay(Vec(box.size.x / 2 - 25, 110), "0.000 V");
+            module->voltDisplay = createDigitalDisplay(Vec(box.size.x / 2 - 32, 110), "0.000 V");
             addChild(module->voltDisplay);
         }
 
@@ -237,7 +237,7 @@ struct MortaWidget : ModuleWidget {
     DigitalDisplay* createDigitalDisplay(Vec position, std::string initialValue) {
         DigitalDisplay* display = new DigitalDisplay();
         display->box.pos = position;
-        display->box.size = Vec(50, 18);
+        display->box.size = Vec(64, 18);
         display->text = initialValue;
         display->fgColor = nvgRGB(208, 140, 89); // Gold color text
         display->fontPath = asset::plugin(pluginInstance, "res/fonts/DejaVuSansMono.ttf");
