@@ -537,12 +537,6 @@ struct PolarXYDisplay : TransparentWidget {
             centerY = box.size.y / 2.0f;
             radiusScale = centerY * 0.8f; // Adjust as needed
 
-            // Clear the area before drawing the waveform
-            nvgBeginPath(args.vg);
-            nvgRect(args.vg, 0, 0, box.size.x, box.size.y);
-            nvgFillColor(args.vg, nvgRGBA(0, 0, 0, 0)); // Transparent background
-            nvgFill(args.vg);
-
             // Draw waveforms
                 drawWaveform(args, module->waveBuffers[0], nvgRGBAf(1, 0.4, 0, 0.8));
                 drawWaveform(args, module->waveBuffers[1], nvgRGBAf(0, 0.4, 1, 0.8));
@@ -562,8 +556,8 @@ struct PolarXYDisplay : TransparentWidget {
 
             float theta = ((float)i / (displaySamples - 1)) * twoPi; // From 0 to 2π
 
-            float amplitude = waveBuffer[bufferIndex] / 5.0f; // Normalize to -1 to +1
-            float radius = centerY + amplitude * radiusScale;
+            float amplitude = (waveBuffer[bufferIndex] + 5.f) / 10.0f; // Normalize to 0 to +1
+            float radius = amplitude * radiusScale;
 
             Vec pos = polarToCartesian(theta, radius);
 
@@ -645,8 +639,8 @@ struct OurosWidget : ModuleWidget {
         addOutput(createOutputCentered<ThemedPJ301MPort>(knobStartPos.plus(Vec(3*knobSpacing, -72)), module, Ouros::R_OUTPUT));
 
         // Create and add the PolarXYDisplay
-        PolarXYDisplay* polarDisplay = createWidget<PolarXYDisplay>(Vec(56.5,55.5)); // Positioning
-        polarDisplay->box.size = Vec(50, 50); // Size of the display widget
+        PolarXYDisplay* polarDisplay = createWidget<PolarXYDisplay>(Vec(26.5,25.5)); // Positioning
+        polarDisplay->box.size = Vec(113, 113); // Size of the display widget
         polarDisplay->module = module;
         addChild(polarDisplay);
 
