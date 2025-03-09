@@ -313,6 +313,7 @@ struct Cartesia : Module {
             for (int y = 0; y < 4; y++) {
                 int i = x * 4 + y;  // Calculate the index in a row-major order
                 configParam(KNOB00_PARAM + i, 0.f, 1.f, 0.5f, "Knob " + std::to_string(x) + "," + std::to_string(y));
+                configParam(KNOB00_BUTTON + i, 0.f, 1.f, 0.5f, "Gate " + std::to_string(x) + "," + std::to_string(y));
             }
         }
 
@@ -334,14 +335,35 @@ struct Cartesia : Module {
         configParam(POLYKNOB_PARAM, 1.f, 4.f, 1.f, "Z Poly")->snapEnabled=true;
 
         // Configure inputs
-        for (int i = 0; i < INPUTS_LEN; i++) {
-            configInput(static_cast<InputId>(i), "");
-        }
-
+        configInput(XCV_INPUT, "X Axis CV");
+        configInput(XREV_INPUT, "X Reverse Trigger");
+        configInput(XFWD_INPUT, "X Forward Trigger");
+        
+        configInput(YCV_INPUT, "Y Axis CV");
+        configInput(YREV_INPUT, "Y Reverse Trigger");
+        configInput(YFWD_INPUT, "Y Forward Trigger");
+        
+        configInput(ZCV_INPUT, "Z Axis CV");
+        configInput(ZREV_INPUT, "Z Reverse Trigger");
+        configInput(ZFWD_INPUT, "Z Forward Trigger");
+        
+        configInput(MINCV_INPUT, "Minimum Step CV");
+        configInput(RANGECV_INPUT, "Step Range CV");
+        configInput(SCANCV_INPUT, "Scan Position CV");
+        configInput(SCANREV_INPUT, "Scan Reverse Trigger");
+        configInput(SCANFWD_INPUT, "Scan Forward Trigger");
+        
+        configInput(ONOFF_INPUT, "ON/OFF Trigger");
+        configInput(RESET_INPUT, "Reset Trigger");
+        configInput(RANDOM_INPUT, "Randomize Trigger");
+        configInput(OFFSET_INPUT, "Offset CV");
+        
         // Configure outputs
-        for (int i = 0; i < OUTPUTS_LEN; i++) {
-            configOutput(static_cast<OutputId>(i), "");
-        }
+        configOutput(RESET_OUTPUT, "Reset Trigger Out");
+        configOutput(TRIGGER_OUTPUT, "Step Trigger Out");
+        configOutput(GATEOUT_OUTPUT, "Step Gate Out");
+        configOutput(INVGATEOUT_OUTPUT, "Inverted Step Gate Out");
+        configOutput(OUTPUT_OUTPUT, "Main Sequencer Output");
 
     }
 
@@ -454,11 +476,11 @@ struct Cartesia : Module {
                 xStage++;
                 if (xStage > 3) { xStage = 0; yStage++; }
             }
-            if (scanFwdTrigger.process(inputs[SCANFWD_INPUT].getVoltage())) {
+            if (scanFwdTrigger.process(inputs[SCANFWD_INPUT].getVoltage()) && sequenceRunning) {
                 xStage++;
                 if (xStage > 3) { xStage = 0; yStage++; }
             }
-            if (scanRevTrigger.process(inputs[SCANREV_INPUT].getVoltage())) {
+            if (scanRevTrigger.process(inputs[SCANREV_INPUT].getVoltage()) && sequenceRunning) {
                 xStage--;
                 if (xStage < 0) { xStage = 3; yStage--; }
             }
@@ -470,8 +492,10 @@ struct Cartesia : Module {
             xStage = clamp(static_cast<int>(floor(xVoltage / 2.5f)), 0, 3);
         } else {
             if (xButtonTrigger.process(params[XFWDBUTTON_PARAM].getValue())) { xStage++; }
-            if (xRevTrigger.process(inputs[XREV_INPUT].getVoltage())) { xStage--; }
-            if (xFwdTrigger.process(inputs[XFWD_INPUT].getVoltage())) { xStage++; }
+            if (sequenceRunning){
+                if (xRevTrigger.process(inputs[XREV_INPUT].getVoltage())) { xStage--; }
+                if (xFwdTrigger.process(inputs[XFWD_INPUT].getVoltage())) { xStage++; }
+            }
         }
 
         // Process Y-axis movement
@@ -480,8 +504,10 @@ struct Cartesia : Module {
             yStage = clamp(static_cast<int>(floor(yVoltage / 2.5f)), 0, 3);
         } else {
             if (yButtonTrigger.process(params[YFWDBUTTON_PARAM].getValue())) { yStage++; }
-            if (yRevTrigger.process(inputs[YREV_INPUT].getVoltage())) { yStage--; }
-            if (yFwdTrigger.process(inputs[YFWD_INPUT].getVoltage())) { yStage++; }
+            if (sequenceRunning){
+                if (yRevTrigger.process(inputs[YREV_INPUT].getVoltage())) { yStage--; }
+                if (yFwdTrigger.process(inputs[YFWD_INPUT].getVoltage())) { yStage++; }
+            }
         }
 
         // Process Z-axis movement
@@ -490,12 +516,14 @@ struct Cartesia : Module {
             zStage = clamp(static_cast<int>(floor(zVoltage / 2.5f)), 0, 3);
         } else {
             if (zButtonTrigger.process(params[ZFWDBUTTON_PARAM].getValue())) { zStage++; }
-            if (zRevTrigger.process(inputs[ZREV_INPUT].getVoltage())) { zStage--; }
-            if (zFwdTrigger.process(inputs[ZFWD_INPUT].getVoltage())) { zStage++; }
+            if (sequenceRunning){
+                if (zRevTrigger.process(inputs[ZREV_INPUT].getVoltage())) { zStage--; }
+                if (zFwdTrigger.process(inputs[ZFWD_INPUT].getVoltage())) { zStage++; }
+            }
         }
 
         // Process RANDOM inputs
-        if (inputs[RANDOM_INPUT].isConnected()) {
+        if (inputs[RANDOM_INPUT].isConnected() && sequenceRunning) {
             if (randomTrigger.process(inputs[RANDOM_INPUT].getVoltage())) {
                 xStage = random::u32() % 4;  // Random value between 0-3
                 yStage = random::u32() % 4;
@@ -519,7 +547,7 @@ struct Cartesia : Module {
 
         // Process RESET inputs
         if (inputs[RESET_INPUT].isConnected()) {
-            if (resetTrigger.process(inputs[RESET_INPUT].getVoltage())) {
+            if (resetTrigger.process(inputs[RESET_INPUT].getVoltage()) && sequenceRunning) {
                 xStage = 0;
                 yStage = 0;
                 zStage = 0;
