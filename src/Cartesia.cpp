@@ -1,3 +1,15 @@
+////////////////////////////////////////////////////////////
+//
+//   Cartesia
+//
+//   written by Cody Geary
+//   Copyright 2025, MIT License
+//
+//   A 4x4x4 sequencer for both quantized and non-quantized voltages, 
+//   gates per step, and polyphonic outputs with stacked z-layer options.
+//
+////////////////////////////////////////////////////////////
+
 #include "rack.hpp"
 #include "plugin.hpp"
 #include "digital_display.hpp"
@@ -155,6 +167,12 @@ struct Cartesia : Module {
     DigitalDisplay* maxDisplay = nullptr;
     DigitalDisplay* noteDisplays[16] = {nullptr};
 
+    //For Copy/Paste function
+    float copiedKnobStates[16] = {0.f};  
+    bool copiedButtonStates[16] = {true};
+    bool copyBufferFilled = false;
+    bool gateTriggerEnabled = false;
+
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
 
@@ -196,13 +214,31 @@ struct Cartesia : Module {
         // Save quantize
         json_object_set_new(rootJ, "quantize", json_boolean(quantize));
 
+        // Save gate/trigger toggle setting
+        json_object_set_new(rootJ, "gateTriggerEnabled", json_boolean(gateTriggerEnabled));
+
         // Save S/H setting
         json_object_set_new(rootJ, "isSampled", json_boolean(isSampled));
+
+        // Save copy buffer
+        json_object_set_new(rootJ, "copyBufferFilled", json_boolean(copyBufferFilled));
 
         // Store stage positions (xStage, yStage, zStage)
         json_object_set_new(rootJ, "xStage", json_integer(xStage));
         json_object_set_new(rootJ, "yStage", json_integer(yStage));
         json_object_set_new(rootJ, "zStage", json_integer(zStage));
+
+        json_t* copyKnobJ = json_array();
+        for (int i = 0; i < 16; i++) {
+            json_array_append_new(copyKnobJ, json_real(copiedKnobStates[i]));
+        }
+        json_object_set_new(rootJ, "copiedKnobStates", copyKnobJ);
+        
+        json_t* copyButtonJ = json_array();
+        for (int i = 0; i < 16; i++) {
+            json_array_append_new(copyButtonJ, json_boolean(copiedButtonStates[i]));
+        }
+        json_object_set_new(rootJ, "copiedButtonStates", copyButtonJ);
 
         return rootJ;
     }
@@ -274,6 +310,18 @@ struct Cartesia : Module {
             quantize = json_boolean_value(quantizeJ);
         }
 
+        //Load gate/trigger toggle setting
+        json_t* gateTriggerJ = json_object_get(rootJ, "gateTriggerEnabled");
+        if (gateTriggerJ) {
+            gateTriggerEnabled = json_boolean_value(gateTriggerJ);
+        }
+
+        // Load copy buffer bool
+        json_t* copyBufferFilledJ = json_object_get(rootJ, "copyBufferFilled");
+        if (copyBufferFilledJ) {
+            copyBufferFilled = json_boolean_value(copyBufferFilledJ);
+        }
+
         // Load S/H Setting
         json_t* isSampledJ = json_object_get(rootJ, "isSampled");
         if (isSampledJ) {
@@ -295,7 +343,27 @@ struct Cartesia : Module {
         if (zStageJ) {
             zStage = json_integer_value(zStageJ);
         }
+ 
+        json_t* copyKnobJ = json_object_get(rootJ, "copiedKnobStates");
+        if (json_is_array(copyKnobJ)) {
+            for (int i = 0; i < 16; i++) {
+                json_t* valJ = json_array_get(copyKnobJ, i);
+                if (json_is_real(valJ)) {
+                    copiedKnobStates[i] = json_real_value(valJ);
+                }
+            }
+        }
         
+        json_t* copyButtonJ = json_object_get(rootJ, "copiedButtonStates");
+        if (json_is_array(copyButtonJ)) {
+            for (int i = 0; i < 16; i++) {
+                json_t* valJ = json_array_get(copyButtonJ, i);
+                if (json_is_boolean(valJ)) {
+                    copiedButtonStates[i] = json_boolean_value(valJ);
+                }
+            }
+        }
+      
         displayUpdate = true;
     }
 
@@ -569,6 +637,7 @@ struct Cartesia : Module {
 
         // Detect Z-layer (slice) change and flag display update
         if (zStage != previousZStage) {
+            triggerPulse.trigger(0.001f);
             displayUpdate = true;
             previousZStage = zStage;
         }
@@ -637,8 +706,15 @@ struct Cartesia : Module {
                 }
             }
 
-            if (buttonStates[xStage+4*yStage][wrappedZ]){
-                outputs[GATEOUT_OUTPUT].setVoltage(10.f, i);
+            // Gate and Inverted Gate Logic
+            if (buttonStates[xStage + 4 * yStage][wrappedZ]) {
+                if (gateTriggerEnabled) {
+                    // If gateTriggerEnabled, output a trigger instead of a gate
+                    outputs[GATEOUT_OUTPUT].setVoltage(triggerPulse.process(deltaTime) ? 10.f : 0.f, i);
+                } else {
+                    // Normal gate output
+                    outputs[GATEOUT_OUTPUT].setVoltage(10.f, i);
+                }
                 outputs[INVGATEOUT_OUTPUT].setVoltage(0.f, i);
             } else {
                 outputs[GATEOUT_OUTPUT].setVoltage(0.f, i);
@@ -1171,6 +1247,76 @@ struct CartesiaWidget : ModuleWidget {
         // Separator for visual grouping in the context menu
         menu->addChild(new MenuSeparator());
      
+        // Copy Layer menu item
+        struct CopyLayerMenuItem : MenuItem {
+            Cartesia* cartesiaModule;
+            void onAction(const event::Action& e) override {
+                for (int i = 0; i < 16; i++) {
+                    cartesiaModule->copiedKnobStates[i] = cartesiaModule->knobStates[i][cartesiaModule->zStage];
+                    cartesiaModule->copiedButtonStates[i] = cartesiaModule->buttonStates[i][cartesiaModule->zStage];
+                }
+                cartesiaModule->copyBufferFilled = true;
+            }
+            void step() override {
+                rightText = cartesiaModule->copyBufferFilled ? "✔" : "";
+                MenuItem::step();
+            }
+        };
+        
+        CopyLayerMenuItem* copyLayerItem = new CopyLayerMenuItem();
+        copyLayerItem->text = "Copy Layer";
+        copyLayerItem->cartesiaModule = cartesiaModule;
+        menu->addChild(copyLayerItem);
+        
+        // Paste Layer menu item
+        struct PasteLayerMenuItem : MenuItem {
+            Cartesia* cartesiaModule;
+            void onAction(const event::Action& e) override {
+                if (!cartesiaModule->copyBufferFilled) return;
+                for (int i = 0; i < 16; i++) {
+                    cartesiaModule->knobStates[i][cartesiaModule->zStage] = cartesiaModule->copiedKnobStates[i];
+                    cartesiaModule->buttonStates[i][cartesiaModule->zStage] = cartesiaModule->copiedButtonStates[i];
+                }
+                cartesiaModule->displayUpdate = true;
+            }
+            void step() override {
+                rightText = cartesiaModule->copyBufferFilled ? "Ready" : "Empty";
+                MenuItem::step();
+            }
+        };
+        
+        PasteLayerMenuItem* pasteLayerItem = new PasteLayerMenuItem();
+        pasteLayerItem->text = "Paste Layer";
+        pasteLayerItem->cartesiaModule = cartesiaModule;
+        menu->addChild(pasteLayerItem);
+
+        // Paste to All Layers menu item
+        struct PasteAllLayersMenuItem : MenuItem {
+            Cartesia* cartesiaModule;
+            void onAction(const event::Action& e) override {
+                if (!cartesiaModule->copyBufferFilled) return;
+                for (int z = 0; z < 4; z++) {
+                    for (int i = 0; i < 16; i++) {
+                        cartesiaModule->knobStates[i][z] = cartesiaModule->copiedKnobStates[i];
+                        cartesiaModule->buttonStates[i][z] = cartesiaModule->copiedButtonStates[i];
+                    }
+                }
+                cartesiaModule->displayUpdate = true;
+            }
+            void step() override {
+                rightText = cartesiaModule->copyBufferFilled ? "Ready" : "Empty";
+                MenuItem::step();
+            }
+        };
+        
+        PasteAllLayersMenuItem* pasteAllLayersItem = new PasteAllLayersMenuItem();
+        pasteAllLayersItem->text = "Paste to All Layers";
+        pasteAllLayersItem->cartesiaModule = cartesiaModule;
+        menu->addChild(pasteAllLayersItem);
+
+        // Separator for visual grouping in the context menu
+        menu->addChild(new MenuSeparator());
+     
         // Sample and Hold CV controls Active Step menu item
         struct SampleAndHoldMenuItem : MenuItem {
             Cartesia* cartesiaModule;
@@ -1189,8 +1335,24 @@ struct CartesiaWidget : ModuleWidget {
         sampleAndHoldItem->text = "Sample and Hold Active Step";
         sampleAndHoldItem->cartesiaModule = cartesiaModule;
         menu->addChild(sampleAndHoldItem);
-    
-    }
-    
+
+        // Toggle Gate Trigger Output
+        struct GateTriggerMenuItem : MenuItem {
+            Cartesia* cartesiaModule;
+            void onAction(const event::Action& e) override {
+                cartesiaModule->gateTriggerEnabled = !cartesiaModule->gateTriggerEnabled;
+            }
+            void step() override {
+                rightText = cartesiaModule->gateTriggerEnabled ? "✔" : "";
+                MenuItem::step();
+            }
+        };
+        
+        GateTriggerMenuItem* gateTriggerItem = new GateTriggerMenuItem();
+        gateTriggerItem->text = "Enable Triggers from Gate Outputs";
+        gateTriggerItem->cartesiaModule = cartesiaModule;
+        menu->addChild(gateTriggerItem);
+        
+    }    
 };
 Model* modelCartesia = createModel<Cartesia, CartesiaWidget>("Cartesia");
