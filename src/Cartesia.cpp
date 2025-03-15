@@ -718,8 +718,15 @@ struct Cartesia : Module {
                 outputs[INVGATEOUT_OUTPUT].setVoltage(0.f, i);
             } else {
                 outputs[GATEOUT_OUTPUT].setVoltage(0.f, i);
-                outputs[INVGATEOUT_OUTPUT].setVoltage(10.f, i);
+                if (gateTriggerEnabled) {
+                    // If gateTriggerEnabled, output a trigger instead of a gate
+                    outputs[INVGATEOUT_OUTPUT].setVoltage(triggerPulse.process(deltaTime) ? 10.f : 0.f, i);
+                } else {
+                    // Normal gate output
+                    outputs[INVGATEOUT_OUTPUT].setVoltage(10.f, i);
+                }
             }
+                      
         }
         
         //Trigger Outputs
