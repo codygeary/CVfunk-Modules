@@ -310,6 +310,7 @@ struct SignalsWidget : ModuleWidget {
         addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(55, 19)), module, Signals::TRIGGER_ON_LIGHT));
 
         fbWidget = new FramebufferWidget();
+        fbWidget->box.size = Vec(175, 60*6);
         addChild(fbWidget);
 
         if (module) {
