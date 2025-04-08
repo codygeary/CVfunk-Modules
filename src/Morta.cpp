@@ -56,11 +56,24 @@ struct Morta : Module {
         configInput(MAIN_INPUT, "Main");
         configInput(RANGE_CV_INPUT, "Range CV");
 
-        // Configure the outputs
-        for (int i = 0; i < 16; i++) {
-            configOutput(OUTPUT_1_1 + i, "Output " + std::to_string(i / 4 + 1) + "," + std::to_string(i % 4 + 1));
-        }
-        
+        configOutput(OUTPUT_1_1, "0 ▸ 1 Out");
+        configOutput(OUTPUT_1_2, "0 ▸ 5 Out");
+        configOutput(OUTPUT_1_3, "0 ▸ 10 Out");
+        configOutput(OUTPUT_1_4, "0 ▸ R Out");
+        configOutput(OUTPUT_2_1, "-1 ▸ 1 Out");
+        configOutput(OUTPUT_2_2, "-5 ▸ 5 Out");
+        configOutput(OUTPUT_2_3, "-10 ▸ 10 Out");
+        configOutput(OUTPUT_2_4, "-R ▸ R Out");
+        configOutput(OUTPUT_3_1, "1 ▸ -1 Out");
+        configOutput(OUTPUT_3_2, "-5 ▸ 5 Out");
+        configOutput(OUTPUT_3_3, "10 ▸ -10 Out");
+        configOutput(OUTPUT_3_4, "R ▸ -R Out");
+        configOutput(OUTPUT_4_1, "1 ▸ 0 Out");
+        configOutput(OUTPUT_4_2, "5 ▸ 0 Out");
+        configOutput(OUTPUT_4_3, "10 ▸ 0 Out");
+        configOutput(OUTPUT_4_4, "R ▸ 0 Out");
+        configOutput(MAIN_OUTPUT, "Main Out");
+
         isEditing[0] = false; // Initialize editing state to false    
     }
 
