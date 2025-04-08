@@ -73,7 +73,7 @@ struct Signals : Module {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
         configParam(RANGE_PARAM, 0.1f, 0.9999f, 0.5f, "Range");
         configParam(TRIGGER_ON_PARAM, 0.f, 1.f, 1.f, "Retriggering");
-        configParam(RANGE_BUTTON_PARAM, 0.f, 1.f, 0.f, "Range Mode");
+        configSwitch(RANGE_BUTTON_PARAM, 0.f, 1.f, 0.f, "Mode", {"Default", "Slow"});
 
         lastTriggerTime.fill(0.0f);
         MAX_BUFFER_SIZE = int(static_cast<int>(APP->engine->getSampleRate() * MAX_TIME));
