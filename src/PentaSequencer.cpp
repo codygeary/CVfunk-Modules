@@ -126,6 +126,7 @@ struct PentaSequencer : Module {
         configParam(KNOB3_PARAM, -5.f, 5.f, 0.f, "III");
         configParam(KNOB4_PARAM, -5.f, 5.f, 0.f, "IV");
         configParam(KNOB5_PARAM, -5.f, 5.f, 0.f, "V");
+        configInput(SLEW_INPUT, "Slew CV In");
         configInput(TRIG_INPUT, "Trigger In");
         configInput(SHAPE_INPUT, "Shape CV In");
         configInput(SHIFT_INPUT, "Shift CV In");
