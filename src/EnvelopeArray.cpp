@@ -155,36 +155,36 @@ struct EnvelopeArray : Module {
         configParam(TIME1_ATTEN_PARAM, -1.0f, 1.0f, 0.f, "First Width Attenuvertor");
         configParam(TIME6_ATTEN_PARAM, -1.0f, 1.0f, 0.f, "Last Width Attenuvertor");
  
-        configParam(TIME1_RANGE_BUTTON, 0.0, 1.0, 0.0, "First Width Range" );
-        configParam(TIME6_RANGE_BUTTON, 0.0, 1.0, 0.0, "Last Width Range" );
-        configParam(TRIGGER_BUTTON, 0.0, 1.0, 0.0, "Manual Trigger" );
+        configSwitch(TIME1_RANGE_BUTTON, 0.0, 1.0, 0.0, "First Width Range" );
+        configSwitch(TIME6_RANGE_BUTTON, 0.0, 1.0, 0.0, "Last Width Range" );
+        configSwitch(TRIGGER_BUTTON, 0.0, 1.0, 0.0, "Manual Trigger" );
      
         /////////////////////
         //configParam(SECRET_PARAM,-5.0, 10.0f, 4.7f, "Mapping to a test knob"); //only used for calibration
         /////////////////////
 
-        configInput(SLANT_INPUT, "Slant IN");
-        configInput(CURVE_INPUT, "Curve IN");
-        configInput(TIME1_INPUT, "First Width IN");
-        configInput(TIME6_INPUT, "Last Width IN");
-        configInput(_1_INPUT, "IN 1");
-        configInput(_2_INPUT, "IN 2");
-        configInput(_3_INPUT, "IN 3");
-        configInput(_4_INPUT, "IN 4");
-        configInput(_5_INPUT, "IN 5");
-        configInput(_6_INPUT, "IN 6");
-        configOutput(_1_OUTPUT, "OUT 1");
-        configOutput(_2_OUTPUT, "OUT 2");
-        configOutput(_3_OUTPUT, "OUT 3");
-        configOutput(_4_OUTPUT, "OUT 4");
-        configOutput(_5_OUTPUT, "OUT 5");
-        configOutput(_6_OUTPUT, "OUT 6");
-        configOutput(EOF1_OUTPUT, "GATE 1");
-        configOutput(EOF2_OUTPUT, "GATE 2");
-        configOutput(EOF3_OUTPUT, "GATE 3");
-        configOutput(EOF4_OUTPUT, "GATE 4");
-        configOutput(EOF5_OUTPUT, "GATE 5");
-        configOutput(EOF6_OUTPUT, "GATE 6");
+        configInput(SLANT_INPUT, "Slant CV In");
+        configInput(CURVE_INPUT, "Curve CV In");
+        configInput(TIME1_INPUT, "First Width CV In");
+        configInput(TIME6_INPUT, "Last Width CV In");
+        configInput(_1_INPUT, "Gate 1 In");
+        configInput(_2_INPUT, "Gate 2 In");
+        configInput(_3_INPUT, "Gate 3 In");
+        configInput(_4_INPUT, "Gate 4 In");
+        configInput(_5_INPUT, "Gate 5 In");
+        configInput(_6_INPUT, "Gate 6 In");
+        configOutput(_1_OUTPUT, "Env. Out 1");
+        configOutput(_2_OUTPUT, "Env. Out 2");
+        configOutput(_3_OUTPUT, "Env. Out 3");
+        configOutput(_4_OUTPUT, "Env. Out 4");
+        configOutput(_5_OUTPUT, "Env. Out 5");
+        configOutput(_6_OUTPUT, "Env. Out 6");
+        configOutput(EOF1_OUTPUT, "Gate 1 Out");
+        configOutput(EOF2_OUTPUT, "Gate 2 Out");
+        configOutput(EOF3_OUTPUT, "Gate 3 Out");
+        configOutput(EOF4_OUTPUT, "Gate 4 Out");
+        configOutput(EOF5_OUTPUT, "Gate 5 Out");
+        configOutput(EOF6_OUTPUT, "Gate 6 Out");
 
         // Default initialization of time ranges to MID
         time1Range = MID;
