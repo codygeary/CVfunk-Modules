@@ -356,6 +356,19 @@ struct StepWave : Module {
         configOutput(STEP_7_GATE_OUT, "Stage 7 Gate");
         configOutput(STEP_8_GATE_OUT, "Stage 8 Gate");
 
+        configSwitch(STEP_1_BUTTON, 0.f, 1.f, 0.f, "Stage 1");
+        configSwitch(STEP_2_BUTTON, 0.f, 1.f, 0.f, "Stage 2");
+        configSwitch(STEP_3_BUTTON, 0.f, 1.f, 0.f, "Stage 3");
+        configSwitch(STEP_4_BUTTON, 0.f, 1.f, 0.f, "Stage 4");
+        configSwitch(STEP_5_BUTTON, 0.f, 1.f, 0.f, "Stage 5");
+        configSwitch(STEP_6_BUTTON, 0.f, 1.f, 0.f, "Stage 6");
+        configSwitch(STEP_7_BUTTON, 0.f, 1.f, 0.f, "Stage 7");
+        configSwitch(STEP_8_BUTTON, 0.f, 1.f, 0.f, "Stage 8");
+
+        configSwitch(ON_OFF_BUTTON, 0.f, 1.f, 0.f, "On/Off", {"Off", "On"});
+        configSwitch(RESET_BUTTON, 0.f, 1.f, 0.f, "Reset");
+        configSwitch(LINK_BUTTON, 0.f, 1.f, 0.f, "Link", {"Off", "On"});
+        configSwitch(TRACK_BUTTON, 0.f, 1.f, 0.f, "Track", {"Off", "On"});
     }
 
     void process(const ProcessArgs &args) override {
