@@ -1,4 +1,3 @@
-
 name: Build VCV Rack Plugin
 permissions:
   contents: write
@@ -104,14 +103,19 @@ jobs:
           make clean
           make dep
           make dist
+      - name: Get version from plugin.json
+        id: get_version
+        run: |
+          VERSION=$(jq -r .version plugin.json)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
       - name: Rename .vcvplugin for platform
         run: |
           mkdir -p dist-${{ matrix.platform }}
           for file in dist/*.vcvplugin; do
             if [[ "${{ matrix.platform }}" == "x64" ]]; then
-              mv "$file" "dist-${{ matrix.platform }}/CVfunk-2.0.16-mac-x64.vcvplugin"
+              mv "$file" "dist-${{ matrix.platform }}/CVfunk-${{ steps.get_version.outputs.version }}-mac-x64.vcvplugin"
             else
-              mv "$file" "dist-${{ matrix.platform }}/CVfunk-2.0.16-mac-arm64.vcvplugin"
+              mv "$file" "dist-${{ matrix.platform }}/CVfunk-${{ steps.get_version.outputs.version }}-mac-arm64.vcvplugin"
             fi
           done
       - name: Upload artifact
