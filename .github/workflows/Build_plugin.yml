@@ -96,21 +96,23 @@ jobs:
           else
             wget -O Rack-SDK.zip https://vcvrack.com/downloads/Rack-SDK-${{ env.rack-sdk-version }}-mac-arm64.zip
           fi
-          unzip -o Rack-SDK.zip
-          popd
+          unzip Rack-SDK.zip
       - name: Build plugin
         run: |
           export RACK_DIR=$HOME/Rack-SDK
           make clean
           make dep
           make dist
+      - name: Rename .vcvplugin for platform
+        run: |
           mkdir -p dist-${{ matrix.platform }}
-          version=$(jq -r '.version' plugin.json)
-          if [[ "${{ matrix.platform }}" == "x64" ]]; then
-            mv dist/*.vcvplugin "dist-x64/CVfunk-${version}-mac-x64.vcvplugin"
-          else
-            mv dist/*.vcvplugin "dist-arm64/CVfunk-${version}-mac-arm64.vcvplugin"
-          fi
+          for file in dist/*.vcvplugin; do
+            if [[ "${{ matrix.platform }}" == "x64" ]]; then
+              mv "$file" "dist-${{ matrix.platform }}/CVfunk-2.0.16-mac-x64.vcvplugin"
+            else
+              mv "$file" "dist-${{ matrix.platform }}/CVfunk-2.0.16-mac-arm64.vcvplugin"
+            fi
+          done
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
