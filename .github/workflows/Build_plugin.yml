@@ -71,6 +71,7 @@ jobs:
 
   build-mac:
     name: mac
+    needs: modify-plugin-version
     runs-on: macos-latest
     strategy:
       fail-fast: false
