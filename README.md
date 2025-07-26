@@ -76,9 +76,19 @@ A stereo polyphonic wavefolder effect with anti-aliasing.
 
 ### Cartesia
 A 4x4x4 CV and gate sequencer with CV control over the knob range, live-updating displays, and anti-aliasing.
+
+### Junk DNA
+A DNA-based gate sequencer. Input IUPAC DNA codes to generate randomized DNA repeats, and then sequence them.
+
+### Picus
+A seven stage clock multiplier busrt sequencer, features programmable pulse patterns and multiple outputs.
 –––––––––––––––––––––––––––––
 
-Check out Omri Cohen's excellent walkthrough of the Step Wave sequencer module here:
+NEW: Check out Omri Cohen's demo of the Cartesia sequencer module here:
+
+[![Omri Cohen's demo of Cartesia sequencer](https://img.youtube.com/vi/hlZukBHdDws/0.jpg)](https://youtube.com/watch?v=hlZukBHdDws)
+
+Omri Cohen's walkthrough of the Step Wave sequencer module here:
 
 [![Omri Cohen's walkthrough of the Step Wave sequencer](https://img.youtube.com/vi/LT-7bXAbz20/0.jpg)](https://www.youtube.com/watch?v=LT-7bXAbz20)
 
