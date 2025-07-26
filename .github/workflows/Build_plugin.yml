@@ -1,3 +1,4 @@
+
 name: Build VCV Rack Plugin
 permissions:
   contents: write
@@ -20,6 +21,7 @@ defaults:
     shell: bash
 
 jobs:
+
   modify-plugin-version:
     name: Modify plugin version
     runs-on: ubuntu-latest
@@ -68,10 +70,14 @@ jobs:
           name: ${{ matrix.platform }}
           overwrite: true
 
-  build-mac-x64:
-    name: mac-x64
+  build-mac:
+    name: mac
     needs: modify-plugin-version
     runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [x64, arm64]
     env:
       rack-sdk-version: 2.6.4
     steps:
@@ -83,62 +89,43 @@ jobs:
         with:
           path: plugin.json
           key: ${{ github.sha }}-${{ github.run_id }}
-      - name: Get Rack-SDK (x64)
+      - name: Get Rack-SDK
         run: |
           pushd $HOME
-          wget -O Rack-SDK.zip https://vcvrack.com/downloads/Rack-SDK-${{ env.rack-sdk-version }}-mac-x64.zip
+          if [[ "${{ matrix.platform }}" == "x64" ]]; then
+            wget -O Rack-SDK.zip https://vcvrack.com/downloads/Rack-SDK-${{ env.rack-sdk-version }}-mac-x64.zip
+          else
+            wget -O Rack-SDK.zip https://vcvrack.com/downloads/Rack-SDK-${{ env.rack-sdk-version }}-mac-arm64.zip
+          fi
           unzip Rack-SDK.zip
-      - name: Build plugin (x64)
+      - name: Build plugin
         run: |
           export RACK_DIR=$HOME/Rack-SDK
           make clean
           make dep
           make dist
-      - name: Upload artifact (x64)
+      - name: Rename .vcvplugin for platform
+        run: |
+          mkdir -p dist-${{ matrix.platform }}
+          for file in dist/*.vcvplugin; do
+            if [[ "${{ matrix.platform }}" == "x64" ]]; then
+              mv "$file" "dist-${{ matrix.platform }}/CVfunk-2.0.16-mac-x64.vcvplugin"
+            else
+              mv "$file" "dist-${{ matrix.platform }}/CVfunk-2.0.16-mac-arm64.vcvplugin"
+            fi
+          done
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          path: dist/*.vcvplugin
-          name: mac-x64
-          overwrite: true
-
-  build-mac-arm64:
-    name: mac-arm64
-    needs: modify-plugin-version
-    runs-on: macos-latest
-    env:
-      rack-sdk-version: 2.6.4
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - uses: actions/cache@v4
-        id: plugin-version-cache
-        with:
-          path: plugin.json
-          key: ${{ github.sha }}-${{ github.run_id }}
-      - name: Get Rack-SDK (arm64)
-        run: |
-          pushd $HOME
-          wget -O Rack-SDK.zip https://vcvrack.com/downloads/Rack-SDK-${{ env.rack-sdk-version }}-mac-arm64.zip
-          unzip Rack-SDK.zip
-      - name: Build plugin (arm64)
-        run: |
-          export RACK_DIR=$HOME/Rack-SDK
-          make clean
-          make dep
-          make dist
-      - name: Upload artifact (arm64)
-        uses: actions/upload-artifact@v4
-        with:
-          path: dist/*.vcvplugin
-          name: mac-arm64
+          path: dist-${{ matrix.platform }}/*.vcvplugin
+          name: mac-${{ matrix.platform }}
           overwrite: true
 
   publish:
     name: Publish plugin
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
-    needs: [build, build-mac-x64, build-mac-arm64]
+    needs: [build, build-mac]
     steps:
       - uses: actions/checkout@v4
       - uses: FranzDiebold/github-env-vars-action@v2
@@ -173,7 +160,7 @@ jobs:
     name: Publish nightly
     if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
-    needs: [build, build-mac-x64, build-mac-arm64]
+    needs: [build, build-mac]
     steps:
       - uses: actions/download-artifact@v4
         with:
