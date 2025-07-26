@@ -70,13 +70,15 @@ jobs:
           name: ${{ matrix.platform }}
           overwrite: true
 
-  build-mac:
+    build-mac:
     name: mac
     runs-on: macos-latest
     strategy:
       fail-fast: false
       matrix:
         platform: [x64, arm64]
+    env:
+      rack-sdk-version: 2.6.4
     steps:
       - uses: actions/checkout@v4
         with:
@@ -89,14 +91,15 @@ jobs:
       - name: Get Rack-SDK
         run: |
           pushd $HOME
-          wget -O Rack-SDK.zip https://vcvrack.com/downloads/Rack-SDK-${{ env.rack-sdk-version }}-mac-x64%2barm64.zip
+          if [[ "${{ matrix.platform }}" == "x64" ]]; then
+            wget -O Rack-SDK.zip https://vcvrack.com/downloads/Rack-SDK-${{ env.rack-sdk-version }}-mac-x64.zip
+          else
+            wget -O Rack-SDK.zip https://vcvrack.com/downloads/Rack-SDK-${{ env.rack-sdk-version }}-mac-arm64.zip
+          fi
           unzip Rack-SDK.zip
       - name: Build plugin
         run: |
-          CROSS_COMPILE_TARGET_x64=x86_64-apple-darwin
-          CROSS_COMPILE_TARGET_arm64=arm64-apple-darwin
           export RACK_DIR=$HOME/Rack-SDK
-          export CROSS_COMPILE=$CROSS_COMPILE_TARGET_${{ matrix.platform }}
           make dep
           make dist
       - name: Upload artifact
@@ -105,6 +108,7 @@ jobs:
           path: dist/*.vcvplugin
           name: mac-${{ matrix.platform }}
           overwrite: true
+
 
   publish:
     name: Publish plugin
