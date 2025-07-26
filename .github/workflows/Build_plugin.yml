@@ -69,7 +69,7 @@ jobs:
           name: ${{ matrix.platform }}
           overwrite: true
 
-  build-mac:
+    build-mac:
     name: mac
     needs: modify-plugin-version
     runs-on: macos-latest
@@ -100,12 +100,15 @@ jobs:
       - name: Build plugin
         run: |
           export RACK_DIR=$HOME/Rack-SDK
+          make clean
           make dep
           make dist
+          mkdir -p dist-${{ matrix.platform }}
+          mv dist/*.vcvplugin dist-${{ matrix.platform }}/
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          path: dist/*.vcvplugin
+          path: dist-${{ matrix.platform }}/*.vcvplugin
           name: mac-${{ matrix.platform }}
           overwrite: true
 
