@@ -100,7 +100,7 @@ struct Magnets : Module {
         configParam(POLARIZATION_PARAM, -1.f, 1.f, 0.f, "Polarization");
         configParam(INTERACTION_PARAM, 0.f, 1.f, 0.5f, "Interaction Strength");
         configParam(UPDATE_INTERVAL_PARAM, 0.15f, 2.f, 0.5f, "Update Interval", " ms");
-		configParam(RESET_BUTTON, 0.0, 1.0, 0.0, "Reset" );
+        configParam(RESET_BUTTON, 0.0, 1.0, 0.0, "Reset" );
 
         // Initialize attenuators 
         configParam(TEMP_ATTENUATOR, -1.f, 1.f, 0.0f, "Temperature Attenuator");
@@ -193,13 +193,6 @@ struct Magnets : Module {
                     }
                 }
             }
-
-//             // After updating, set the light states
-//             for (int i = 0; i < GRID_WIDTH * GRID_HEIGHT; ++i) {
-//                 int lightIndex = LIGHTS_START + i;
-//                 bool spinUp = spinStates[i] > 0;
-//                 lights[lightIndex].setBrightness(spinUp ? 1.f : 0.f);
-//             }         
                         
             phase = 0.f; // Reset phase for the next interval
             outputInterpolationPhase = 0.f; // Reset interpolation phase
@@ -236,7 +229,7 @@ struct Magnets : Module {
  
         }
                 
-         // Calculate dynamic cutoff frequency for low-pass filter based on updateInterval
+        // Calculate dynamic cutoff frequency for low-pass filter based on updateInterval
         float minInterval = 0.1f, maxInterval = 2.0f;
         float minFc = 5.0f, maxFc = 20.0f;
         float normalizedInterval = (updateInterval - minInterval) / (maxInterval - minInterval);

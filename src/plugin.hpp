@@ -31,4 +31,5 @@ extern Model* modelArrange;
 extern Model* modelTriDelay;
 extern Model* modelTatami;
 extern Model* modelCartesia;
-
+extern Model* modelJunkDNA;
+extern Model* modelPicus;

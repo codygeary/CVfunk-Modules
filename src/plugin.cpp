@@ -31,6 +31,8 @@ void init(Plugin* p) {
 	p->addModel(modelTriDelay);
 	p->addModel(modelTatami);
 	p->addModel(modelCartesia);
+	p->addModel(modelJunkDNA);
+	p->addModel(modelPicus);
 	
 
 	

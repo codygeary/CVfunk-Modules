@@ -182,7 +182,7 @@ struct StepWave : Module {
     bool quantizeCVOut = false;
  
     //for gate output when sequence is not running
-	dsp::PulseGenerator stepTrigger; 
+    dsp::PulseGenerator stepTrigger; 
 
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
@@ -367,11 +367,11 @@ struct StepWave : Module {
             if (SyncTrigger.process(SyncInputVoltage)) {
                 if (!firstClockPulse) {
                     SyncInterval[1] = SyncTimer.time; // Get the accumulated time since the last reset                         
-					SyncTimer.reset(); // Reset the timer for the next trigger interval measurement
+                    SyncTimer.reset(); // Reset the timer for the next trigger interval measurement
                 }
                 
                 if (firstClockPulse && SyncTimer.time > SyncInterval[1]){
-					firstClockPulse = false;
+                    firstClockPulse = false;
                 }
             }
         } 
@@ -437,55 +437,65 @@ struct StepWave : Module {
             firstClockPulse = true;
         }
 
-        int displacementChannels[7] = {0};   // Number of polyphonic channels for rhythmic displacement CV inputs
-        int stageChannels[8] = {0};   // Number of polyphonic channels for stage value CV inputs
+
+        int displacementChannels[7] = {0,0,0,0,0,0,0};   // Number of polyphonic channels for rhythmic displacement CV inputs
+        int stageChannels[8] = {0,0,0,0,0,0,0,0};   // Number of polyphonic channels for stage value CV inputs
         
         // Arrays to store the current input signals and connectivity status
         // initialize all active channels with -1, indicating nothing connected.
-        int activeDisplacementChannel[7] = {-1};   // Stores the number of the previous active channel for the rhythmic displacement CV 
-        int activeStageChannel[8] = {-1};   // Stores the number of the previous active channel for the stage value CV     
+        int activeDisplacementChannel[7] = {-1,-1,-1,-1,-1,-1,-1};   // Stores the number of the previous active channel for the rhythmic displacement CV 
+        int activeStageChannel[8] = {-1,-1,-1,-1,-1,-1,-1,-1};   // Stores the number of the previous active channel for the stage value CV     
 
         // Scan all inputs to determine the polyphony
-        for (int i = 0; i < 8; i++) {            
-            // Update the Rhythmic displacement CV channels
-            if (i < 7){    //there are only 7 channels here vs 8
+        for (int i = 0; i < 8; i++) {
+            if (i < 7) {
+                // Check if this input is connected
                 if (inputs[STEP_1_2_DISPLACE_IN + i].isConnected()) {
                     displacementChannels[i] = inputs[STEP_1_2_DISPLACE_IN + i].getChannels();
                     activeDisplacementChannel[i] = i;
-                } else if (i > 0 && activeDisplacementChannel[i-1] != -1) {
-                    if (displacementChannels[activeDisplacementChannel[i-1]] >= (i - activeDisplacementChannel[i-1])) {
-                        activeDisplacementChannel[i] = activeDisplacementChannel[i-1]; // Carry over the active channel
-                    } else {
-                        activeDisplacementChannel[i] = -1; // No valid polyphonic channel to carry over
+                }
+                // Try to inherit from previous if not connected
+                else if (i > 0 && activeDisplacementChannel[i - 1] != -1) {
+                    int prev = activeDisplacementChannel[i - 1];
+                    int maxChan = displacementChannels[prev];
+                    int channelOffset = i - prev;
+        
+                    if (channelOffset < maxChan) {
+                        activeDisplacementChannel[i] = prev;
                     }
-                } else {
-                    activeDisplacementChannel[i] = -1; // Explicitly reset if not connected
                 }
             }
-            
+        
+            // Same logic applies for stage CVs
             if (inputs[STEP_1_IN_VAL + i].isConnected()) {
                 stageChannels[i] = inputs[STEP_1_IN_VAL + i].getChannels();
                 activeStageChannel[i] = i;
-            } else if (i > 0 && activeStageChannel[i-1] != -1) {
-                if (stageChannels[activeStageChannel[i-1]] > (i - activeStageChannel[i-1])) {
-                    activeStageChannel[i] = activeStageChannel[i-1]; // Carry over the active channel
-                } else {
-                    activeStageChannel[i] = -1; // No valid polyphonic channel to carry over
+            }
+            else if (i > 0 && activeStageChannel[i - 1] != -1) {
+                int prev = activeStageChannel[i - 1];
+                int maxChan = stageChannels[prev];
+                int channelOffset = i - prev;
+        
+                if (channelOffset < maxChan) {
+                    activeStageChannel[i] = prev;
                 }
-            } else {
-                activeStageChannel[i] = -1; // Explicitly reset if not connected
-            }            
+            }
         }
             
         for (int i = 0; i < 7; i++){
+            displacementValues[i] = 0.f;
             if (activeDisplacementChannel[i]==i) {
-                displacementValues[i] = inputs[STEP_1_2_DISPLACE_IN + i].getPolyVoltage(0);
+                if (inputs[STEP_1_2_DISPLACE_IN + i].isConnected() ){
+                    displacementValues[i] = inputs[STEP_1_2_DISPLACE_IN + i].getPolyVoltage(0);
+                }
             } else if (activeDisplacementChannel[i] > -1){
                 // Now we compute which channel we need to grab
                 int diffBetween = i - activeDisplacementChannel[i];
                 int currentChannelMax =  displacementChannels[activeDisplacementChannel[i]] ;    
                 if (currentChannelMax - diffBetween > 0) {    //If we are before the last poly channel
-                    displacementValues[i] = inputs[STEP_1_2_DISPLACE_IN + activeDisplacementChannel[i]].getPolyVoltage(diffBetween); 
+                    if (inputs[STEP_1_2_DISPLACE_IN + activeDisplacementChannel[i]].isConnected() ){
+                        displacementValues[i] = inputs[STEP_1_2_DISPLACE_IN + activeDisplacementChannel[i]].getPolyVoltage(diffBetween); 
+                    }   
                 }
             }
         }
@@ -572,19 +582,19 @@ struct StepWave : Module {
                 normallizedStageProgress[1] = currentTime[1]/stageDuration[1];     
                 sequenceProgress = stageStart + currentTime[1]/SyncInterval[1];
             }
-	
-			// Check if sequencer is resetting
-			bool resetCondition = (inputs[RESET_INPUT].isConnected() && resetTrigger.process(inputs[RESET_INPUT].getVoltage())) || (params[RESET_BUTTON].getValue() > 0.1f);    
-			if (resetCondition) {
-				ClockTimerB.reset(); //reset sequencer clock
-				currentStage[1] = 0; //set sequencer stage to 0
-				currentStage[0] = 0; 
-				sequenceProgress = 0.f; //reset progress bar
-				sampledStepValue[1][0] = stepValues[0]; //recollect the sample at reset
+    
+            // Check if sequencer is resetting
+            bool resetCondition = (inputs[RESET_INPUT].isConnected() && resetTrigger.process(inputs[RESET_INPUT].getVoltage())) || (params[RESET_BUTTON].getValue() > 0.1f);    
+            if (resetCondition) {
+                ClockTimerB.reset(); //reset sequencer clock
+                currentStage[1] = 0; //set sequencer stage to 0
+                currentStage[0] = 0; 
+                sequenceProgress = 0.f; //reset progress bar
+                sampledStepValue[1][0] = stepValues[0]; //recollect the sample at reset
                 currentShape[1] = shapeValues[0];
-			} 
+            } 
 
-		
+        
             if (currentTime[j] >= stageDuration[j]){
                 if (j==0){
                     ClockTimerA.reset();  //Reset master channel
@@ -600,7 +610,7 @@ struct StepWave : Module {
                     sequenceProgress = 0.f;
                 } 
 
-				sampledStepValue[j][currentStage[j]] = stepValues[currentStage[j]]; 
+                sampledStepValue[j][currentStage[j]] = stepValues[currentStage[j]]; 
                 currentShape[j] = shapeValues[currentStage[j]];
                
                 previousStagesLength[j] += stageDuration[j] / SyncInterval[j]; // Accumulate the duration of each stage normalized to SyncInterval[j]
@@ -616,7 +626,7 @@ struct StepWave : Module {
                     if (stepButtonTrigger[i].process(params[STEP_1_BUTTON + i].getValue())) {
                         currentStage[j] = i;
                         sampledStepValue[j][currentStage[j]] = stepValues[currentStage[j]];
-						stepTrigger.trigger(0.001f);  // Trigger a 1ms pulse (0.001 seconds)
+                        stepTrigger.trigger(0.001f);  // Trigger a 1ms pulse (0.001 seconds)
                         
                         currentShape[j] = shapeValues[currentStage[j]];
                                               
@@ -859,9 +869,9 @@ struct StepWave : Module {
                 }
             }
   
-			if (!sequenceRunning && j==1) { //if the sequencer if off, then preview the CV directly
-				finalCV[1] = stepValues[currentStage[1]]; 
-			}
+            if (!sequenceRunning && j==1) { //if the sequencer if off, then preview the CV directly
+                finalCV[1] = stepValues[currentStage[1]]; 
+            }
        
             // Compute Slew and output CV voltages
             float slewRate = clamp(params[SLEW_PARAM].getValue() + inputs[SLEW_INPUT].getVoltage() / 10.f, 0.0f, 1.f);
@@ -913,11 +923,11 @@ struct StepWave : Module {
                     if (sequenceRunning){
                         outputs[GATE_OUTPUT].setVoltage(gateCV);
                     } else {
-						if (stepTrigger.process(args.sampleTime)) {
-							outputs[GATE_OUTPUT].setVoltage(10.f);  // Output a 10V trigger
-						} else {
-							outputs[GATE_OUTPUT].setVoltage(0.0f);   // Otherwise, output 0V
-						}                      
+                        if (stepTrigger.process(args.sampleTime)) {
+                            outputs[GATE_OUTPUT].setVoltage(10.f);  // Output a 10V trigger
+                        } else {
+                            outputs[GATE_OUTPUT].setVoltage(0.0f);   // Otherwise, output 0V
+                        }                      
                     }
                 }
             } else {
@@ -966,64 +976,64 @@ struct StepWave : Module {
 
 struct StepWaveWidget : ModuleWidget {
 
-	struct WaveDisplay : TransparentWidget {
-		StepWave* module;
-		float centerX, centerY;
-		float heightScale; 
-	
-		void draw(const DrawArgs& args) override {
-			// Draw non-illuminating elements if any
-		}
-	
-		void drawLayer(const DrawArgs& args, int layer) override {
-			if (!module) return;
-	
-			if (layer == 1) {
-				centerX = box.size.x / 2.0f;
-				centerY = box.size.y / 2.0f;
-				heightScale = centerY / 5; // Calculate based on current center Y
-	
-				if (!module->isSupersamplingEnabled) {
-					// Draw the sequence progress bar
-					float progressBarX = box.size.x * (module->sequenceProgress / 8.0f); // X position of the progress bar
-					float progressBarWidth = 1.0f;  // Width of the progress bar
-		
-					// Draw a vertical rectangle as the progress bar
-					nvgBeginPath(args.vg);
-					nvgRect(args.vg, progressBarX, -box.size.y*0.2, progressBarWidth, box.size.y * 1.39); // Full height of the widget
-					nvgFillColor(args.vg, nvgRGBAf(0.5f, 0.5f, 0.5f, 0.8f)); // Light grey color
-					nvgFill(args.vg); // Fill the progress bar
-				}
-	
-				drawWaveform(args, module->waveBuffers[0], nvgRGBAf(0.3, 0.3, 0.3, 0.8));
-				drawWaveform(args, module->waveBuffers[1], nvgRGBAf(0, 0.4, 1, 0.8));
-				drawWaveform(args, module->waveBuffers[2], nvgRGBAf(0.5, 0.5, 0.6, 0.8));            
-			}
-	
-			TransparentWidget::drawLayer(args, layer);
-		}
-	
-		void drawWaveform(const DrawArgs& args, const CircularBuffer<float, 1024>& waveBuffer, NVGcolor color) {
-			nvgBeginPath(args.vg);
-		
-			for (size_t i = 0; i < 1024; i++) {
-				// Calculate x position based on the index
-				float xPos = (float)i / 1023 * box.size.x;
-				
-				// Scale and center y position based on buffer value
-				float yPos = centerY - waveBuffer[i] * heightScale;
-		
-				if (i == 0)
-					nvgMoveTo(args.vg, xPos, yPos);
-				else
-					nvgLineTo(args.vg, xPos, yPos);
-			}
-		
-			nvgStrokeColor(args.vg, color); // Set the color for the waveform
-			nvgStrokeWidth(args.vg, 1.0);
-			nvgStroke(args.vg);
-		}
-	};
+    struct WaveDisplay : TransparentWidget {
+        StepWave* module;
+        float centerX, centerY;
+        float heightScale; 
+    
+        void draw(const DrawArgs& args) override {
+            // Draw non-illuminating elements if any
+        }
+    
+        void drawLayer(const DrawArgs& args, int layer) override {
+            if (!module) return;
+    
+            if (layer == 1) {
+                centerX = box.size.x / 2.0f;
+                centerY = box.size.y / 2.0f;
+                heightScale = centerY / 5; // Calculate based on current center Y
+    
+                if (!module->isSupersamplingEnabled) {
+                    // Draw the sequence progress bar
+                    float progressBarX = box.size.x * (module->sequenceProgress / 8.0f); // X position of the progress bar
+                    float progressBarWidth = 1.0f;  // Width of the progress bar
+        
+                    // Draw a vertical rectangle as the progress bar
+                    nvgBeginPath(args.vg);
+                    nvgRect(args.vg, progressBarX, -box.size.y*0.2, progressBarWidth, box.size.y * 1.39); // Full height of the widget
+                    nvgFillColor(args.vg, nvgRGBAf(0.5f, 0.5f, 0.5f, 0.8f)); // Light grey color
+                    nvgFill(args.vg); // Fill the progress bar
+                }
+    
+                drawWaveform(args, module->waveBuffers[0], nvgRGBAf(0.3, 0.3, 0.3, 0.8));
+                drawWaveform(args, module->waveBuffers[1], nvgRGBAf(0, 0.4, 1, 0.8));
+                drawWaveform(args, module->waveBuffers[2], nvgRGBAf(0.5, 0.5, 0.6, 0.8));            
+            }
+    
+            TransparentWidget::drawLayer(args, layer);
+        }
+    
+        void drawWaveform(const DrawArgs& args, const CircularBuffer<float, 1024>& waveBuffer, NVGcolor color) {
+            nvgBeginPath(args.vg);
+        
+            for (size_t i = 0; i < 1024; i++) {
+                // Calculate x position based on the index
+                float xPos = (float)i / 1023 * box.size.x;
+                
+                // Scale and center y position based on buffer value
+                float yPos = centerY - waveBuffer[i] * heightScale;
+        
+                if (i == 0)
+                    nvgMoveTo(args.vg, xPos, yPos);
+                else
+                    nvgLineTo(args.vg, xPos, yPos);
+            }
+        
+            nvgStrokeColor(args.vg, color); // Set the color for the waveform
+            nvgStrokeWidth(args.vg, 1.0);
+            nvgStroke(args.vg);
+        }
+    };
 
     StepWaveWidget(StepWave* module) {
         setModule(module);
@@ -1143,27 +1153,27 @@ struct StepWaveWidget : ModuleWidget {
         stageShapeItem->StepWaveModule = StepWaveModule;
         menu->addChild(stageShapeItem);
  
-		menu->addChild(new MenuSeparator());
+        menu->addChild(new MenuSeparator());
         
-		// Create a new menu item for "Quantize CV Out"
-		struct QuantizeCVMenuItem : MenuItem {
-			StepWave* StepWaveModule;  // Pointer to your module
-			void onAction(const event::Action& e) override {
-				// Toggle the "Quantize CV Out" mode
-				StepWaveModule->quantizeCVOut = !StepWaveModule->quantizeCVOut;
-			}
-			void step() override {
-				// Show a checkmark when "Quantize CV Out" is active
-				rightText = StepWaveModule->quantizeCVOut ? "✔" : "";
-				MenuItem::step();
-			}
-		};
-		
-		// Add "Quantize CV Out" item to the menu
-		QuantizeCVMenuItem* quantizeCVItem = new QuantizeCVMenuItem();
-		quantizeCVItem->text = "Quantize CV Out";
-		quantizeCVItem->StepWaveModule = StepWaveModule;  // Assign the module pointer
-		menu->addChild(quantizeCVItem);		
+        // Create a new menu item for "Quantize CV Out"
+        struct QuantizeCVMenuItem : MenuItem {
+            StepWave* StepWaveModule;  // Pointer to your module
+            void onAction(const event::Action& e) override {
+                // Toggle the "Quantize CV Out" mode
+                StepWaveModule->quantizeCVOut = !StepWaveModule->quantizeCVOut;
+            }
+            void step() override {
+                // Show a checkmark when "Quantize CV Out" is active
+                rightText = StepWaveModule->quantizeCVOut ? "✔" : "";
+                MenuItem::step();
+            }
+        };
+        
+        // Add "Quantize CV Out" item to the menu
+        QuantizeCVMenuItem* quantizeCVItem = new QuantizeCVMenuItem();
+        quantizeCVItem->text = "Quantize CV Out";
+        quantizeCVItem->StepWaveModule = StepWaveModule;  // Assign the module pointer
+        menu->addChild(quantizeCVItem);     
                 
     }              
       
