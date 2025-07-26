@@ -69,48 +69,48 @@ jobs:
           name: ${{ matrix.platform }}
           overwrite: true
 
-build-mac:
-  name: mac
-  needs: modify-plugin-version
-  runs-on: macos-latest
-  strategy:
-    fail-fast: false
-    matrix:
-      platform: [x64, arm64]
-  env:
-    rack-sdk-version: 2.6.4
-  steps:
-    - uses: actions/checkout@v4
-      with:
-        submodules: recursive
-    - uses: actions/cache@v4
-      id: plugin-version-cache
-      with:
-        path: plugin.json
-        key: ${{ github.sha }}-${{ github.run_id }}
-    - name: Get Rack-SDK
-      run: |
-        pushd $HOME
-        if [[ "${{ matrix.platform }}" == "x64" ]]; then
-          wget -O Rack-SDK.zip https://vcvrack.com/downloads/Rack-SDK-${{ env.rack-sdk-version }}-mac-x64.zip
-        else
-          wget -O Rack-SDK.zip https://vcvrack.com/downloads/Rack-SDK-${{ env.rack-sdk-version }}-mac-arm64.zip
-        fi
-        unzip Rack-SDK.zip
-    - name: Build plugin
-      run: |
-        export RACK_DIR=$HOME/Rack-SDK
-        make clean
-        make dep
-        make dist
-        mkdir -p dist-${{ matrix.platform }}
-        mv dist/*.vcvplugin dist-${{ matrix.platform }}/
-    - name: Upload artifact
-      uses: actions/upload-artifact@v4
-      with:
-        path: dist-${{ matrix.platform }}/*.vcvplugin
-        name: mac-${{ matrix.platform }}
-        overwrite: true
+  build-mac:
+    name: mac
+    needs: modify-plugin-version
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [x64, arm64]
+    env:
+      rack-sdk-version: 2.6.4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/cache@v4
+        id: plugin-version-cache
+        with:
+          path: plugin.json
+          key: ${{ github.sha }}-${{ github.run_id }}
+      - name: Get Rack-SDK
+        run: |
+          pushd $HOME
+          if [[ "${{ matrix.platform }}" == "x64" ]]; then
+            wget -O Rack-SDK.zip https://vcvrack.com/downloads/Rack-SDK-${{ env.rack-sdk-version }}-mac-x64.zip
+          else
+            wget -O Rack-SDK.zip https://vcvrack.com/downloads/Rack-SDK-${{ env.rack-sdk-version }}-mac-arm64.zip
+          fi
+          unzip Rack-SDK.zip
+      - name: Build plugin
+        run: |
+          export RACK_DIR=$HOME/Rack-SDK
+          make clean
+          make dep
+          make dist
+          mkdir -p dist-${{ matrix.platform }}
+          mv dist/*.vcvplugin dist-${{ matrix.platform }}/
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          path: dist-${{ matrix.platform }}/*.vcvplugin
+          name: mac-${{ matrix.platform }}
+          overwrite: true
 
   publish:
     name: Publish plugin
