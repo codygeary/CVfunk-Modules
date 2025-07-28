@@ -82,6 +82,9 @@ A DNA-based gate sequencer. Input IUPAC DNA codes to generate randomized DNA rep
 
 ### Picus
 A seven stage clock multiplier busrt sequencer, features programmable pulse patterns and multiple outputs.
+
+### Node
+A compact two channel stereo crossfading mixer with 5x gain, gentle tanh saturation and ADAA.
 –––––––––––––––––––––––––––––
 
 NEW: Check out Omri Cohen's demo of the Cartesia sequencer module here:
