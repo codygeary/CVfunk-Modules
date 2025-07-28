@@ -33,6 +33,7 @@ void init(Plugin* p) {
 	p->addModel(modelCartesia);
 	p->addModel(modelJunkDNA);
 	p->addModel(modelPicus);
+	p->addModel(modelNode);
 	
 
 	

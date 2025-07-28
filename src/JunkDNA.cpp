@@ -39,7 +39,7 @@ struct JunkDNA : Module {
     std::string prevSequenceText = "N";
     dsp::SchmittTrigger fwdTrigger, revTrigger, resetTrigger, fwdButtonTrigger, revButtonTrigger, resetButtonTrigger;
     dsp::PulseGenerator outputPulse;
-    bool gateOutput = true;
+    bool pulseOutput = true;
 
     DigitalDisplay* displayRibbon[31] = {nullptr}; //odd number allows for a central display
 
@@ -59,7 +59,7 @@ struct JunkDNA : Module {
         json_object_set_new(rootJ, "sequenceText", json_string(sequenceText.c_str()));
         json_object_set_new(rootJ, "sequenceIndex", json_integer(sequenceIndex));
         json_object_set_new(rootJ, "geneSize", json_integer(geneSize));
-        json_object_set_new(rootJ, "gateOutput", json_boolean(gateOutput));
+        json_object_set_new(rootJ, "pulseOutput", json_boolean(pulseOutput));
     
         json_t* geneJ = json_array();
         for (int i = 0; i < GENE_CAPACITY; i++) {
@@ -85,9 +85,9 @@ struct JunkDNA : Module {
         if (sizeJ)
             geneSize = json_integer_value(sizeJ);
 
-        json_t* gateOutputJ = json_object_get(rootJ, "gateOutput");
+        json_t* gateOutputJ = json_object_get(rootJ, "pulseOutput");
         if (gateOutputJ) {
-            gateOutput = json_boolean_value(gateOutputJ);
+            pulseOutput = json_boolean_value(gateOutputJ);
         }
 
         json_t* geneArrJ = json_object_get(rootJ, "gene");
@@ -178,7 +178,7 @@ struct JunkDNA : Module {
 
         // Reset Input and Button
         if (inputs[RESET_IN].isConnected()) {
-            if ( resetTrigger.process( inputs[RESET_IN].getVoltage() ) ) {
+            if ( resetTrigger.process( inputs[RESET_IN].getVoltage() -0.1f) ) {
                 sequenceIndex = 0;
                 outputPulse.trigger(0.001f);                
             }
@@ -189,12 +189,12 @@ struct JunkDNA : Module {
         }
 
         if (fwdButtonTrigger.process( params[FWD_BUTTON].getValue() )
-            || (inputs[FWD_IN].isConnected() && fwdTrigger.process( inputs[FWD_IN].getVoltage() ) ) ) {
+            || (inputs[FWD_IN].isConnected() && fwdTrigger.process( inputs[FWD_IN].getVoltage() -0.1f) ) ) {
             sequenceIndex++;
             outputPulse.trigger(0.001f);          
         }
         if (revButtonTrigger.process( params[REV_BUTTON].getValue() )
-            || (inputs[REV_IN].isConnected() && revTrigger.process( inputs[REV_IN].getVoltage() ) ) ) {
+            || (inputs[REV_IN].isConnected() && revTrigger.process( inputs[REV_IN].getVoltage() -0.1f) ) ) {
             sequenceIndex--;
             outputPulse.trigger(0.001f);
         }
@@ -229,7 +229,7 @@ struct JunkDNA : Module {
             lights[N_LIGHT].value = 1.f;
         }
         
-        if (gateOutput) {pulseActive = true;} //gateOutput overrides the pulse-length
+        if (pulseOutput) {pulseActive = true;} //pulseOutput overrides the pulse-length
     
         float high = pulseActive ? 10.f : 0.f;
      
@@ -519,13 +519,11 @@ struct JunkDNAWidget : ModuleWidget {
             if (module) module->displayRibbon[i] = d;
         }
 
-
         addParam(createParamCentered<TL1105>(mm2px(Vec(13, 30.5)), module, JunkDNA::REV_BUTTON));
         addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(6, 30.5)), module, JunkDNA::REV_IN));
 
         addParam(createParamCentered<TL1105>(mm2px(Vec(13, 50)), module, JunkDNA::RESET_BUTTON));
         addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(6, 50)), module, JunkDNA::RESET_IN));
-
 
         addParam(createParamCentered<TL1105>(mm2px(Vec(62, 30.5)), module, JunkDNA::FWD_BUTTON));
         addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(70, 30.5)), module, JunkDNA::FWD_IN));
@@ -571,14 +569,13 @@ struct JunkDNAWidget : ModuleWidget {
          // Separator for visual grouping in the context menu
         menu->addChild(new MenuSeparator());
      
-        // Sample and Hold CV controls Active Step menu item
         struct GateOutputMenuItem : MenuItem {
             JunkDNA* junkDNAModule;
             void onAction(const event::Action& e) override {
-                junkDNAModule->gateOutput = !junkDNAModule->gateOutput;
+                junkDNAModule->pulseOutput = !junkDNAModule->pulseOutput;
             }
             void step() override {
-                rightText = junkDNAModule->gateOutput ? "✔" : "";
+                rightText = junkDNAModule->pulseOutput ? "" : "✔";
                 MenuItem::step();
             }
         };

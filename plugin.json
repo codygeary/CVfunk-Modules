@@ -1,7 +1,7 @@
 {
   "slug": "CVfunk",
   "name": "CV funk Modules",
-  "version": "2.0.17",
+  "version": "2.0.18",
   "license": "MIT",
   "brand": "CV funk",
   "author": "Cody Geary",
@@ -229,7 +229,7 @@
     {
       "slug": "JunkDNA",
       "name": "Junk DNA",
-      "description": "Input a IUPAC DNA constraint to generate repetative sequences. Converts DNA sequences to numerous simultaneous gate signals.",
+      "description": "Input DNA codes to generate repetative genes, convert DNA sequence to numerous simultaneous gate signals.",
       "tags": [
         "Sequencer"
       ]
@@ -240,6 +240,15 @@
       "description": "Compose sequences of trigger bursts. Program a sequence of up to seven clock multiplier stages. Customizable trigger patterns.",
       "tags": [
         "Sequencer"
+      ]
+    },
+    {
+      "slug": "Node",
+      "name": "Node",
+      "description": "A two-channel stereo crossfading mixer.",
+      "tags": [
+        "Voltage-controlled amplifier",
+        "Mixer"
       ]
     }
   ]

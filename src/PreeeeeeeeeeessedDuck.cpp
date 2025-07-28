@@ -892,8 +892,8 @@ struct PreeeeeeeeeeessedDuck : Module {
             mixR = hpfR.process(mixR);
         }
 
-        distortTotalL = log1p(fmax(mixL-85.f, 0.0f)) * (85.0f / log1p(85));
-        distortTotalR = log1p(fmax(mixR-85.f, 0.0f)) * (85.0f / log1p(85));
+        distortTotalL = distortTotalL * decayRate + log1p(fmax(mixL-35.f, 0.0f)) * (35.0f / log1p(35)) * (1.0f - decayRate);
+        distortTotalR = distortTotalR * decayRate +log1p(fmax(mixR-35.f, 0.0f)) * (35.0f / log1p(35)) * (1.0f - decayRate);
 
         // Apply ADAA
         float maxHeadRoom = 111.7f; // 1.314*85 exceeding this number results in strange wavefolding due to the polytanh bad fit beyond this point
@@ -915,8 +915,8 @@ struct PreeeeeeeeeeessedDuck : Module {
         float outputL = mixL * 6.9f * masterVol;
         float outputR = mixR * 6.9f * masterVol;
 
-        volTotalL = fmax(outputL * decayRate, fabs(outputL)) ;
-        volTotalR = fmax(outputR * decayRate, fabs(outputR)) ;
+        volTotalL = volTotalL * decayRate + fabs(outputL) * (1.0f - decayRate);
+        volTotalR = volTotalR * decayRate + fabs(outputR) * (1.0f - decayRate);
 
         if (isSupersamplingEnabled) {
             // Use the oversampling shaper for the signal

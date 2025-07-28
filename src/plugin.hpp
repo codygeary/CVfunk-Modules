@@ -33,3 +33,4 @@ extern Model* modelTatami;
 extern Model* modelCartesia;
 extern Model* modelJunkDNA;
 extern Model* modelPicus;
+extern Model* modelNode;

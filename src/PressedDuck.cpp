@@ -590,7 +590,6 @@ struct PressedDuck : Module {
             bool buttonMute = params[MUTE1_PARAM + i].getValue() > 0.5f;
             bool inputMute = false;
 
-
             // Check if mute is triggered by the input or previous poly input
             if (activeMuteChannel[i] == i) { //if there's an input here
                 inputMute = inputs[MUTE_1_INPUT + i].getPolyVoltage(0) > 0.5f;
@@ -791,8 +790,9 @@ struct PressedDuck : Module {
             mixR = hpfR.process(mixR);
         }
 
-        distortTotalL = log1p(fmax(mixL-35.f, 0.0f)) * (35.0f / log1p(35));
-        distortTotalR = log1p(fmax(mixR-35.f, 0.0f)) * (35.0f / log1p(35));
+        distortTotalL = distortTotalL * decayRate + log1p(fmax(mixL-35.f, 0.0f)) * (35.0f / log1p(35)) * (1.0f - decayRate);
+        distortTotalR = distortTotalR * decayRate +log1p(fmax(mixR-35.f, 0.0f)) * (35.0f / log1p(35)) * (1.0f - decayRate);
+
 
         // Apply ADAA
         float maxHeadRoom = 46.f; //1.314*35 exceeding this number results in strange wavefolding due to the polytanh bad fit beyond this point
@@ -814,8 +814,10 @@ struct PressedDuck : Module {
         float outputL = mixL * 6.9f * masterVol;
         float outputR = mixR * 6.9f * masterVol;
 
-        volTotalL = fmax(outputL * decayRate, fabs(outputL)) ;
-        volTotalR = fmax(outputR * decayRate, fabs(outputR)) ;
+
+        volTotalL = volTotalL * decayRate + fabs(outputL) * (1.0f - decayRate);
+        volTotalR = volTotalR * decayRate + fabs(outputR) * (1.0f - decayRate);
+
 
         if (isSupersamplingEnabled) {
             // Use the oversampling shaper for the signal

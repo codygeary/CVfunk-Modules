@@ -79,33 +79,33 @@ struct Picus : Module {
     int beatCount = 0;
     float beatInterval = 1.f;
     float playMode = 0.f;
+    bool endStage = true;
+    bool patternReset = false;
 
     dsp::PulseGenerator DonPulse, KaPulse, EndPulse;
 
  json_t* dataToJson() override {
     json_t* rootJ = json_object();
 
-    // Save patternState[10]
     json_t* patternJ = json_array();
     for (int i = 0; i < 10; i++) {
         json_array_append_new(patternJ, json_integer(patternState[i]));
     }
     json_object_set_new(rootJ, "patternState", patternJ);
 
-    // Save currentStage
     json_object_set_new(rootJ, "currentStage", json_integer(currentStage));
 
-    // Save selectedStage
+    json_object_set_new(rootJ, "endStage", json_boolean(endStage));
+    json_object_set_new(rootJ, "patternReset", json_boolean(patternReset));
+
     json_object_set_new(rootJ, "selectedStage", json_integer(selectedStage));
 
-    // Save multiply[7]
     json_t* multiplyJ = json_array();
     for (int i = 0; i < 7; i++) {
         json_array_append_new(multiplyJ, json_real(multiply[i]));
     }
     json_object_set_new(rootJ, "multiply", multiplyJ);
 
-    // Save divide[7]
     json_t* divideJ = json_array();
     for (int i = 0; i < 7; i++) {
         json_array_append_new(divideJ, json_real(divide[i]));
@@ -127,19 +127,26 @@ void dataFromJson(json_t* rootJ) override {
         }
     }
 
-    // Load currentStage
     json_t* curStageJ = json_object_get(rootJ, "currentStage");
     if (curStageJ && json_is_integer(curStageJ)) {
         currentStage = json_integer_value(curStageJ);
     }
 
-    // Load selectedStage
     json_t* selStageJ = json_object_get(rootJ, "selectedStage");
     if (selStageJ && json_is_integer(selStageJ)) {
         selectedStage = json_integer_value(selStageJ);
     }
 
-    // Load multiply[7]
+    json_t* endStageJ = json_object_get(rootJ, "endStage");
+    if (endStageJ) {
+        endStage = json_boolean_value(endStageJ);
+    }
+
+    json_t* patternResetJ = json_object_get(rootJ, "patternReset");
+    if (patternResetJ) {
+        patternReset = json_boolean_value(patternResetJ);
+    }
+
     json_t* multiplyJ = json_object_get(rootJ, "multiply");
     if (multiplyJ && json_is_array(multiplyJ)) {
         for (size_t i = 0; i < json_array_size(multiplyJ) && i < 7; i++) {
@@ -220,9 +227,7 @@ void dataFromJson(json_t* rootJ) override {
     void process(const ProcessArgs& args) override {
 
         //Process ON/OFF Switch
-
         playMode = params[ON_SWITCH].getValue();
-
         if (playMode > 0.f){
             float deltaTime = args.sampleTime;
             syncTimer.process(deltaTime);
@@ -232,7 +237,7 @@ void dataFromJson(json_t* rootJ) override {
         // Clock handling logic
         syncPoint = false; // reset syncing flag
         bool externalClockConnected = inputs[CLOCK_INPUT].isConnected();
-        if (externalClockConnected && clockTrigger.process(inputs[CLOCK_INPUT].getVoltage() - 0.01f)) {
+        if (externalClockConnected && clockTrigger.process(inputs[CLOCK_INPUT].getVoltage() - 0.1f)) {
             if (firstPulseReceived) {
                 syncInterval = syncTimer.time;
                 syncTimer.reset();
@@ -249,7 +254,6 @@ void dataFromJson(json_t* rootJ) override {
         }
         patternStages = ceilf(patternStages); //round up
         patternStages = clamp(patternStages, 1, 10); //keep in strict bounds
-
         if (patternIndex >= patternStages) patternIndex = 0;
 
         // Process Ratio Buttons
@@ -274,8 +278,9 @@ void dataFromJson(json_t* rootJ) override {
             currentStage = selectedStage;
             beatTimer.reset(); // <-- Here Reset the Beat Timer
             syncPoint = false; //reset sync flag
-            EndPulse.trigger(0.001f);
+            if (endStage) EndPulse.trigger(0.001f);
             patternIndex++;
+            if (patternReset) patternIndex=0;
             if (patternIndex >= patternStages) patternIndex = 0;
             if (patternState[patternIndex]==0) DonPulse.trigger(0.001f);
             if (patternState[patternIndex]==1) KaPulse.trigger(0.001f);
@@ -291,8 +296,9 @@ void dataFromJson(json_t* rootJ) override {
                 currentStage++;
                 selectedStage++;
                 beatTimer.reset(); // <-- Reset the Beat Timer
-                EndPulse.trigger(0.001f);
+                if (endStage) EndPulse.trigger(0.001f);
                 patternIndex++;
+                if (patternReset) patternIndex=0;
                 if (patternIndex >= patternStages) patternIndex = 0;
                 if (patternState[patternIndex]==0) DonPulse.trigger(0.001f);
                 if (patternState[patternIndex]==1) KaPulse.trigger(0.001f);
@@ -301,6 +307,7 @@ void dataFromJson(json_t* rootJ) override {
                 for (int i = 0; i < 7; i++) { // max 7 iterations to prevent infinite loop
                     if (currentStage >= 7) {
                         currentStage = 0;
+                        if (!endStage) EndPulse.trigger(0.001f);                        
                         if (playMode == 2.0) { //one-shot mode
                             paramQuantities[ON_SWITCH]->setDisplayValue(0.0f);
                             playMode = 0.f;
@@ -343,7 +350,7 @@ void dataFromJson(json_t* rootJ) override {
         // Handle Reset Input
         bool reset = resetButtonTrigger.process(params[RESET_BUTTON].getValue()); //initial value set by knob
         if (inputs[RESET_INPUT].isConnected()){
-            if(resetTrigger.process(params[RESET_INPUT].getValue())) reset = true;
+            if(resetTrigger.process(inputs[RESET_INPUT].getVoltage()-0.1f)) reset = true;
         }
         if (reset){
             currentStage = 0;
@@ -529,6 +536,50 @@ struct PicusWidget : ModuleWidget {
             addChild(createLightCentered<SmallLight<BlueLight>>(mm2px(Vec(10.f + (box.size.x-2*bufferSpace)*i/30, 16.5f )), module, (Picus::PAT_1_BIG_LIGHT+i+10)));
             addChild(createLightCentered<LargeLight<WhiteLight>>(mm2px(Vec(10.f + (box.size.x-2*bufferSpace)*i/30, 16.5f )), module, (Picus::PAT_1_BIG_LIGHT+i)));
         }
+    }
+
+    void appendContextMenu(Menu* menu) override {
+        ModuleWidget::appendContextMenu(menu);
+ 
+        Picus* picusModule = dynamic_cast<Picus*>(module);
+        assert(picusModule); // Ensure the cast succeeds
+
+         // Separator for visual grouping in the context menu
+        menu->addChild(new MenuSeparator());
+     
+        struct GateOutputMenuItem : MenuItem {
+            Picus* picusModule;
+            void onAction(const event::Action& e) override {
+                picusModule->endStage = !picusModule->endStage;
+            }
+            void step() override {
+                rightText = picusModule->endStage ? "stage end ✔" : "sequence end ✔";
+                MenuItem::step();
+            }
+        };
+    
+        GateOutputMenuItem* gateOutputItem = new GateOutputMenuItem();
+        gateOutputItem->text = "END outputs pulse at ";
+        gateOutputItem->picusModule = picusModule;
+        menu->addChild(gateOutputItem);
+
+        struct PatternResetMenuItem : MenuItem {
+            Picus* picusModule;
+            void onAction(const event::Action& e) override {
+                picusModule->patternReset = !picusModule->patternReset;
+            }
+            void step() override {
+                rightText = picusModule->patternReset ? "at stage end ✔" : "only upon reset ✔";
+                MenuItem::step();
+            }
+        };
+    
+        PatternResetMenuItem* PatternResetItem = new PatternResetMenuItem();
+        PatternResetItem->text = "Pattern resets ";
+        PatternResetItem->picusModule = picusModule;
+        menu->addChild(PatternResetItem);
+
+
     }
 
     void draw(const DrawArgs& args) override {
