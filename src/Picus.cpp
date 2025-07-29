@@ -169,7 +169,6 @@ void dataFromJson(json_t* rootJ) override {
     }
 }
 
-
     Picus() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTS, NUM_LIGHTS);
 
@@ -222,6 +221,36 @@ void dataFromJson(json_t* rootJ) override {
         configOutput(KA_OUTPUT, "Ka Drum Trigger");
         configOutput(END_OUTPUT, "End of Stage/Sequence Trigger");
 
+    }
+
+    void onReset(const ResetEvent& e) override {
+        // Reset all parameters
+        Module::onReset(e);
+    
+        // Reset custom state variables
+        for (int i = 0; i < 7; ++i) {
+            multiply[i] = 1.0f;
+            divide[i] = 1.0f;
+        }
+    
+        for (int i = 0; i < 10; ++i) {
+            patternState[i] = 0;
+        }
+    }
+    
+    void onRandomize(const RandomizeEvent& e) override {
+
+        params[PATTERN_KNOB].setValue(10*random::uniform());
+
+        // Randomize custom state variables
+        for (int i = 0; i < 7; ++i) {
+            multiply[i] = random::uniform() * 12.0f;     // 0–32
+            divide[i] = random::uniform() * 8.0f + 1.0;        // 1–9
+        }
+    
+        for (int i = 0; i < 10; ++i) {
+            patternState[i] = random::u32() % 3;         // 0, 1, or 2
+        }
     }
 
     void process(const ProcessArgs& args) override {
@@ -375,7 +404,7 @@ void dataFromJson(json_t* rootJ) override {
                     if (i == patternIndex){
                         lights[PAT_1_BIG_LIGHT + i].value = 1.f; //large white(0-9)
                     } else {
-                        lights[PAT_1_BIG_LIGHT + i].value = 0.2f;
+                        lights[PAT_1_BIG_LIGHT + i].value = 0.3f;
                     }
                 } else if (patternState[i] == 1){ //state=1 accent
                     lights[PAT_1_BIG_LIGHT + i].value = 0.f; //white-off
@@ -383,7 +412,7 @@ void dataFromJson(json_t* rootJ) override {
                     if (i == patternIndex){
                         lights[PAT_1_BIG_LIGHT + i + 10].value = 1.f;  //medium blue(10-19)
                     } else {
-                        lights[PAT_1_BIG_LIGHT + i + 10].value = 0.2f;
+                        lights[PAT_1_BIG_LIGHT + i + 10].value = 0.3f;
                     }
                 } else { //state=2 off
                     lights[PAT_1_BIG_LIGHT + i].value = 0.f; //white-off
@@ -391,7 +420,7 @@ void dataFromJson(json_t* rootJ) override {
                     if (i == patternIndex){
                         lights[PAT_1_BIG_LIGHT + i + 20].value = 1.f; //small red(20-29)
                     } else {
-                        lights[PAT_1_BIG_LIGHT + i + 20].value = 0.2f;
+                        lights[PAT_1_BIG_LIGHT + i + 20].value = 0.3f;
                     }
                 }
             } else {
@@ -408,10 +437,10 @@ void dataFromJson(json_t* rootJ) override {
         }
         lights[STAGE_1_LIGHT + selectedStage].value = 1.0f; //illuminate selected stage.
         // Compute Current Stage
-        lights[STAGE_1A_LIGHT + 4*currentStage].value = 0.2f; //illuminate current stage
-        lights[STAGE_1B_LIGHT + 4*currentStage].value = 0.2f;
-        lights[STAGE_1C_LIGHT + 4*currentStage].value = 0.2f;
-        lights[STAGE_1D_LIGHT + 4*currentStage].value = 0.2f;
+        lights[STAGE_1A_LIGHT + 4*currentStage].value = 0.3f; //illuminate current stage
+        lights[STAGE_1B_LIGHT + 4*currentStage].value = 0.3f;
+        lights[STAGE_1C_LIGHT + 4*currentStage].value = 0.3f;
+        lights[STAGE_1D_LIGHT + 4*currentStage].value = 0.3f;
 
     }//end process
 };
@@ -593,7 +622,7 @@ struct PicusWidget : ModuleWidget {
                 char ratioText[16];
                 snprintf(ratioText, sizeof(ratioText), "%d:%d", static_cast<int>(module->multiply[i]), static_cast<int>(module->divide[i]));
                 if (module->currentStage != i){
-                    module->ratioDisplays[i]->fgColor = nvgRGB(104, 70, 45); // Dimmed text
+                    module->ratioDisplays[i]->fgColor = nvgRGB(154, 105, 65); // Dimmed text
                 } else {
                     module->ratioDisplays[i]->fgColor = nvgRGB(208, 140, 89); // Gold color text
                 }
