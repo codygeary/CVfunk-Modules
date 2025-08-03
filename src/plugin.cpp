@@ -34,6 +34,7 @@ void init(Plugin* p) {
 	p->addModel(modelJunkDNA);
 	p->addModel(modelPicus);
 	p->addModel(modelNode);
+    p->addModel(modelWeave);
 	
 
 	

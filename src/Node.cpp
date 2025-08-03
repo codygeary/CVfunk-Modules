@@ -59,6 +59,7 @@ struct Node : Module {
     float Ch2TotalR = 0.0f;
     float lastOutputL = 0.0f;
     float lastOutputR = 0.0f;
+    float volume = 0.0f;
 
     //for tracking the mute state of each channel
     dsp::SchmittTrigger mute1Trigger, mute2Trigger;
@@ -124,23 +125,29 @@ struct Node : Module {
     
         // INPUTS 
         float in1L = 0.f, in1R = 0.f;
-        if (inputs[_1_IN1].isConnected() && inputs[_1_IN2].isConnected()) {
-            in1L = inputs[_1_IN1].getVoltage();
-            in1R = inputs[_1_IN2].getVoltage();
-        } else if (inputs[_1_IN1].isConnected()) {
-            in1L = in1R = inputs[_1_IN1].getVoltage();
-        } else if (inputs[_1_IN2].isConnected()) {
-            in1L = in1R = inputs[_1_IN2].getVoltage();
+        bool in1LConnected = inputs[_1_IN1].isConnected();
+        bool in1RConnected = inputs[_1_IN2].isConnected();
+        
+        if (in1LConnected && in1RConnected) {
+            in1L = getAverageVoltage(inputs[_1_IN1]);
+            in1R = getAverageVoltage(inputs[_1_IN2]);
+        } else if (in1LConnected) {
+            in1L = in1R = getAverageVoltage(inputs[_1_IN1]);
+        } else if (in1RConnected) {
+            in1L = in1R = getAverageVoltage(inputs[_1_IN2]);
         }
-    
+        
         float in2L = 0.f, in2R = 0.f;
-        if (inputs[_2_IN1].isConnected() && inputs[_2_IN2].isConnected()) {
-            in2L = inputs[_2_IN1].getVoltage();
-            in2R = inputs[_2_IN2].getVoltage();
-        } else if (inputs[_2_IN1].isConnected()) {
-            in2L = in2R = inputs[_2_IN1].getVoltage();
-        } else if (inputs[_2_IN2].isConnected()) {
-            in2L = in2R = inputs[_2_IN2].getVoltage();
+        bool in2LConnected = inputs[_2_IN1].isConnected();
+        bool in2RConnected = inputs[_2_IN2].isConnected();
+        
+        if (in2LConnected && in2RConnected) {
+            in2L = getAverageVoltage(inputs[_2_IN1]);
+            in2R = getAverageVoltage(inputs[_2_IN2]);
+        } else if (in2LConnected) {
+            in2L = in2R = getAverageVoltage(inputs[_2_IN1]);
+        } else if (in2RConnected) {
+            in2L = in2R = getAverageVoltage(inputs[_2_IN2]);
         }
 
         // Handle Mutes
@@ -183,7 +190,7 @@ struct Node : Module {
         in2R *= fadeLevel[1];
    
         // MIX AND OUTPUT 
-        float volume = params[VOL_PARAM].getValue();
+        volume = params[VOL_PARAM].getValue();
         float Ch1L = in1L * gainChannel1 ;
         float Ch2L = in2L * gainChannel2 ;
         float outL = Ch1L * channel1Amt + Ch2L * channel2Amt;      
@@ -221,6 +228,18 @@ struct Node : Module {
         // Update lights periodically
         updateLights();
     }
+
+    float getAverageVoltage(rack::engine::Input& input) {
+        int channels = input.getChannels();
+        if (channels == 0)
+            return 0.f;
+    
+        float sum = 0.f;
+        for (int c = 0; c < channels; ++c) {
+            sum += input.getVoltage(c);
+        }
+        return sum / channels;
+    }
  
     float applyADAA(float input, float lastInput, float sampleRate) {
         float delta = input - lastInput;
@@ -250,8 +269,8 @@ struct Node : Module {
     void updateLights() {
         if (++cycleCount >= 2000) { //Save CPU by updating lights infrequently
             
-            updateSegmentedLights(VOL_LIGHT1L, volTotalL, 10.0f, 20); //Main Vol
-            updateSegmentedLights(VOL_LIGHT1R, volTotalR, 10.0f, 20);
+            updateSegmentedLights(VOL_LIGHT1L, volTotalL*volume, 10.0f, 20); //Main Vol
+            updateSegmentedLights(VOL_LIGHT1R, volTotalR*volume, 10.0f, 20);
 
             updateSegmentedLights(LIGHT_1_1_L, Ch1TotalL, 10.0f, 10); //Ch1 VU
             updateSegmentedLights(LIGHT_1_1_R, Ch1TotalR, 10.0f, 10);

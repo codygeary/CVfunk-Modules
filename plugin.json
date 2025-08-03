@@ -1,7 +1,7 @@
 {
   "slug": "CVfunk",
   "name": "CV funk Modules",
-  "version": "2.0.18",
+  "version": "2.0.19",
   "license": "MIT",
   "brand": "CV funk",
   "author": "Cody Geary",
@@ -249,6 +249,14 @@
       "tags": [
         "Voltage-controlled amplifier",
         "Mixer"
+      ]
+    },
+    {
+      "slug": "Weave",
+      "name": "Weave",
+      "description": "A six note chord quantizer, with the abilty to weave the outputs into different permutations.",
+      "tags": [
+        "Quantizer"
       ]
     }
   ]
