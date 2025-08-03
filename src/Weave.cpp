@@ -404,7 +404,7 @@ struct Weave : Module {
         if (inputs[WEAVE_INPUT].isConnected()){
             weaveSetting = static_cast<int>(roundf(inputs[WEAVE_INPUT].getVoltage() + params[WEAVE_KNOB_PARAM].getValue()));
             if (weaveSetting < 0) weaveSetting += WEAVE_PATTERNS;
-            if (weaveSetting >WEAVE_PATTERNS) weaveSetting -= WEAVE_PATTERNS; //wrap the CV+knob around the max value.
+            if (weaveSetting >WEAVE_PATTERNS-1) weaveSetting -= WEAVE_PATTERNS; //wrap the CV+knob around the max value.
             
         } else {
             weaveSetting = static_cast<int>(params[WEAVE_KNOB_PARAM].getValue());
@@ -423,7 +423,11 @@ struct Weave : Module {
         if (applyWeave){
             notePulseGen.trigger(0.001f);             
             for (int i=0; i<6; i++){
-                currentPermute[i] = Weave_Chart[weaveSetting][currentPermute[i]];
+                if (currentPermute[i] >= 0 && currentPermute[i] < 6) {
+                    currentPermute[i] = Weave_Chart[weaveSetting][currentPermute[i]];
+                } else {
+                    currentPermute[i] = i; // Reset if somehow corrupted
+                }                
             }                           
         }
 
@@ -745,8 +749,7 @@ struct WeaveWidget : ModuleWidget {
                 std::string rootNoteNames[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
                 std::string chordTypeNames[16] = {"Maj", "Min", "7", "Maj7", "Min7", "6", "Min6", "9", "Maj9", "Min9", "Add9", "Sus2", "Sus4", "5", "Aug", "Dim"};
                 int rootNoteVal = static_cast<int>(roundf(module->noteValue + 12*module->extOffset));
-                if (rootNoteVal<0) rootNoteVal +=12;
-                if (rootNoteVal>12) rootNoteVal -=12;
+                rootNoteVal = (rootNoteVal % 12 + 12) % 12;
                 std::string rootNote = rootNoteNames[rootNoteVal % 12];
                 std::string chordType = chordTypeNames[module->chordIndex % 16];
                 module->chordDisplay->text = rootNote + " " + chordType;
