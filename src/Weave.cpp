@@ -50,10 +50,6 @@ struct Weave : Module {
     //For the trigger inputs
     dsp::SchmittTrigger resetInput, resetButton, trigInput, trigButton, octUpTrigger, octDownTrigger;    
 
-    //For the displays
-    DigitalDisplay* noteDisplays[6] = {nullptr};
-    DigitalDisplay* chordDisplay = nullptr;
-
     // For the chord and keyboard
     bool playingNotes[12] = {true, false, false, false, false, false, false, false, false, false, false, false};
     bool noteClicked = false;
@@ -78,7 +74,6 @@ struct Weave : Module {
     int processSkips = 100;
     bool prevNoteConnected = false;
     int weaveSetting = 0;
-
 
    //WEAVE PATTERNS
     const std::array<std::array<int, 6>, WEAVE_PATTERNS> Weave_Chart = {{
@@ -486,7 +481,9 @@ struct Weave : Module {
 };
 
 struct WeaveWidget : ModuleWidget {
-
+    DigitalDisplay* noteDisplays[6] = {nullptr};
+    DigitalDisplay* chordDisplay = nullptr;
+    
     //Draw the Keyboard
     struct KeyboardKey : OpaqueWidget {
         int note = 0;
@@ -696,17 +693,17 @@ struct WeaveWidget : ModuleWidget {
 
         ////////////
         // ADD DISPLAY WIDGETS
-        if (module) {
-            // Note Displays Initialization
-            for (int i = 0; i < 6; i++) {
-                module->noteDisplays[i] = createDigitalDisplay(mm2px(Vec(15.06f, 11.084f + (float)i * 3.363f)), "Note", 10.f);
-                addChild(module->noteDisplays[i]);
-            }
+        // Note Displays Initialization
+        for (int i = 0; i < 6; i++) {
+            noteDisplays[i] = createDigitalDisplay(mm2px(Vec(15.06f, 11.084f + (float)i * 3.363f)), "C"+ std::to_string(i+1), 10.f);
+            addChild(noteDisplays[i]);
+        }
 
-            // Chord Display
-            module->chordDisplay = createDigitalDisplay(mm2px(Vec(47.667f,55.419f)), "Chord", 14.f);
-            addChild(module->chordDisplay);
+        // Chord Display
+        chordDisplay = createDigitalDisplay(mm2px(Vec(47.667f,55.419f)), "Oct", 14.f);
+        addChild(chordDisplay);
 
+        if (module) {          
             // Quantizer display
             KeyboardDisplay* keyboardDisplay = createWidget<KeyboardDisplay>(mm2px(Vec(10.7f, 87.5f)));
             keyboardDisplay->box.size = mm2px(Vec(50.501f, 16.168f));
@@ -717,9 +714,8 @@ struct WeaveWidget : ModuleWidget {
             WeaveDisplay* weaveDisplay = createWidget<WeaveDisplay>(mm2px(Vec(28.f, 13.5))); // Positioning
             weaveDisplay->box.size = Vec(115.f, 63.f); // Size of the display widget
             weaveDisplay->module = module;
-            addChild(weaveDisplay);
-                       
-         }
+            addChild(weaveDisplay);                       
+        }
     }
     
     void addLightsAroundKnob(Module* module, float knobX, float knobY, int firstLightId, int numLights, float radius) {
@@ -740,7 +736,7 @@ struct WeaveWidget : ModuleWidget {
         Weave* module = dynamic_cast<Weave*>(this->module);
         if (!module) return;
 
-        if (module->chordDisplay) {
+        if (chordDisplay) {
             for (int i=0; i<17; i++){ //blank all chord lights
                 module->lights[Weave::CHORD_1_LIGHT + i].setBrightness(0.0f);
             }
@@ -752,17 +748,17 @@ struct WeaveWidget : ModuleWidget {
                 rootNoteVal = (rootNoteVal % 12 + 12) % 12;
                 std::string rootNote = rootNoteNames[rootNoteVal % 12];
                 std::string chordType = chordTypeNames[module->chordIndex % 16];
-                module->chordDisplay->text = rootNote + " " + chordType;
+                chordDisplay->text = rootNote + " " + chordType;
                 module->lights[Weave::CHORD_2_LIGHT + module->chordIndex].setBrightness(1.0f);
             } else {
                 // Default display if no chord or note is active
-                module->chordDisplay->text = "Oct";
+                chordDisplay->text = "Oct";
                 module->lights[Weave::CHORD_1_LIGHT].setBrightness(1.0f);
             }
         }
         // Update note displays with rotation applied
         for (int i = 0; i < 6; i++) {
-            if (module->noteDisplays[i]) {        
+            if (noteDisplays[i]) {        
                 float pitchVoltage = module->finalNotes[i] + module->extOffset;
         
                 // Compute note name and octave
@@ -778,7 +774,7 @@ struct WeaveWidget : ModuleWidget {
                 // Format full note display
                 char fullNote[7];
                 snprintf(fullNote, sizeof(fullNote), "%s%d", noteName, octave);        
-                module->noteDisplays[module->currentPermute[i]]->text = fullNote;
+                noteDisplays[module->currentPermute[i]]->text = fullNote;
             }
         }
         // Set lights based on octave state

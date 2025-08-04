@@ -135,6 +135,7 @@ void dataFromJson(json_t* rootJ) override {
     json_t* selStageJ = json_object_get(rootJ, "selectedStage");
     if (selStageJ && json_is_integer(selStageJ)) {
         selectedStage = json_integer_value(selStageJ);
+        selectedStage = clamp(selectedStage, 0, 6); 
     }
 
     json_t* endStageJ = json_object_get(rootJ, "endStage");
@@ -310,7 +311,7 @@ void dataFromJson(json_t* rootJ) override {
             if (endStage) EndPulse.trigger(0.001f);
             patternIndex++;
             if (patternReset) patternIndex=0;
-            if (patternIndex >= patternStages) patternIndex = 0;
+            patternIndex = clamp(patternIndex, 0, patternStages - 1); //clamp patternIndex before use
             if (patternState[patternIndex]==0) DonPulse.trigger(0.001f);
             if (patternState[patternIndex]==1) KaPulse.trigger(0.001f);
         }
@@ -319,7 +320,7 @@ void dataFromJson(json_t* rootJ) override {
         if (syncPoint && playMode > 0.f){
             beatCount++;
             if (firstSync) beatCount = 0; // Reset beat count on the first clock sync
-            int stageLength = static_cast<int>(divide[currentStage]);
+            int stageLength = static_cast<int>(std::floor(divide[currentStage])); //use floor to prevent rounding errors
             if (beatCount >= stageLength ){
                 beatCount = 0;
                 currentStage++;
@@ -328,7 +329,7 @@ void dataFromJson(json_t* rootJ) override {
                 if (endStage) EndPulse.trigger(0.001f);
                 patternIndex++;
                 if (patternReset) patternIndex=0;
-                if (patternIndex >= patternStages) patternIndex = 0;
+                patternIndex = clamp(patternIndex, 0, patternStages - 1); //clamp patternIndex before use
                 if (patternState[patternIndex]==0) DonPulse.trigger(0.001f);
                 if (patternState[patternIndex]==1) KaPulse.trigger(0.001f);
 
@@ -351,7 +352,7 @@ void dataFromJson(json_t* rootJ) override {
         }
 
         // Beat Computing
-        if (divide[currentStage]>0.f && multiply[currentStage]>0.f && (!firstSync) && playMode > 0.f){
+        if (divide[currentStage]>0.001f && multiply[currentStage]>0.001f && (!firstSync) && playMode > 0.f){
             if (syncPoint || resyncFlag[currentStage]){
                 resyncFlag[currentStage] = false;
                 beatInterval = (divide[currentStage]*syncInterval)/multiply[currentStage];
@@ -359,7 +360,7 @@ void dataFromJson(json_t* rootJ) override {
             if (beatTimer.time >= beatInterval && playMode > 0.f && externalClockConnected){
                 beatTimer.reset();
                 patternIndex++;
-                if (patternIndex >= patternStages) patternIndex = 0;
+                patternIndex = clamp(patternIndex, 0, patternStages - 1); //clamp patternIndex before use
                 if (patternState[patternIndex]==0) DonPulse.trigger(0.001f);
                 if (patternState[patternIndex]==1) KaPulse.trigger(0.001f);
             }
@@ -370,7 +371,7 @@ void dataFromJson(json_t* rootJ) override {
         bool KaActive = KaPulse.process(args.sampleTime);
         bool EndActive = EndPulse.process(args.sampleTime);
 
-        if (divide[currentStage]>0.f && multiply[currentStage]>0.f && playMode > 0.f ){
+        if (divide[currentStage]>0.001f && multiply[currentStage]>0.001f && playMode > 0.f ){
             outputs[DON_OUTPUT].setVoltage(DonActive ? 10.f : 0.f);
             outputs[KA_OUTPUT].setVoltage(KaActive ? 10.f : 0.f);
         }
@@ -387,6 +388,9 @@ void dataFromJson(json_t* rootJ) override {
             beatTimer.reset();
             patternIndex = 0;
             EndPulse.trigger(0.001f);
+            firstPulseReceived = false;  //reset the two clock syncing flags
+            firstSync = true;
+            patternIndex = clamp(patternIndex, 0, patternStages - 1); //clamp patternIndex before use
             if (patternState[patternIndex]==0) DonPulse.trigger(0.001f);
             if (patternState[patternIndex]==1) KaPulse.trigger(0.001f);
         }
@@ -433,8 +437,9 @@ void dataFromJson(json_t* rootJ) override {
         // Stage Lights
         for (int i = 0; i < 28; i++){ //blank out the old stage lights
             lights[STAGE_1A_LIGHT + i].value = 0.f;
-            if (i < 10) lights[STAGE_1_LIGHT + i].value = 0.f; //only ten of these, so make sure not to go out of array bounds
+            if (i < 7) lights[STAGE_1_LIGHT + i].value = 0.f; //only ten of these, so make sure not to go out of array bounds
         }
+        selectedStage = clamp(selectedStage, 0, 6); //clamp stage in case bad data loaded from JSON
         lights[STAGE_1_LIGHT + selectedStage].value = 1.0f; //illuminate selected stage.
         // Compute Current Stage
         lights[STAGE_1A_LIGHT + 4*currentStage].value = 0.3f; //illuminate current stage
