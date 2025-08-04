@@ -220,6 +220,12 @@ struct Weave : Module {
 
         if (noteInputConnected ){
             int inputChannels = inputs[NOTE_INPUT].getChannels();
+
+            if (inputChannels <= 0) { // Surely an unnecessary safety check
+                inputChannels = 1; // Safety fallback
+            }
+            inputChannels = std::min(inputChannels, 16); // VCV Rack limit
+            
             if (inputChannels == 1) {
                 // Monophonic V/OCT input - treat as a root note + chord
                 inputNotPoly = true;
@@ -397,12 +403,12 @@ struct Weave : Module {
 
         //Weave Section
         if (inputs[WEAVE_INPUT].isConnected()){
-            weaveSetting = static_cast<int>(roundf(inputs[WEAVE_INPUT].getVoltage() + params[WEAVE_KNOB_PARAM].getValue()));
-            if (weaveSetting < 0) weaveSetting += WEAVE_PATTERNS;
-            if (weaveSetting >WEAVE_PATTERNS-1) weaveSetting -= WEAVE_PATTERNS; //wrap the CV+knob around the max value.
-            
+            float rawWeave = inputs[WEAVE_INPUT].getVoltage() + params[WEAVE_KNOB_PARAM].getValue();
+            weaveSetting = static_cast<int>(roundf(rawWeave));
+            weaveSetting = ((weaveSetting % WEAVE_PATTERNS) + WEAVE_PATTERNS) % WEAVE_PATTERNS;
         } else {
             weaveSetting = static_cast<int>(params[WEAVE_KNOB_PARAM].getValue());
+            weaveSetting = std::max(0, std::min(weaveSetting, WEAVE_PATTERNS - 1));
         }
 
         bool applyWeave = false;
@@ -418,7 +424,8 @@ struct Weave : Module {
         if (applyWeave){
             notePulseGen.trigger(0.001f);             
             for (int i=0; i<6; i++){
-                if (currentPermute[i] >= 0 && currentPermute[i] < 6) {
+                if (currentPermute[i] >= 0 && currentPermute[i] < 6 && 
+                    weaveSetting >= 0 && weaveSetting < WEAVE_PATTERNS) { //additional bounds checks
                     currentPermute[i] = Weave_Chart[weaveSetting][currentPermute[i]];
                 } else {
                     currentPermute[i] = i; // Reset if somehow corrupted
@@ -694,10 +701,11 @@ struct WeaveWidget : ModuleWidget {
         ////////////
         // ADD DISPLAY WIDGETS
         // Note Displays Initialization
-        for (int i = 0; i < 6; i++) {
-            noteDisplays[i] = createDigitalDisplay(mm2px(Vec(15.06f, 11.084f + (float)i * 3.363f)), "C"+ std::to_string(i+1), 10.f);
-            addChild(noteDisplays[i]);
-        }
+std::vector<std::string> baseText = {"All", "Your", "Base", "Are", "Belong", "To Us"};
+for (int i = 0; i < 6; i++) {
+    noteDisplays[i] = createDigitalDisplay(mm2px(Vec(15.06f, 11.084f + (float)i * 3.363f)), baseText[i], 10.f);
+    addChild(noteDisplays[i]);
+}
 
         // Chord Display
         chordDisplay = createDigitalDisplay(mm2px(Vec(47.667f,55.419f)), "Oct", 14.f);
@@ -756,7 +764,7 @@ struct WeaveWidget : ModuleWidget {
                 module->lights[Weave::CHORD_1_LIGHT].setBrightness(1.0f);
             }
         }
-        // Update note displays with rotation applied
+        // Update note displays with permutation applied
         for (int i = 0; i < 6; i++) {
             if (noteDisplays[i]) {        
                 float pitchVoltage = module->finalNotes[i] + module->extOffset;
@@ -774,7 +782,12 @@ struct WeaveWidget : ModuleWidget {
                 // Format full note display
                 char fullNote[7];
                 snprintf(fullNote, sizeof(fullNote), "%s%d", noteName, octave);        
-                noteDisplays[module->currentPermute[i]]->text = fullNote;
+                
+                // Safe array access with bounds checking
+                int displayIndex = module->currentPermute[i];
+                if (displayIndex >= 0 && displayIndex < 6 && noteDisplays[displayIndex]) {
+                    noteDisplays[displayIndex]->text = fullNote;
+                }
             }
         }
         // Set lights based on octave state
