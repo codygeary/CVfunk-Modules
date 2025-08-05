@@ -88,6 +88,11 @@ struct Arrange : Module {
     int polyphonyChannels = 1;
     int prevPolyphonyChannels = 1;
 
+    //For Copy/Paste function
+    float copiedKnobStates[7] = {0.f};  
+    bool copyBufferFilled = false;
+    bool gateTriggerEnabled = false;
+
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
     
@@ -942,6 +947,77 @@ struct ArrangeWidget : ModuleWidget {
         polyphonySubMenu->text = "Set Polyphony for Channel 1";
         polyphonySubMenu->arrangeModule = arrangeModule; // Pass the module to the submenu
         menu->addChild(polyphonySubMenu);
+
+        // Separator for visual grouping in the context menu
+        menu->addChild(new MenuSeparator());
+     
+        // Copy Layer menu item
+        struct CopyLayerMenuItem : MenuItem {
+            Arrange* arrangeModule;
+            void onAction(const event::Action& e) override {
+                for (int i = 0; i < 7; i++) {
+                    arrangeModule->copiedKnobStates[i] = arrangeModule->outputs[Arrange::CHAN_1_OUTPUT + i].getVoltage();;
+                }
+                arrangeModule->copyBufferFilled = true;
+            }
+            void step() override {
+                rightText = arrangeModule->copyBufferFilled ? "✔" : "";
+                MenuItem::step();
+            }
+        };
+        
+        CopyLayerMenuItem* copyLayerItem = new CopyLayerMenuItem();
+        copyLayerItem->text = "Copy Layer";
+        copyLayerItem->arrangeModule = arrangeModule;
+        menu->addChild(copyLayerItem);
+        
+        // Paste Layer menu item
+        struct PasteLayerMenuItem : MenuItem {
+            Arrange* arrangeModule;
+            void onAction(const event::Action& e) override {
+                if (!arrangeModule->copyBufferFilled) return;
+                for (int i = 0; i < 7; i++) {
+                    arrangeModule->outputValues[arrangeModule->currentStage][i] = arrangeModule->copiedKnobStates[i];
+                    arrangeModule->paramQuantities[Arrange::CHAN_1_KNOB + i]->setDisplayValue(arrangeModule->copiedKnobStates[i]); 
+                }
+            }
+            void step() override {
+                rightText = arrangeModule->copyBufferFilled ? "Ready" : "Empty";
+                MenuItem::step();
+            }
+        };
+        
+        PasteLayerMenuItem* pasteLayerItem = new PasteLayerMenuItem();
+        pasteLayerItem->text = "Paste Layer";
+        pasteLayerItem->arrangeModule = arrangeModule;
+        menu->addChild(pasteLayerItem);
+
+        // Paste to All Layers menu item
+        struct PasteAllLayersMenuItem : MenuItem {
+            Arrange* arrangeModule;
+            void onAction(const event::Action& e) override {
+                if (!arrangeModule->copyBufferFilled) return;
+
+                for (int chan = 0; chan < 7; chan++) {               
+                    for (int step = 0; step < 2048; step++) {
+                        arrangeModule->outputValues[step][chan] = arrangeModule->copiedKnobStates[chan];
+                    }
+                }
+                for (int i = 0; i < 7; i++) {
+                    arrangeModule->paramQuantities[Arrange::CHAN_1_KNOB + i]->setDisplayValue(arrangeModule->copiedKnobStates[i]); 
+                }
+                
+            }
+            void step() override {
+                rightText = arrangeModule->copyBufferFilled ? "Ready" : "Empty";
+                MenuItem::step();
+            }
+        };
+        
+        PasteAllLayersMenuItem* pasteAllLayersItem = new PasteAllLayersMenuItem();
+        pasteAllLayersItem->text = "Paste to All Layers";
+        pasteAllLayersItem->arrangeModule = arrangeModule;
+        menu->addChild(pasteAllLayersItem);
 
     }    
 };

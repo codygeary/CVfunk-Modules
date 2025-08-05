@@ -1,7 +1,7 @@
 {
   "slug": "CVfunk",
   "name": "CV funk Modules",
-  "version": "2.0.20",
+  "version": "2.0.21",
   "license": "MIT",
   "brand": "CV funk",
   "author": "Cody Geary",
@@ -257,6 +257,14 @@
       "description": "A six note chord quantizer, with the abilty to weave the outputs into different permutations.",
       "tags": [
         "Quantizer"
+      ]
+    },
+    {
+      "slug": "Wonk",
+      "name": "Wonk",
+      "description": "Generate clock-synced and wonky modulationss in six phase-locked channels.",
+      "tags": [
+        "Low-frequency Oscillator"
       ]
     }
   ]

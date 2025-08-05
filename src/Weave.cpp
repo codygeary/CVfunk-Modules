@@ -1,3 +1,15 @@
+////////////////////////////////////////////////////////////
+//
+//   Weave
+//
+//   written by Cody Geary
+//   Copyright 2025, MIT License
+//
+//   Six-channel chord generator with unique output permutation options
+//
+////////////////////////////////////////////////////////////
+
+
 #include "rack.hpp"
 #include "plugin.hpp"
 #include "digital_display.hpp"
@@ -187,6 +199,8 @@ struct Weave : Module {
         configParam(TRIG_BUTTON, 0.f, 1.f, 0.f, "Trigger Weave");
         configParam(RESET_BUTTON, 0.f, 1.f, 0.f, "Reset Weave");
         configParam(SHIFT_KNOB_PARAM, -1.f, 1.f, 0.f, "Transpose");
+        configParam(OCTAVE_DOWN_BUTTON, 0.f, 1.f, 0.f, "Octave Down");
+        configParam(OCTAVE_UP_BUTTON, 0.f, 1.f, 0.f, "Octave Up");
 
     }
 
@@ -676,7 +690,7 @@ struct WeaveWidget : ModuleWidget {
         addChild(createWidget<ThemedScrew>(Vec(0, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
         addChild(createWidget<ThemedScrew>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 
-        addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(45.0, 42.00)), module, Weave::WEAVE_KNOB_PARAM));
+        addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(45.0, 42.00)), module, Weave::WEAVE_KNOB_PARAM));
         addParam(createParamCentered<Trimpot>(mm2px(Vec(55.0, 42.00)), module, Weave::WEAVE_ATT_PARAM));
         addInput(createInputCentered<PJ301MPort>(mm2px(Vec(65.0, 42.00)), module, Weave::WEAVE_INPUT));        
         addParam(createParamCentered<RoundHugeBlackKnob>(mm2px(Vec(23.299, 62.14)), module, Weave::CHORD_KNOB_PARAM));
@@ -701,11 +715,11 @@ struct WeaveWidget : ModuleWidget {
         ////////////
         // ADD DISPLAY WIDGETS
         // Note Displays Initialization
-std::vector<std::string> baseText = {"All", "Your", "Base", "Are", "Belong", "To Us"};
-for (int i = 0; i < 6; i++) {
-    noteDisplays[i] = createDigitalDisplay(mm2px(Vec(15.06f, 11.084f + (float)i * 3.363f)), baseText[i], 10.f);
-    addChild(noteDisplays[i]);
-}
+        std::vector<std::string> baseText = {"C1", "C2", "C3", "C4", "C5", "C6"};
+        for (int i = 0; i < 6; i++) {
+            noteDisplays[i] = createDigitalDisplay(mm2px(Vec(15.06f, 11.084f + (float)i * 3.363f)), baseText[i], 10.f);
+            addChild(noteDisplays[i]);
+        }
 
         // Chord Display
         chordDisplay = createDigitalDisplay(mm2px(Vec(47.667f,55.419f)), "Oct", 14.f);

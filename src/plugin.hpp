@@ -35,3 +35,4 @@ extern Model* modelJunkDNA;
 extern Model* modelPicus;
 extern Model* modelNode;
 extern Model* modelWeave;
+extern Model* modelWonk;

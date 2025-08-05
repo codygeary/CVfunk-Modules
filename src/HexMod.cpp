@@ -26,6 +26,7 @@ struct HexMod : Module {
         NODE_ATT_KNOB,
         RANGE_KNOB,
         RANGE_ATT_KNOB,
+        SLOW_BUTTON,
         NUM_PARAMS
     };
     enum InputIds {
@@ -74,6 +75,8 @@ struct HexMod : Module {
         OUT_LED_1c, OUT_LED_2c, OUT_LED_3c, OUT_LED_4c, OUT_LED_5c, OUT_LED_6c,
         OUT_LED_1d, OUT_LED_2d, OUT_LED_3d, OUT_LED_4d, OUT_LED_5d, OUT_LED_6d,
         
+        SLOW_BUTTON_LIGHT,
+        
         NUM_LIGHTS
     };
 
@@ -81,12 +84,13 @@ struct HexMod : Module {
     dsp::Timer SyncTimer;
 
     // Initialize variables for trigger detection
-    dsp::SchmittTrigger SyncTrigger;
+    dsp::SchmittTrigger SyncTrigger, slowTrigger;
 
     bool lightsEnabled = true;
     bool syncEnabled = false;
     bool synclinkEnabled = true;
     bool voctEnabled = false;
+    bool slowMode = false;
 
     float lfoPhase[6] = {0.0f}; // Current LFO phase for each channel
     float prevPhaseResetInput[6] = {}; // Previous envelope input, for peak detection
@@ -108,7 +112,8 @@ struct HexMod : Module {
     float lfoOutput[6] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
     float nextChunk[6] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f}; //measure next voltage step to subdivide
     
-    int LEDprocessCounter = 0; // Counter to track process cycles
+    int processCounter = 0; // Counter to track process cycles
+    int processSkips = 1500;
     int SINprocessCounter = 0; // Counter to track process cycles
     int SkipProcesses = 4; //Number of process cycles to skip for the big calculation
     bool prevEnablePolyOut = false;  // Track the previous state
@@ -126,6 +131,7 @@ struct HexMod : Module {
         json_object_set_new(rootJ, "SyncInterval", json_real(SyncInterval));
         json_object_set_new(rootJ, "voctEnabled", json_boolean(voctEnabled));
         json_object_set_new(rootJ, "enablePolyOut", json_boolean(enablePolyOut));
+        json_object_set_new(rootJ, "slowMode", json_boolean(slowMode));
 
 
         // Serialize lfoOutput array
@@ -176,6 +182,12 @@ struct HexMod : Module {
         if (SyncIntervalJ) {
             SyncInterval = json_number_value(SyncIntervalJ);
         }   
+
+        // Load the state of slowMode
+        json_t* slowModeJ = json_object_get(rootJ, "slowMode");
+        if (slowModeJ) {
+            slowMode = json_is_true(slowModeJ);
+        }
         
         // Deserialize lfoOutput array
         json_t* lfoOutputJ = json_object_get(rootJ, "lfoOutput");
@@ -215,6 +227,7 @@ struct HexMod : Module {
         configParam(RATE_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Rate Attenuation"); // 
         configParam(NODE_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Node Attenuation"); // 
         configParam(RANGE_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Range Attenuation"); // 
+        configParam(SLOW_BUTTON, 0.f, 1.f, 0.f, "Slow LFO Mode");
 
 
         for (int i = 0; i < 6; i++) {
@@ -235,24 +248,35 @@ struct HexMod : Module {
 
     void process(const ProcessArgs &args) override {    
         float deltaTime = args.sampleTime; 
-        LEDprocessCounter++;  
+        processCounter++;  
         SINprocessCounter++;  
     
         float currentOutput[6] = {0.0f}; // Array to store the output voltages
-    
-        // PROCESS INPUTS
+ 
+        // PROCESS SLOW MODE
+        if (slowTrigger.process(params[SLOW_BUTTON].getValue())){
+            slowMode = !slowMode;
+        }
+        if (voctEnabled)  slowMode = false; //disable slowMode automatically if voct mode is selected in context
+
+        // PROCESS RATE
         float rate = params[RATE_KNOB].getValue();
+        if (slowMode){ //always update
+            rate = rate*0.05f;
+        } else {
+            //rate unchanged      
+        }
         if (inputs[RATE_INPUT].isConnected()) {
             rate += inputs[RATE_INPUT].getVoltage() * params[RATE_ATT_KNOB].getValue();
         }    
     
         if (voctEnabled) {
             rate = inputs[RATE_INPUT].getVoltage();
-            rate = clamp(rate, -10.f, 10.0f); 
+            rate = clamp(rate, -10.f, 10.0f); //clamp to reasonable octave range before conversion
             rate = 261.625565 * pow(2.0, rate);
         } else {
-            rate = clamp(rate, 0.0001f, 10.0f); 
-        }
+            rate = clamp(rate, 0.00001f, 20.0f); 
+        }       
     
         float NodePosition = params[NODE_KNOB].getValue();
         if (inputs[NODE_INPUT].isConnected()) {
@@ -386,29 +410,10 @@ struct HexMod : Module {
             voltageRange = clamp(voltageRange, -10.f, 10.f); //scale to account for module internal voltages
     
             outputs[LFO_OUTPUT_1 + i].setVoltage(currentOutput[i] * voltageRange * 0.8f);
-    
-            if (lightsEnabled) {
-                if (LEDprocessCounter > 1500) {
-                    updateLEDs(i, lfoOutput[i]);
-    
-                    float brightness = lights[IN_LED_1 + i].getBrightness();
-                    float newBrightness = brightness * 0.9f;
-                    lights[IN_LED_1 + i].setBrightness(newBrightness);
-                    lights[OUT_LED_1a + i].setBrightness(newBrightness);
-                    lights[OUT_LED_1b + i].setBrightness(newBrightness);
-                    lights[OUT_LED_1c + i].setBrightness(newBrightness);
-                    lights[OUT_LED_1d + i].setBrightness(newBrightness);
-                }
-            } else {
-                for (int j = 0; j < NUM_LIGHTS; j++) {
-                    lights[j].setBrightness(0);
-                }
-            }
-    
+
             prevPhaseResetInput[i] = PhaseResetInput;
         }//LFO layers
     
-        if (LEDprocessCounter > 1500) { LEDprocessCounter = 0; }
         if (SINprocessCounter > SkipProcesses) { SINprocessCounter = 0; }
         clockSyncPulse = false;
   
@@ -465,6 +470,7 @@ void HexMod::updateLEDs(int channel, float voltage) {
         // Update blue LEDs based on negative voltage
         lights[blueIndex].setBrightness(clamp((-voltage) - i, 0.0f, 1.0f));
     }
+
 }
 
 struct HexModWidget : ModuleWidget {
@@ -553,8 +559,12 @@ struct HexModWidget : ModuleWidget {
         // Row of knobs at the bottom, with attenuators and CV inputs
         const Vec knobStartPos = Vec(21, 268);
         const float knobSpacing = 152.0f;
+
         addParam(createParam<RoundBlackKnob>(knobStartPos, module, HexMod::RATE_KNOB));
         addParam(createParam<RoundBlackKnob>(knobStartPos.plus(Vec( knobSpacing, 0)), module, HexMod::NODE_KNOB));
+
+        addChild(createLightCentered<LargeLight<RedLight>>(knobStartPos.plus(Vec( -5, -10)), module, HexMod::SLOW_BUTTON_LIGHT));       
+        addParam(createParamCentered<TL1105>(knobStartPos.plus(Vec( -5, -10)), module, HexMod::SLOW_BUTTON));
 
         addParam(createParam<Trimpot>(knobStartPos.plus(Vec(0+5, 41)), module, HexMod::RATE_ATT_KNOB));
         addParam(createParam<Trimpot>(knobStartPos.plus(Vec( knobSpacing+5, 41)), module, HexMod::NODE_ATT_KNOB));
@@ -568,8 +578,42 @@ struct HexModWidget : ModuleWidget {
         addParam(createParamCentered<Trimpot>         (Vec(32+81.25,  290), module, HexMod::RANGE_ATT_KNOB));
         addInput(createInputCentered<ThemedPJ301MPort>(Vec(32+103.58, 290), module, HexMod::RANGE_INPUT));
 
-
     }
+
+    void draw(const DrawArgs& args) override {
+        ModuleWidget::draw(args);
+        HexMod* module = dynamic_cast<HexMod*>(this->module);
+        if (!module) return;
+        
+        for (int i = 0; i < 6; i++) {    
+            if (module->lightsEnabled) {
+                module->updateLEDs(i, module->lfoOutput[i]);
+    
+                float brightness = module->lights[HexMod::IN_LED_1 + i].getBrightness();
+                float newBrightness = brightness * 0.9f;
+                module->lights[HexMod::IN_LED_1 + i].setBrightness(newBrightness);
+                module->lights[HexMod::OUT_LED_1a + i].setBrightness(newBrightness);
+                module->lights[HexMod::OUT_LED_1b + i].setBrightness(newBrightness);
+                module->lights[HexMod::OUT_LED_1c + i].setBrightness(newBrightness);
+                module->lights[HexMod::OUT_LED_1d + i].setBrightness(newBrightness);
+            } else {
+                for (int j = 0; j < HexMod::NUM_LIGHTS; j++) {
+                    module->lights[j].setBrightness(0);
+                }
+            }
+            
+            if (module->slowMode){
+                module->lights[HexMod::SLOW_BUTTON_LIGHT].setBrightness(1.0f);
+            } else {
+                module->lights[HexMod::SLOW_BUTTON_LIGHT].setBrightness(0.f);
+            } 
+        }
+        if ( module->slowMode ){ 
+            module->paramQuantities[HexMod::RATE_KNOB]->displayMultiplier = 0.05f;    
+        } else {
+            module->paramQuantities[HexMod::RATE_KNOB]->displayMultiplier = 1.0f;        
+        }            
+    }                             
 
     void appendContextMenu(Menu* menu) override {
         ModuleWidget::appendContextMenu(menu);
@@ -631,7 +675,7 @@ struct HexModWidget : ModuleWidget {
         synclinkItem->hexMod = hexMod;
         menu->addChild(synclinkItem);
 
-        // Sync and Phase not linked
+        // Voct Mode
         struct VOctEnabledItem : MenuItem {
             HexMod* hexMod;
             void onAction(const event::Action& e) override {
@@ -666,9 +710,7 @@ struct HexModWidget : ModuleWidget {
         polyOutItem->hexMod = hexMod;
         menu->addChild(polyOutItem);
 
-
     }
-    
 };
 
 Model* modelHexMod = createModel<HexMod, HexModWidget>("HexMod");
