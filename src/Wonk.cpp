@@ -129,6 +129,9 @@ struct Wonk : Module {
             }
             firstPulseReceived = true;
         }
+        
+
+        freqHz = 1/fmax(syncInterval, 0.0001f); //limit syncInterval to avoid div by zero.
 
         // Resetting Logic
         bool resetConnected = inputs[RESET_INPUT].isConnected();
