@@ -17,6 +17,16 @@ struct Wonk : Module {
         return a + fraction * (b - a);
     }
 
+    static inline float lagrange4(
+        float y0, float y1, float y2, float y3, float t
+    ) {
+        float a = (-t * (t - 1.0f) * (t - 2.0f)) / 6.0f;
+        float b = ((t + 1.0f) * (t - 1.0f) * (t - 2.0f)) / 2.0f;
+        float c = (-(t + 1.0f) * t * (t - 2.0f)) / 2.0f;
+        float d = ((t + 1.0f) * t * (t - 1.0f)) / 6.0f;
+        return a * y0 + b * y1 + c * y2 + d * y3;
+    }
+
     enum ParamId {
         RATE_ATT,
         RATE_KNOB,
@@ -73,13 +83,18 @@ struct Wonk : Module {
     float prevPhaseResetInput[6] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f}; // Previous envelope input, for peak detection
     float calculateTargetPhase(int channel, float nodePosition, float deltaTime, float place);
     void adjustLFOPhase(int channel, float targetPhase, float envInfluence, float deltaTime);
-    float lastTargetVoltages[5] = {0.f, 0.f, 0.f, 0.f, 0.f}; // Initialize with default voltages, assuming start at 0V
     float place[6] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
     float happy_place[6] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
+
+    //For Interpolation
     float lfoOutput[6] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
     float nextChunk[6] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
     int SINprocessCounter = 0; // Counter to track process cycles
-    int SkipProcesses = 16; //Number of process cycles to skip for the sine calculation
+    int SkipProcesses = 4; //Number of process cycles to skip for the sine calculation
+    float currentOutput[6] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+    float lfoHistory[6][4] = {}; // ring buffer of last 4 sine values per channel
+    int lfoHistPos = 0; // 0 to 3 ring buffer position
+
     float wonkMod[6] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f}; //store the scaled wonkMod output
     float rawwonkMod[6] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f}; //store the raw value
     bool modClockSync = false; //Sync the modulation bus to the master clock instead of stage clock
@@ -112,6 +127,8 @@ struct Wonk : Module {
         configOutput(_5_OUTPUT, "5");
         configOutput(_6_OUTPUT, "6");
         configOutput(POLY_OUTPUT, "Polyphonic");
+        
+        outputs[POLY_OUTPUT].setChannels(6);       
     }
 
     void process(const ProcessArgs& args) override {
@@ -131,7 +148,7 @@ struct Wonk : Module {
         }
         
 
-        freqHz = 1/fmax(syncInterval, 0.0001f); //limit syncInterval to avoid div by zero.
+        freqHz = 1.0f/fmax(syncInterval, 0.0001f); //limit syncInterval to avoid div by zero.
 
         // Resetting Logic
         bool resetConnected = inputs[RESET_INPUT].isConnected();
@@ -156,12 +173,11 @@ struct Wonk : Module {
         if (processSkipper>=processSkips){
             // Track connection states of each output
             bool cableConnected = outputs[POLY_OUTPUT].isConnected();
-
-            // Re-initialize polyphonic channels only if connections change
-            if (cableConnected && !prevcableConnected) {
+        
+            if (cableConnected) {
                 outputs[POLY_OUTPUT].setChannels(6);
             }
-
+        
             // Update previous connection states
             prevcableConnected = cableConnected;
             
@@ -171,7 +187,7 @@ struct Wonk : Module {
         if (modulationDepth > 0.0f){ // skip the whole LFO logic if mod depth is 0
 
             SINprocessCounter++;  //Skip some SINE computations to save CPU  
-            float currentOutput[6] = {0.0f}; // Array to store the output voltages
+            float currentOutput[6] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
             float rawRate = params[RATE_KNOB].getValue(); 
             if (inputs[RATE_INPUT].isConnected()) {
                 rawRate = inputs[RATE_INPUT].getVoltage() * params[RATE_ATT].getValue() + rawRate;
@@ -282,15 +298,35 @@ struct Wonk : Module {
                 while (place[i] < 0.0f) place[i] += 1.0f;
     
                 if (SINprocessCounter > SkipProcesses) {
-                    lfoOutput[i] = 20.0f * sinf(2.0f * M_PI * lfoPhase[i]);
-                    nextChunk[i] = lfoOutput[i] - currentOutput[i];
+                    // Compute new sine, store in ring buffer
+                    for (int i = 0; i < 6; ++i) {
+                        float newSin = 5.0f * sinf(2.0f * M_PI * lfoPhase[i]);
+                        lfoHistory[i][lfoHistPos] = newSin;
+                    }
+                    SINprocessCounter = 0;
+                    lfoHistPos = (lfoHistPos + 1) % 4;
                 }
-    
-                currentOutput[i] += nextChunk[i] * (1.0f / SkipProcesses);
-                rawwonkMod[i] = currentOutput[i];
-    
-                wonkMod[i] = currentOutput[i] * modulationDepth * 0.8f;
-                outputs[POLY_OUTPUT].setVoltage(wonkMod[i], i);
+ 
+                float t = static_cast<float>(SINprocessCounter) / static_cast<float>(SkipProcesses);
+   
+                // Indices for Lagrange interpolation
+                int i0 = (lfoHistPos + 0) % 4;
+                int i1 = (lfoHistPos + 1) % 4;
+                int i2 = (lfoHistPos + 2) % 4;
+                int i3 = (lfoHistPos + 3) % 4;
+            
+                float y0 = lfoHistory[i][i0];
+                float y1 = lfoHistory[i][i1];
+                float y2 = lfoHistory[i][i2];
+                float y3 = lfoHistory[i][i3];
+            
+                float interpolated = lagrange4(y0, y1, y2, y3, t);
+            
+                wonkMod[i] = interpolated * modulationDepth * 0.2f;
+                
+                if (outputs[POLY_OUTPUT].isConnected()) {
+                    outputs[POLY_OUTPUT].setVoltage(wonkMod[i], i);
+                }                
                 outputs[_1_OUTPUT + i].setVoltage(wonkMod[i]);
     
             }//LFO layers

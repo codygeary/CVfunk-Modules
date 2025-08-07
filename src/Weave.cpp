@@ -120,29 +120,29 @@ struct Weave : Module {
     const std::array<std::array<std::string, 16>, 12> Chord_Chart = {{
         // Maj       min        7        Maj7       min7      6        min6       9         Maj9     min9      add9      sus2      sus4       pow       aug        dim
         // Row for C chords
-        {"X32010", "X31013", "X35356", "X32000", "X31313", "X32253", "X31213", "X30310", "X30000", "X30343", "X30010", "X30013", "X33011", "835588", "X32110", "X3454X"},
+        {"X32010", "X31013", "X35356", "X32000", "X31313", "X32253", "X31213", "X30310", "X30000", "X30343", "X32033", "X30013", "X33011", "835588", "X32110", "X3454X"},
         // Row for C# chords
-        {"X43121", "X42120", "X43101", "X43114", "X42100", "X43364", "X42324", "X41101", "X41111", "X41100", "X43142", "X41124", "X44122", "946699", "X43225", "X42020"},
+        {"X43121", "X42120", "X43101", "X43114", "X42100", "X43364", "X42324", "X41101", "X41111", "X41100", "X43141", "X41124", "X44122", "946699", "X43225", "X42020"},
         // Row for D chords
-        {"XX0232", "XX0231", "XX0212", "XX0222", "XX0211", "XX0202", "XX0201", "X52532", "X52222", "X53555", "X20043", "XX0230", "5X0233", "X5023X", "XX0332", "XX0131"},
+        {"XX0232", "XX0231", "XX0212", "XX0222", "XX0211", "XX0202", "XX0201", "X52532", "X52222", "X53555", "X54252", "XX0230", "5X0233", "X5023X", "XX0332", "XX0131"},
         // Row for D# chords
-        {"XX1343", "XX1342", "XX1323", "XX1333", "XX1322", "XX1313", "XX1312", "XX1021", "XX1031", "X64666", "X31161", "XX1341", "XX1344", "XX1346", "XX1003", "XX1242"},
+        {"XX1343", "XX1342", "XX1323", "XX1333", "XX1322", "XX1313", "XX1312", "XX1021", "XX1031", "X64666", "X65363", "XX1341", "XX1344", "XX1346", "XX1003", "XX1242"},
         // Row for E chords
-        {"022100", "022000", "020100", "021100", "020000", "042100", "042000", "020102", "021102", "020002", "022102", "024400", "002200", "022450", "032110", "0120XX"},
+        {"022100", "022000", "020100", "021100", "020000", "042100", "042000", "020102", "021102", "020002", "024100", "024400", "002200", "022450", "032110", "0120XX"},
         // Row for F chords
-        {"133211", "133114", "101211", "102210", "133141", "100211", "130114", "101013", "102010", "131044", "132212", "133011", "133311", "133561", "1X3221", "12310X"},
+        {"133211", "133114", "101211", "102210", "133141", "100211", "130114", "101013", "102010", "131044", "103013", "133011", "133311", "133561", "1X3221", "12310X"},
         // Row for F# chords
-        {"244322", "244225", "XX4320", "XX4321", "202220", "XX4646", "201222", "212122", "213121", "202120", "243323", "XX4124", "244422", "244672", "2X4332", "XX4212"},
+        {"244322", "244225", "XX4320", "XX4321", "202220", "XX4646", "201222", "212122", "213121", "202120", "214122", "XX4124", "244422", "244672", "2X4332", "XX4212"},
         // Row for G chords
-        {"320003", "310033", "320001", "320002", "310031", "320000", "310030", "300001", "300002", "300331", "322102", "300033", "330013", "355033", "321003", "3453XX"},
+        {"320003", "310033", "320001", "320002", "310031", "320000", "310030", "300001", "300002", "300331", "300003", "300033", "330013", "355033", "321003", "3453XX"},
         // Row for G# chords
-        {"431114", "466447", "431112", "431113", "424444", "431141", "421141", "411312", "411313", "XX6476", "465545", "XX6346", "466644", "466144", "XX6554", "420104"},
+        {"431114", "466447", "431112", "431113", "424444", "431141", "421141", "411312", "411313", "XX6476", "411114", "XX6346", "466644", "466144", "XX6554", "420104"},
         // Row for A chords
-        {"X02220", "X02210", "X02020", "X02120", "X02010", "X04220", "X04210", "X02423", "X02424", "X02413", "576656", "X02200", "X00230", "5022X5", "X03221", "XX7545"},
+        {"X02220", "X02210", "X02020", "X02120", "X02010", "X04220", "X04210", "X02423", "X02424", "X02413", "X02420", "X02200", "X00230", "5022X5", "X03221", "XX7545"},
         // Row for A# chords
-        {"X10331", "X13321", "X10131", "X10231", "X13124", "X10031", "X13023", "X10314", "X10211", "XX8698", "687767", "X13311", "X13341", "613366", "X10332", "X12320"},
+        {"X10331", "X13321", "X10131", "X10231", "X13124", "X10031", "X13023", "X10314", "X10211", "XX8698", "633536", "X13311", "X13341", "613366", "X10332", "X12320"},
         // Row for B chords
-        {"X24442", "X24432", "X21202", "X21302", "X20202", "X21102", "X20132", "X21222", "744646", "X20222", "798879", "X24422", "X24452", "799402", "X21003", "X23431"}
+        {"X24442", "X24432", "X21202", "X21302", "X20202", "X21102", "X20132", "X21222", "744646", "X20222", "744647", "X24422", "X24452", "799402", "X21003", "X23431"}
     }};
     // Root offset for alternative bass notes for different chord types (Offset 1)
     const std::array<float, 16> Root_Offset1 = {
@@ -753,12 +753,38 @@ struct WeaveWidget : ModuleWidget {
         }
     }
 
+    bool keyPrefersFlats(int rootIndex) {
+        // rootIndex is 0–11 representing C to B
+        switch (rootIndex) {
+            case 5:  // F
+            case 10: // Bb (A#)
+            case 3:  // Eb (D#)
+            case 8:  // Ab (G#)
+            case 1:  // Db (C#)
+            case 6:  // Gb (F#)
+            case 11: // Cb (B)
+                return true;
+            default:
+                return false;
+        }
+    }
+    
+    const char* getNoteName(int semitone, bool useFlats) {
+        static const char* sharpNames[12] = { "C", "C#", "D", "D#", "E", "F",
+                                              "F#", "G", "G#", "A", "A#", "B" };
+        static const char* flatNames[12]  = { "C", "Db", "D", "Eb", "E", "F",
+                                              "Gb", "G", "Ab", "A", "Bb", "B" };
+        semitone = (semitone % 12 + 12) % 12;
+        return useFlats ? flatNames[semitone] : sharpNames[semitone];
+    }
+
     void draw(const DrawArgs& args) override {
         ModuleWidget::draw(args);
         Weave* module = dynamic_cast<Weave*>(this->module);
         if (!module) return;
-
-        if (chordDisplay) {
+    
+      int rootNoteVal = 0;
+      if (chordDisplay) {
             for (int i=0; i<17; i++){ //blank all chord lights
                 module->lights[Weave::CHORD_1_LIGHT + i].setBrightness(0.0f);
             }
@@ -766,7 +792,7 @@ struct WeaveWidget : ModuleWidget {
                 // Display the current root note and chord type
                 std::string rootNoteNames[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
                 std::string chordTypeNames[16] = {"Maj", "Min", "7", "Maj7", "Min7", "6", "Min6", "9", "Maj9", "Min9", "Add9", "Sus2", "Sus4", "5", "Aug", "Dim"};
-                int rootNoteVal = static_cast<int>(roundf(module->noteValue + 12*module->extOffset));
+                rootNoteVal = static_cast<int>(roundf(module->noteValue + 12*module->extOffset));
                 rootNoteVal = (rootNoteVal % 12 + 12) % 12;
                 std::string rootNote = rootNoteNames[rootNoteVal % 12];
                 std::string chordType = chordTypeNames[module->chordIndex % 16];
@@ -778,32 +804,33 @@ struct WeaveWidget : ModuleWidget {
                 module->lights[Weave::CHORD_1_LIGHT].setBrightness(1.0f);
             }
         }
+    
         // Update note displays with permutation applied
         for (int i = 0; i < 6; i++) {
-            if (noteDisplays[i]) {        
+            if (noteDisplays[i]) {
                 float pitchVoltage = module->finalNotes[i] + module->extOffset;
-        
+    
                 // Compute note name and octave
                 int octave = static_cast<int>(pitchVoltage + 4);
                 double fractionalPart = fmod(pitchVoltage, 1.0);
                 int semitone = std::roundf(fractionalPart * 12);
                 semitone = (semitone % 12 + 12) % 12;
-        
-                // Note names
-                const char* noteNames[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
-                const char* noteName = noteNames[semitone];
-        
-                // Format full note display
+    
+                // Reuse rootNoteVal from chord section if you want consistent accidental style
+                bool useFlats = !keyPrefersFlats(rootNoteVal);  // Use same accidental style as chord
+    
+                const char* noteName = getNoteName(semitone, useFlats);  // <-- Modified
+    
                 char fullNote[7];
-                snprintf(fullNote, sizeof(fullNote), "%s%d", noteName, octave);        
-                
-                // Safe array access with bounds checking
+                snprintf(fullNote, sizeof(fullNote), "%s%d", noteName, octave);
+    
                 int displayIndex = module->currentPermute[i];
                 if (displayIndex >= 0 && displayIndex < 6 && noteDisplays[displayIndex]) {
                     noteDisplays[displayIndex]->text = fullNote;
                 }
             }
-        }
+        } 
+
         // Set lights based on octave state
         if (module->octaveState == 1) {
             module->lights[Weave::OCTAVE_UP_LIGHT].setBrightness(1.0f);

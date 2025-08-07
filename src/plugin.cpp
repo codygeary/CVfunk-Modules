@@ -36,6 +36,7 @@ void init(Plugin* p) {
     p->addModel(modelNode);
     p->addModel(modelWeave);
     p->addModel(modelWonk);
+    p->addModel(modelHammer);
 
     
     // Any other plugin initialization may go here.

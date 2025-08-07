@@ -355,61 +355,62 @@ struct Syncro : Module {
                         resetPulse = false;
                     }
                 } else {
-                if ( ClockTimer[0].time >= (60.0f / (bpm ) ) ){
-                    swingCount++;
-                    if (swingCount > 1.f){
-                        SwingTimer.reset();
-                        swingCount = 0;
-                    }
-                }
-            }
-        }
+					if ( ClockTimer[0].time >= (60.0f / (bpm ) ) ){
+						swingCount++;
+						if (swingCount > 1.f){
+							SwingTimer.reset();
+							swingCount = 0;
+						}
+					}
+				}
+			}
 
-        if (ClockTimer[i].time >= (60.0f / (bpm * ratio[i]))) {
-            ClockTimer[i].reset();
-            
-            if (i < 1) {  // Master clock reset point
-                masterClockCycle++;
-                // Rotate phases
-                for (int k = 1; k < 9; k++) {
-                    int newIndex = (k + clockRotate) % 8;
-                    if (newIndex < 0) {
-                        newIndex += 8; // Adjust for negative values to wrap around correctly
-                    }
-                        tempPhases[newIndex + 1] = phases[k];
-                    }
-                    for (int k = 1; k < 9; k++) {
-                        phases[k] = tempPhases[k];
-                    }
+			if (ClockTimer[i].time >= (60.0f / (bpm * ratio[i]))) {
+			
+				ClockTimer[i].reset();
+				
+				if (i < 1) {  // Master clock reset point
+					masterClockCycle++;
+					// Rotate phases
+					for (int k = 1; k < 9; k++) {
+						int newIndex = (k + clockRotate) % 8;
+						if (newIndex < 0) {
+							newIndex += 8; // Adjust for negative values to wrap around correctly
+						}
+						tempPhases[newIndex + 1] = phases[k];
+					}
+					for (int k = 1; k < 9; k++) {
+						phases[k] = tempPhases[k];
+					}
 
-                    for (int j = 1; j < 9; j++) {
-                        if (masterClockCycle % lcmWithMaster[j] == 0) {
-                           ClockTimer[j].reset();
-                        }
+					for (int j = 1; j < 9; j++) {
+						if (masterClockCycle % lcmWithMaster[j] == 0) {
+						   ClockTimer[j].reset();
+						}
 
-                        if (resyncFlag[j]) {
-                           ClockTimer[j].reset();
-                           resyncFlag[j] = false;
-                        }
+						if (resyncFlag[j]) {
+						   ClockTimer[j].reset();
+						   resyncFlag[j] = false;
+						}
 
-                        int index = (clockRotate + j - 1) % 8;
-                        if (index < 0) {
-                           index += 8; // Adjust for negative values to wrap around correctly
-                        }
+						int index = (clockRotate + j - 1) % 8;
+						if (index < 0) {
+						   index += 8; // Adjust for negative values to wrap around correctly
+						}
 
-                        multiply[j] = std::roundf(params[MULTIPLY_KNOB_1 + index].getValue()) + (fill[j-1] ? fillGlobal : 0);
-                        divide[j] = std::roundf(params[DIVIDE_KNOB_1 + index].getValue());
-                        if (divide[j] <= 0) {
-                            divide[j] = 1.0f; // Now safe to use divide[j] for divisions
-                        }
-                        ratio[j] = multiply[j] / divide[j]; 
+						multiply[j] = std::roundf(params[MULTIPLY_KNOB_1 + index].getValue()) + (fill[j-1] ? fillGlobal : 0);
+						divide[j] = std::roundf(params[DIVIDE_KNOB_1 + index].getValue());
+						if (divide[j] <= 0) {
+							divide[j] = 1.0f; // Now safe to use divide[j] for divisions
+						}
+						ratio[j] = multiply[j] / divide[j]; 
 
-                        if (fill[j] || ratio[j] != multiply[j] / divide[j]) {
-                            resyncFlag[j] = true;
-                        }
-                    }
-                }
-            }
+						if (fill[j] || ratio[j] != multiply[j] / divide[j]) {
+							resyncFlag[j] = true;
+						}
+					}
+				}
+			}
 
             // Apply swing as a global adjustment to the phase increment
             if (bpm <= 0) bpm = 1.0f;  // Ensure bpm is positive and non-zero
@@ -426,7 +427,7 @@ struct Syncro : Module {
 
                     // Compute phase offset from pulse width input
                     float phase_offset = params[WIDTH_KNOB].getValue() + 
-                                         (inputs[WIDTH_INPUT].isConnected() ? 0.1f * inputs[WIDTH_INPUT].getVoltage() * params[WIDTH_ATT].getValue() : 0.0f);
+										 (inputs[WIDTH_INPUT].isConnected() ? 0.1f * inputs[WIDTH_INPUT].getVoltage() * params[WIDTH_ATT].getValue() : 0.0f);
                     phase_offset = clamp(phase_offset, 0.f, 1.0f);
 
                     // Calculate adjusted phase and use fmod for safe modulo operation
