@@ -96,13 +96,18 @@ jobs:
           else
             wget -O Rack-SDK.zip https://vcvrack.com/downloads/Rack-SDK-${{ env.rack-sdk-version }}-mac-arm64.zip
           fi
-          unzip Rack-SDK.zip
-      - name: Build plugin
+          unzip -o Rack-SDK.zip
+      - name: Build plugin (with correct architecture)
         run: |
           export RACK_DIR=$HOME/Rack-SDK
           make clean
           make dep
-          make dist
+          if [[ "${{ matrix.platform }}" == "x64" ]]; then
+            # Use Rosetta to build x64 binary
+            arch -x86_64 make dist
+          else
+            make dist
+          fi
       - name: Get version from plugin.json
         id: get_version
         run: |
