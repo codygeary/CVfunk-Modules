@@ -66,17 +66,18 @@ struct Hammer : Module {
     float lastClockTime = -1.0f;
     float bpm = 120.0f;
     float phase = 0.0f;
-    float multiply[9] = {1.0f}; 
-    float divide[9] = {1.0f};   
-    float ratio[9] = {1.0f};   
-    float disp_multiply[9] = {1.0f}; 
-    float disp_divide[9] = {1.0f};   
+    float multiply[9] = {1.0f,1.0f,1.0f,1.0f,1.0f,1.0f,1.0f,1.0f,1.0f}; 
+    float divide[9] = {1.0f,1.0f,1.0f,1.0f,1.0f,1.0f,1.0f,1.0f,1.0f};   
+    float ratio[9] = {1.0f,1.0f,1.0f,1.0f,1.0f,1.0f,1.0f,1.0f,1.0f};   
+    float disp_multiply[9] = {1.0f,1.0f,1.0f,1.0f,1.0f,1.0f,1.0f,1.0f,1.0f}; 
+    float disp_divide[9] = {1.0f,1.0f,1.0f,1.0f,1.0f,1.0f,1.0f,1.0f,1.0f};   
     float SyncInterval = 1.0f;
+    float PrevSyncInterval = 1.0f;
     float clockRate = 120.0f;
-    float phases[9] = {0.0f};  // Array to store phases for each clock
-    float tempPhases[9] = {0.0f};
+    float phases[9] = {0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};  // Array to store phases for each clock
+    float tempPhases[9] = {0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};
     float swing = 0.f;
-    int outputIndex[8] = {0,1,2,3,4,5,6,7};
+    int outputIndex[8] = {0,1,2,3,4,5,6,7}; //For clock rotation function
 
     int clockRotate = 0;
     int swingCount = 0;
@@ -258,9 +259,9 @@ struct Hammer : Module {
                 
                 // Normal clock processing
                 if (!firstClockPulse) {
+                     PrevSyncInterval = SyncInterval;  //save interval before overwriting it
                      SyncInterval = SyncTimer.time; // Get the accumulated time since the last reset
                 }
-//                 clockPulse.trigger(0.001f);
                 SyncTimer.reset(); // Reset the timer for the next trigger interval measurement
                 phases[0] = 0.0f;
                 ClockTimer[0].reset();
@@ -300,16 +301,22 @@ struct Hammer : Module {
 
         if (onOffCondition) {
             sequenceRunning = !sequenceRunning; // Toggle sequenceRunning
+            if (!sequenceRunning){
+                firstClockPulse = true;
+                PrevSyncInterval = SyncInterval;
+                for (int i = 0; i < 9; i++) {
+                    ClockTimer[i].reset();
+                    outputs[CLOCK_OUTPUT + i].setVoltage(0.f);
+                    lights[CLOCK_LIGHT + i].setBrightness(0.0f);
+                }
+            }
+            if (sequenceRunning){
+                firstClockPulse = true;
+                SyncInterval = PrevSyncInterval; //load sync interval upon start
+            }
         }
 
         lights[ON_OFF_LIGHT].setBrightness(sequenceRunning ? 1.0f : 0.0f);
-
-        if (!sequenceRunning) {
-            deltaTime = 0.f;
-            for (int i = 0; i < 9; i++) {
-                ClockTimer[i].reset();
-            }
-        }
 
         // Calculate the Nyquist frequency and the maximum BPM considering a 128x multiplier
         float maxBPM = (args.sampleRate * 60.0f) / 256.0f;
@@ -322,6 +329,8 @@ struct Hammer : Module {
 
         if (resetCondition) {
             for (int i = 0; i < 9; i++) {
+                firstClockPulse = true;
+                SyncInterval = PrevSyncInterval;
                 ClockTimer[i].reset();
                 outputs[CLOCK_OUTPUT + i].setVoltage(0.f);
                 lights[CLOCK_LIGHT + i].setBrightness(0.0f);
@@ -357,6 +366,16 @@ struct Hammer : Module {
             }
         }
 
+        // Initialize polyphonic output 
+        bool polyConnected = false;
+        if (outputs[POLY_OUTPUT].isConnected()) {
+            outputs[POLY_OUTPUT].setChannels(16);
+            polyConnected = true;
+        } else {
+            polyConnected = false;
+        }          
+
+        //Process each clock channel
         for (int i = 0; i < 9; i++) {
             ClockTimer[i].process(deltaTime);
 
@@ -375,54 +394,53 @@ struct Hammer : Module {
                         resetPulse = false;
                     }
                 } else {
-					if ( ClockTimer[0].time >= (60.0f / (bpm ) ) ){
-						swingCount++;
-						if (swingCount > 1.f){
-							SwingTimer.reset();
-							swingCount = 0;
-						}
-					}
-				}
-			}
+                    if ( ClockTimer[0].time >= (60.0f / (bpm ) ) ){
+                        swingCount++;
+                        if (swingCount > 1.f){
+                            SwingTimer.reset();
+                            swingCount = 0;
+                        }
+                    }
+                }
+            }
 
-			if (ClockTimer[i].time >= (60.0f / (bpm * ratio[i]))) {
-			
-				ClockTimer[i].reset();
-				
-				if (i < 1) {  // Master clock reset point
-					masterClockCycle++;
-					// Rotate phases
-					for (int k = 1; k < 9; k++) {
-						int newIndex = (k + clockRotate) % 8;
-						if (newIndex < 0) {
-							newIndex += 8; // Adjust for negative values to wrap around correctly
-						}
-						tempPhases[newIndex + 1] = phases[k];
-					}
-					for (int k = 1; k < 9; k++) {
-						phases[k] = tempPhases[k];
-					}
+            if (ClockTimer[i].time >= (60.0f / (bpm * ratio[i]))) {
+            
+                ClockTimer[i].reset();
+                
+                if (i < 1) {  // Master clock reset point
+                    masterClockCycle++;
+                    clockPulse.trigger(0.001f);
+                    // Rotate phases
+                    for (int k = 1; k < 9; k++) {
+                        int newIndex = (k + clockRotate) % 8;
+                        if (newIndex < 0) {
+                            newIndex += 8; // Adjust for negative values to wrap around correctly
+                        }
+                        tempPhases[newIndex + 1] = phases[k];
+                    }
+                    for (int k = 1; k < 9; k++) {
+                        phases[k] = tempPhases[k];
+                    }
 
-					for (int j = 1; j < 9; j++) {
-						if (masterClockCycle % lcmWithMaster[j] == 0) {
-						   ClockTimer[j].reset();
-						}
+                    for (int j = 1; j < 9; j++) {
+                        if (masterClockCycle % lcmWithMaster[j] == 0) {
+                           ClockTimer[j].reset();
+                        }
 
-						if (resyncFlag[j]) {
-						   ClockTimer[j].reset();
-						   resyncFlag[j] = false;
-						}
+                        if (resyncFlag[j]) {
+                           ClockTimer[j].reset();
+                           resyncFlag[j] = false;
+                        }
 
-						int index = (clockRotate + j - 1) % 8;
-						if (index < 0) {
-						   index += 8; // Adjust for negative values to wrap around correctly
-						}
+                        int index = (clockRotate + j - 1) % 8;
+                        if (index < 0) {
+                           index += 8; // Adjust for negative values to wrap around correctly
+                        }
 
-// 						ratio[j] = multiply[index] / divide[index]; 
-
-					}
-				}
-			}
+                    }
+                }
+            }
 
             if (bpm <= 0) bpm = 1.0f;  // Ensure bpm is positive and non-zero
             if (ratio[i] <= 0) ratio[i] = 1.0f;  // Ensure ratio is positive and non-zero
@@ -453,22 +471,38 @@ struct Hammer : Module {
                         adjusted_phase += 1.0f;
                     }
 
-                    if (multiply[rot+1]>0){
+                    if (multiply[rot+1]>0 || i==0){
                         outputs[CLOCK_OUTPUT + i].setVoltage(phases[i]*10.f);
                         lights[CLOCK_LIGHT + i].setBrightness(phases[i]);
+                        if (polyConnected && i>0){
+                            outputs[POLY_OUTPUT].setVoltage(phases[i]*10.f, i - 1);           // Channels 0-7
+                            outputs[POLY_OUTPUT].setVoltage(adjusted_phase*10.f, i + 7); // Channels 8-15 (inverted)                        
+                        }
                     } else {
                         outputs[CLOCK_OUTPUT + i].setVoltage(0.f);
                         lights[CLOCK_LIGHT + i].setBrightness(0.f);
+                        if (polyConnected && i>0){
+                            outputs[POLY_OUTPUT].setVoltage(0.f, i - 1);    // Channels 0-7 OFF
+                            outputs[POLY_OUTPUT].setVoltage(10.0f, i + 7); // Channels 8-15 (inverted)                        
+                        }
                     }
                 } else {
-                    if (multiply[rot+1]>0){
+                    if (multiply[rot+1]>0 || i==0){
                         outputs[CLOCK_OUTPUT + i].setVoltage((highState) ? 10.0f : 0.0f);
                         lights[CLOCK_LIGHT + i].setBrightness((highState) ? 1.0f : 0.0f);
+                        if (polyConnected && i>0){
+                            outputs[POLY_OUTPUT].setVoltage((highState) ? 10.0f : 0.0f, i - 1);           // Channels 0-7
+                            outputs[POLY_OUTPUT].setVoltage((highState) ? 0.0f : 10.0f, i + 7); // Channels 8-15 (inverted)                        
+                        }
+
                     } else {
                         outputs[CLOCK_OUTPUT + i].setVoltage( 0.0f);
                         lights[CLOCK_LIGHT + i].setBrightness( 0.0f);
+                        if (polyConnected && i>0){
+                            outputs[POLY_OUTPUT].setVoltage(0.0f, i - 1);           // Channels 0-7
+                            outputs[POLY_OUTPUT].setVoltage(10.f, i + 7); // Channels 8-15 (inverted)                        
+                        }
                     }
-
                 }
 
             } else {
@@ -477,28 +511,6 @@ struct Hammer : Module {
             }
         }
 
-
-//         // Generate 16-channel poly output
-//         // Channels 1-8: Clock outputs (rotated)
-//         // Channels 9-16: Inverted clock outputs (rotated)
-//         if (outputs[POLY_OUTPUT].isConnected()) {
-//             outputs[POLY_OUTPUT].setChannels(16);
-//             
-//             for (int i = 1; i < 9; i++) { // Process channels 1-8
-//                 // Calculate which physical output this logical channel uses
-//                 int outputIndex = i;
-//                 if (i > 0) { // Don't rotate the master clock (channel 0)
-//                     outputIndex = ((i - 1 - clockRotate + 8) % 8) + 1; // Rotate channels 1-8 (fixed direction and wrapping)
-//                 }
-//                 
-//                 // Get the voltage from the corresponding physical output
-//                 float voltage = outputs[CLOCK_OUTPUT + outputIndex].getVoltage();
-//                 
-//                 // Set poly channels: 0-7 for normal, 8-15 for inverted
-//                 outputs[POLY_OUTPUT].setVoltage(voltage, i - 1);           // Channels 0-7
-//                 outputs[POLY_OUTPUT].setVoltage(voltage > 5.0f ? 0.0f : 10.0f, i + 7); // Channels 8-15 (inverted)
-//             }
-//         }  
 
         if (outputs[CHAIN_OUTPUT].isConnected()) {
             
@@ -607,11 +619,11 @@ struct HammerWidget : ModuleWidget {
         addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(9, 32.4)), module, Hammer::CLOCK_OUTPUT)); //Main Clock
         addChild(createLightCentered<SmallLight<YellowLight>>(mm2px(Vec(9-4, 32.4-4)), module, Hammer::CLOCK_LIGHT)); //Main Clock light
 
-        addParam(createParamCentered<TL1105>(mm2px(Vec(9,  92)), module, Hammer::ON_OFF_BUTTON));      
-        addChild(createLightCentered<MediumLight<YellowLight>>(mm2px(Vec(9,  92)), module, Hammer::ON_OFF_LIGHT ));
-        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(9,  100)), module, Hammer::ON_OFF_INPUT));
+        addParam(createParamCentered<TL1105>(mm2px(Vec(9,  108)), module, Hammer::ON_OFF_BUTTON));      
+        addChild(createLightCentered<MediumLight<YellowLight>>(mm2px(Vec(9,  108)), module, Hammer::ON_OFF_LIGHT ));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(9,  115)), module, Hammer::ON_OFF_INPUT));
 
-        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(9,  115)), module, Hammer::EXT_CLOCK_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(38,  115)), module, Hammer::EXT_CLOCK_INPUT));
         addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(21,  115)), module, Hammer::RESET_INPUT));
         addParam(createParamCentered<TL1105>(mm2px(Vec(27.5,  115)), module, Hammer::RESET_BUTTON));
 
@@ -622,11 +634,11 @@ struct HammerWidget : ModuleWidget {
         addParam(createParamCentered<Trimpot>         (Vec(165.25, 42), module, Hammer::CLOCK_ATT));
         addInput(createInputCentered<ThemedPJ301MPort>(Vec(188.58, 42), module, Hammer::CLOCK_INPUT));
 
-        addParam(createParamCentered<RoundBlackKnob>  (Vec(27 ,142), module, Hammer::SWING_KNOB));
+        addParam(createParamCentered<RoundBlackKnob>  (Vec(27 ,142+15), module, Hammer::SWING_KNOB));
 
-        addParam(createParamCentered<RoundBlackKnob>  (Vec(27 ,195), module, Hammer::ROTATE_KNOB));
-        addParam(createParamCentered<Trimpot>         (Vec(27, 195+25.25), module, Hammer::ROTATE_ATT));
-        addInput(createInputCentered<ThemedPJ301MPort>(Vec(27, 195 + 48.58), module, Hammer::ROTATE_INPUT));
+        addParam(createParamCentered<RoundBlackKnob>  (Vec(27 ,195+30), module, Hammer::ROTATE_KNOB));
+        addParam(createParamCentered<Trimpot>         (Vec(27, 195+25.25+30), module, Hammer::ROTATE_ATT));
+        addInput(createInputCentered<ThemedPJ301MPort>(Vec(27, 195 + 48.58+30), module, Hammer::ROTATE_INPUT));
 
         if (module){
             // BPM Display Initialization
