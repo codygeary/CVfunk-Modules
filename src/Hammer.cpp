@@ -418,7 +418,7 @@ struct Hammer : Module {
 						   index += 8; // Adjust for negative values to wrap around correctly
 						}
 
-						ratio[j] = multiply[index] / divide[index]; 
+// 						ratio[j] = multiply[index] / divide[index]; 
 
 					}
 				}
@@ -446,7 +446,7 @@ struct Hammer : Module {
                     phase_offset = clamp(phase_offset, 0.f, 1.0f);
 
                     // Calculate adjusted phase and use fmod for safe modulo operation
-                    float adjusted_phase = fmod(phases[rot] + phase_offset, 1.0f);
+                    float adjusted_phase = fmod(phases[rot+1] + phase_offset, 1.0f);
 
                     // Ensure adjusted_phase is within 0 to 1 range
                     if (adjusted_phase < 0.0f) {
@@ -454,16 +454,16 @@ struct Hammer : Module {
                     }
 
                     if (multiply[rot+1]>0){
-                        outputs[CLOCK_OUTPUT + i].setVoltage(phases[rot]*10.f);
-                        lights[CLOCK_LIGHT + i].setBrightness(phases[rot]);
+                        outputs[CLOCK_OUTPUT + i].setVoltage(phases[i]*10.f);
+                        lights[CLOCK_LIGHT + i].setBrightness(phases[i]);
                     } else {
                         outputs[CLOCK_OUTPUT + i].setVoltage(0.f);
                         lights[CLOCK_LIGHT + i].setBrightness(0.f);
                     }
                 } else {
                     if (multiply[rot+1]>0){
-                        outputs[CLOCK_OUTPUT + i].setVoltage((phases[rot]<0.5f) ? 10.0f : 0.0f);
-                        lights[CLOCK_LIGHT + i].setBrightness((phases[rot]<0.5) ? 1.0f : 0.0f);
+                        outputs[CLOCK_OUTPUT + i].setVoltage((highState) ? 10.0f : 0.0f);
+                        lights[CLOCK_LIGHT + i].setBrightness((highState) ? 1.0f : 0.0f);
                     } else {
                         outputs[CLOCK_OUTPUT + i].setVoltage( 0.0f);
                         lights[CLOCK_LIGHT + i].setBrightness( 0.0f);
