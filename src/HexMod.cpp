@@ -98,9 +98,7 @@ struct HexMod : Module {
     float calculateTargetPhase(int channel, float NodePosition, float deltaTime, float place);
     void adjustLFOPhase(int channel, float targetPhase, float envInfluence, float deltaTime);
     void updateLEDs(int channel, float voltage);
-    
-    float lastTargetVoltages[5] = {0.f, 0.f, 0.f, 0.f, 0.f}; // Initialize with default voltages, assuming start at 0V
-  
+      
     float place[6] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
     float happy_place[6] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
 

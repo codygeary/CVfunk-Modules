@@ -1,3 +1,14 @@
+////////////////////////////////////////////////////////////
+//
+//   Picus
+//
+//   written by Cody Geary
+//   Copyright 2025, MIT License
+//
+//   Seven-stage clock divider and multipler trigger burst sequencer.
+//
+////////////////////////////////////////////////////////////
+
 #include "rack.hpp"
 #include "plugin.hpp"
 #include "digital_display.hpp"
@@ -5,6 +16,9 @@ using namespace rack;
 #include <random>
 #include <map>
 #include <vector>
+
+const int STAGES=7; 
+const int PATTERNS=10;  
 
 struct Picus : Module {
     enum ParamIds {
@@ -51,15 +65,15 @@ struct Picus : Module {
 
         STAGE_1_LIGHT, STAGE_2_LIGHT, STAGE_3_LIGHT,
         STAGE_4_LIGHT, STAGE_5_LIGHT, STAGE_6_LIGHT, STAGE_7_LIGHT,
-
+        DON_LIGHT, KA_LIGHT, END_LIGHT,
         NUM_LIGHTS
     };
 
     dsp::SchmittTrigger clockTrigger, resetTrigger, resetButtonTrigger;
-    dsp::SchmittTrigger xDownTriggers[7], xUpTriggers[7], yDownTriggers[7], yUpTriggers[7];
-    dsp::SchmittTrigger patternTrigger[10], stageTriggers[7];
-    int patternState[10] = {0,0,0,0,0,0,0,0,0,0}; //0=don 1=ka 2=off
-    int patternStages = 10; //total number of stages
+    dsp::SchmittTrigger xDownTriggers[STAGES], xUpTriggers[STAGES], yDownTriggers[STAGES], yUpTriggers[STAGES];
+    dsp::SchmittTrigger patternTrigger[PATTERNS], stageTriggers[STAGES];
+    int patternState[PATTERNS] = {0,0,0,0,0,0,0,0,0,0}; //0=don 1=ka 2=off
+    int patternStages = PATTERNS; //total number of stages
     int patternIndex = 0; //stage in the pattern loop of 10 steps
 
     dsp::Timer syncTimer, beatTimer;
@@ -67,146 +81,131 @@ struct Picus : Module {
     bool syncPoint = false; //keep track of when the sync point is for linking the clocks correct
     float syncInterval = 1.0f;
 
-    DigitalDisplay* ratioDisplays[7] = {nullptr};
+    DigitalDisplay* ratioDisplays[STAGES] = {nullptr};
 
     bool firstPulseReceived = false;
     bool firstSync = true;
     int currentStage = 0;
     int selectedStage = 0; //button-stage selector
-    float multiply[7] = {1.0f,1.0f,1.0f,1.0f,1.0f,1.0f,1.0f};
-    float divide[7] = {1.0f,1.0f,1.0f,1.0f,1.0f,1.0f,1.0f};
-    bool resyncFlag[7] = {false,false,false,false,false,false,false}; 
+    float multiply[STAGES] = {1.0f,1.0f,1.0f,1.0f,1.0f,1.0f,1.0f};
+    float divide[STAGES] = {1.0f,1.0f,1.0f,1.0f,1.0f,1.0f,1.0f};
+    bool resyncFlag[STAGES] = {false,false,false,false,false,false,false}; 
     int beatCount = 0;
     float beatInterval = 1.f;
     float playMode = 0.f;
-    bool endStage = true;
+    bool endPulseAtStage = true;
     bool patternReset = false;
+    bool resetCondition = false;
+    float lastPlayMode = 1.0f;
+    bool blinkDON = false;
+    bool blinkKA = false;
+    bool blinkEND = false;
+
+    int inputSkipper = 0;
+    int inputSkipsTotal = 100; //only process button presses every 1/100 steps as it takes way too much CPU
 
     dsp::PulseGenerator DonPulse, KaPulse, EndPulse;
 
- json_t* dataToJson() override {
-    json_t* rootJ = json_object();
-
-    json_t* patternJ = json_array();
-    for (int i = 0; i < 10; i++) {
-        json_array_append_new(patternJ, json_integer(patternState[i]));
+    json_t* dataToJson() override {
+        json_t* rootJ = json_object();
+    
+        json_t* patternJ = json_array();
+        for (int i = 0; i < PATTERNS; i++) {
+            json_array_append_new(patternJ, json_integer(patternState[i]));
+        }
+        json_object_set_new(rootJ, "patternState", patternJ);
+    
+        json_object_set_new(rootJ, "currentStage", json_integer(currentStage));
+    
+        json_object_set_new(rootJ, "endPulseAtStage", json_boolean(endPulseAtStage));
+        json_object_set_new(rootJ, "patternReset", json_boolean(patternReset));
+    
+        json_object_set_new(rootJ, "selectedStage", json_integer(selectedStage));
+    
+        json_t* multiplyJ = json_array();
+        for (int i = 0; i < STAGES; i++) {
+            json_array_append_new(multiplyJ, json_real(multiply[i]));
+        }
+        json_object_set_new(rootJ, "multiply", multiplyJ);
+    
+        json_t* divideJ = json_array();
+        for (int i = 0; i < STAGES; i++) {
+            json_array_append_new(divideJ, json_real(divide[i]));
+        }
+        json_object_set_new(rootJ, "divide", divideJ);
+    
+        return rootJ;
     }
-    json_object_set_new(rootJ, "patternState", patternJ);
-
-    json_object_set_new(rootJ, "currentStage", json_integer(currentStage));
-
-    json_object_set_new(rootJ, "endStage", json_boolean(endStage));
-    json_object_set_new(rootJ, "patternReset", json_boolean(patternReset));
-
-    json_object_set_new(rootJ, "selectedStage", json_integer(selectedStage));
-
-    json_t* multiplyJ = json_array();
-    for (int i = 0; i < 7; i++) {
-        json_array_append_new(multiplyJ, json_real(multiply[i]));
-    }
-    json_object_set_new(rootJ, "multiply", multiplyJ);
-
-    json_t* divideJ = json_array();
-    for (int i = 0; i < 7; i++) {
-        json_array_append_new(divideJ, json_real(divide[i]));
-    }
-    json_object_set_new(rootJ, "divide", divideJ);
-
-    return rootJ;
-}
-
-void dataFromJson(json_t* rootJ) override {
-    // Load patternState[10]
-    json_t* patternJ = json_object_get(rootJ, "patternState");
-    if (patternJ && json_is_array(patternJ)) {
-        for (size_t i = 0; i < json_array_size(patternJ) && i < 10; i++) {
-            json_t* val = json_array_get(patternJ, i);
-            if (json_is_integer(val)) {
-                patternState[i] = json_integer_value(val);
+    
+    void dataFromJson(json_t* rootJ) override {
+        // Load patternState[10]
+        json_t* patternJ = json_object_get(rootJ, "patternState");
+        if (patternJ && json_is_array(patternJ)) {
+            for (size_t i = 0; i < json_array_size(patternJ) && i < PATTERNS; i++) {
+                json_t* val = json_array_get(patternJ, i);
+                if (json_is_integer(val)) {
+                    patternState[i] = json_integer_value(val);
+                }
+            }
+        }
+    
+        json_t* curStageJ = json_object_get(rootJ, "currentStage");
+        if (curStageJ && json_is_integer(curStageJ)) {
+            currentStage = json_integer_value(curStageJ);
+        }
+    
+        json_t* selStageJ = json_object_get(rootJ, "selectedStage");
+        if (selStageJ && json_is_integer(selStageJ)) {
+            selectedStage = json_integer_value(selStageJ);
+        }
+    
+        json_t* endPulseAtStageJ = json_object_get(rootJ, "endPulseAtStage");
+        if (endPulseAtStageJ) {
+            endPulseAtStage = json_boolean_value(endPulseAtStageJ);
+        }
+    
+        json_t* patternResetJ = json_object_get(rootJ, "patternReset");
+        if (patternResetJ) {
+            patternReset = json_boolean_value(patternResetJ);
+        }
+    
+        json_t* multiplyJ = json_object_get(rootJ, "multiply");
+        if (multiplyJ && json_is_array(multiplyJ)) {
+            for (size_t i = 0; i < json_array_size(multiplyJ) && i < STAGES; i++) {
+                json_t* val = json_array_get(multiplyJ, i);
+                if (json_is_number(val)) {
+                    multiply[i] = json_number_value(val);
+                }
+            }
+        }
+    
+        // Load divide[7]
+        json_t* divideJ = json_object_get(rootJ, "divide");
+        if (divideJ && json_is_array(divideJ)) {
+            for (size_t i = 0; i < json_array_size(divideJ) && i < STAGES; i++) {
+                json_t* val = json_array_get(divideJ, i);
+                if (json_is_number(val)) {
+                    divide[i] = json_number_value(val);
+                }
             }
         }
     }
-
-    json_t* curStageJ = json_object_get(rootJ, "currentStage");
-    if (curStageJ && json_is_integer(curStageJ)) {
-        currentStage = json_integer_value(curStageJ);
-    }
-
-    json_t* selStageJ = json_object_get(rootJ, "selectedStage");
-    if (selStageJ && json_is_integer(selStageJ)) {
-        selectedStage = json_integer_value(selStageJ);
-        selectedStage = clamp(selectedStage, 0, 6); 
-    }
-
-    json_t* endStageJ = json_object_get(rootJ, "endStage");
-    if (endStageJ) {
-        endStage = json_boolean_value(endStageJ);
-    }
-
-    json_t* patternResetJ = json_object_get(rootJ, "patternReset");
-    if (patternResetJ) {
-        patternReset = json_boolean_value(patternResetJ);
-    }
-
-    json_t* multiplyJ = json_object_get(rootJ, "multiply");
-    if (multiplyJ && json_is_array(multiplyJ)) {
-        for (size_t i = 0; i < json_array_size(multiplyJ) && i < 7; i++) {
-            json_t* val = json_array_get(multiplyJ, i);
-            if (json_is_number(val)) {
-                multiply[i] = json_number_value(val);
-            }
-        }
-    }
-
-    // Load divide[7]
-    json_t* divideJ = json_object_get(rootJ, "divide");
-    if (divideJ && json_is_array(divideJ)) {
-        for (size_t i = 0; i < json_array_size(divideJ) && i < 7; i++) {
-            json_t* val = json_array_get(divideJ, i);
-            if (json_is_number(val)) {
-                divide[i] = json_number_value(val);
-            }
-        }
-    }
-}
 
     Picus() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTS, NUM_LIGHTS);
 
-        configParam(X1D_BUTTON, 0.f, 1.f, 0.f, "X1 Down");
-        configParam(X1U_BUTTON, 0.f, 1.f, 0.f, "X1 Up");
-        configParam(Y1D_BUTTON, 0.f, 1.f, 0.f, "Y1 Down");
-        configParam(Y1U_BUTTON, 0.f, 1.f, 0.f, "Y1 Up");
-        configParam(X2D_BUTTON, 0.f, 1.f, 0.f, "X2 Down");
-        configParam(X2U_BUTTON, 0.f, 1.f, 0.f, "X2 Up");
-        configParam(Y2D_BUTTON, 0.f, 1.f, 0.f, "Y2 Down");
-        configParam(Y2U_BUTTON, 0.f, 1.f, 0.f, "Y2 Up");
-        configParam(X3D_BUTTON, 0.f, 1.f, 0.f, "X3 Down");
-        configParam(X3U_BUTTON, 0.f, 1.f, 0.f, "X3 Up");
-        configParam(Y3D_BUTTON, 0.f, 1.f, 0.f, "Y3 Down");
-        configParam(Y3U_BUTTON, 0.f, 1.f, 0.f, "Y3 Up");
-        configParam(X4D_BUTTON, 0.f, 1.f, 0.f, "X4 Down");
-        configParam(X4U_BUTTON, 0.f, 1.f, 0.f, "X4 Up");
-        configParam(Y4D_BUTTON, 0.f, 1.f, 0.f, "Y4 Down");
-        configParam(Y4U_BUTTON, 0.f, 1.f, 0.f, "Y4 Up");
-        configParam(X5D_BUTTON, 0.f, 1.f, 0.f, "X5 Down");
-        configParam(X5U_BUTTON, 0.f, 1.f, 0.f, "X5 Up");
-        configParam(Y5D_BUTTON, 0.f, 1.f, 0.f, "Y5 Down");
-        configParam(Y5U_BUTTON, 0.f, 1.f, 0.f, "Y5 Up");
-        configParam(X6D_BUTTON, 0.f, 1.f, 0.f, "X6 Down");
-        configParam(X6U_BUTTON, 0.f, 1.f, 0.f, "X6 Up");
-        configParam(Y6D_BUTTON, 0.f, 1.f, 0.f, "Y6 Down");
-        configParam(Y6U_BUTTON, 0.f, 1.f, 0.f, "Y6 Up");
-        configParam(X7D_BUTTON, 0.f, 1.f, 0.f, "X7 Down");
-        configParam(X7U_BUTTON, 0.f, 1.f, 0.f, "X7 Up");
-        configParam(Y7D_BUTTON, 0.f, 1.f, 0.f, "Y7 Down");
-        configParam(Y7U_BUTTON, 0.f, 1.f, 0.f, "Y7 Up");
+        for (int i=0; i<STAGES; i++){
+            configParam(X1D_BUTTON+4*i, 0.f, 1.f, 0.f, "X Down Ch." + std::to_string(i+1) );
+            configParam(X1U_BUTTON+4*i, 0.f, 1.f, 0.f, "X Up Ch." + std::to_string(i+1) );
+            configParam(Y1D_BUTTON+4*i, 0.f, 1.f, 0.f, "Y Down Ch." + std::to_string(i+1) );
+            configParam(Y1U_BUTTON+4*i, 0.f, 1.f, 0.f, "Y Up Ch." + std::to_string(i+1) );
+        }
         configParam(RESET_BUTTON, 0.f, 1.f, 0.f, "Reset");
 
-        for (int i = 0; i < 10; ++i) {
+        for (int i = 0; i < PATTERNS; ++i) {
             configParam(PAT_1_BUTTON + i, 0.f, 1.f, 0.f, "Pulse Pattern " + std::to_string(i+1));
         }
-        for (int i = 0; i < 7; ++i) {
+        for (int i = 0; i < STAGES; ++i) {
             configParam(STAGE_1_BUTTON + i, 0.f, 1.f, 0.f, "Stage Select " + std::to_string(i+1));
         }
 
@@ -214,7 +213,7 @@ void dataFromJson(json_t* rootJ) override {
         configParam(PATTERN_ATT, -1.f, 1.f, 1.f, "Pattern Input Attenuator");
 
         configSwitch(ON_SWITCH, 0.0, 2.0, 1.0, "Play Mode", {"OFF", "ON", "ONE-SHOT"});
-        configInput(CLOCK_INPUT, "Clock");
+        configInput(CLOCK_INPUT, "Clock Input \n (Also accepts CHAIN link from Hammer) \n");
         configInput(RESET_INPUT, "Reset");
         configInput(PATTERN_INPUT, "Pattern Length");
 
@@ -224,57 +223,89 @@ void dataFromJson(json_t* rootJ) override {
 
     }
 
-    void onReset(const ResetEvent& e) override {
+   void onReset(const ResetEvent& e) override {
         // Reset all parameters
         Module::onReset(e);
     
         // Reset custom state variables
-        for (int i = 0; i < 7; ++i) {
+        for (int i = 0; i < STAGES; ++i) {
             multiply[i] = 1.0f;
             divide[i] = 1.0f;
         }
     
-        for (int i = 0; i < 10; ++i) {
+        for (int i = 0; i < PATTERNS; ++i) {
             patternState[i] = 0;
         }
     }
     
     void onRandomize(const RandomizeEvent& e) override {
 
-        params[PATTERN_KNOB].setValue(10*random::uniform());
+        params[PATTERN_KNOB].setValue(PATTERNS*random::uniform());
 
         // Randomize custom state variables
-        for (int i = 0; i < 7; ++i) {
+        for (int i = 0; i < STAGES; ++i) {
             multiply[i] = random::uniform() * 12.0f;     // 0–32
             divide[i] = random::uniform() * 8.0f + 1.0;        // 1–9
         }
     
-        for (int i = 0; i < 10; ++i) {
+        for (int i = 0; i < PATTERNS; ++i) {
             patternState[i] = random::u32() % 3;         // 0, 1, or 2
         }
-    }
+    } 
 
     void process(const ProcessArgs& args) override {
 
         //Process ON/OFF Switch
         playMode = params[ON_SWITCH].getValue();
-        if (playMode > 0.f){
-            float deltaTime = args.sampleTime;
-            syncTimer.process(deltaTime);
-            beatTimer.process(deltaTime);
-        }
+        if (lastPlayMode == 0.f) lastPlayMode = 1.f;  //this mode can only be 1 or 2, but default is 1
+        
+        float deltaTime = args.sampleTime;
+        syncTimer.process(deltaTime);
+        beatTimer.process(deltaTime);
 
         // Clock handling logic
         syncPoint = false; // reset syncing flag
         bool externalClockConnected = inputs[CLOCK_INPUT].isConnected();
-        if (externalClockConnected && clockTrigger.process(inputs[CLOCK_INPUT].getVoltage() - 0.1f)) {
-            if (firstPulseReceived) {
-                syncInterval = syncTimer.time;
-                syncTimer.reset();
-                syncPoint = true;
-                firstSync = false;
+        if (externalClockConnected){
+        
+            float ClockInputVoltage = inputs[CLOCK_INPUT].getVoltage();
+
+            if (abs(ClockInputVoltage - 10.42f) < 0.1f) { //RESET VOLTAGE for CVfunk Chain function
+                resetCondition = true;
+            } else { resetCondition = false;}
+        
+            if (clockTrigger.process(ClockInputVoltage - 0.1f) ) {
+                if (abs(ClockInputVoltage - 10.69f) < 0.1f) {  //ON VOLTAGE for CVfunk Chain function
+                    if (playMode>0.f){
+                        lastPlayMode = playMode;
+                        paramQuantities[ON_SWITCH]->setDisplayValue(playMode);
+                    } else {
+                        playMode = lastPlayMode;
+                        paramQuantities[ON_SWITCH]->setDisplayValue(playMode);
+                    }
+                    return; // Don't process as normal clock
+                }
+
+                if (abs(ClockInputVoltage - 10.86f) < 0.1f) {  //OFF VOLTAGE for CVfunk Chain function
+                    if (playMode>0.f){
+                        lastPlayMode = playMode;  //if already playing save the current mode as the toggle
+                        playMode = 0.f;  //turn OFF
+                        paramQuantities[ON_SWITCH]->setDisplayValue(playMode);
+                    } else {
+                        playMode = 0.f;  //turn OFF
+                        paramQuantities[ON_SWITCH]->setDisplayValue(playMode);
+                    }
+                    return; // Don't process as normal clock
+                }
+                
+                if (firstPulseReceived) {
+                    syncInterval = syncTimer.time;
+                    syncTimer.reset();
+                    syncPoint = true;
+                    firstSync = false;
+                }
+                firstPulseReceived = true;
             }
-            firstPulseReceived = true;
         }
 
         // Process Pattern Knob
@@ -287,31 +318,38 @@ void dataFromJson(json_t* rootJ) override {
         if (patternIndex >= patternStages) patternIndex = 0;
 
         // Process Ratio Buttons
-        for (int i = 0; i < 7; i++) {
-            if (xDownTriggers[i].process(params[X1D_BUTTON + i * 4].getValue())) { multiply[i] -= 1.f; resyncFlag[i]=true;}
-            if (xUpTriggers[i].process(params[X1U_BUTTON + i * 4].getValue()))   { multiply[i] += 1.f; resyncFlag[i]=true;}
-            if (yDownTriggers[i].process(params[Y1D_BUTTON + i * 4].getValue())) { divide[i] -= 1.f; resyncFlag[i]=true;}
-            if (yUpTriggers[i].process(params[Y1U_BUTTON + i * 4].getValue()))   { divide[i] += 1.f; resyncFlag[i]=true;}
-            multiply[i] = clamp(multiply[i],0.0f,99.0f);
-            divide[i] = clamp(divide[i],0.0f, 9.0f); // divide[i] can be zero! So we have to be careful to actually de-activate the stage when we set it to zero.
-
-            //Process Stage Selection Buttons
-            if (stageTriggers[i].process(params[STAGE_1_BUTTON + i].getValue())) selectedStage = i;
+        inputSkipper++;
+        if (inputSkipper > inputSkipsTotal){ //Process button inputs infrequently to reduce CPU load. 
+        
+            for (int i = 0; i < 7; i++) {
+                if (xDownTriggers[i].process(params[X1D_BUTTON + i * 4].getValue())) { multiply[i] -= 1.f; resyncFlag[i]=true;}
+                if (xUpTriggers[i].process(params[X1U_BUTTON + i * 4].getValue()))   { multiply[i] += 1.f; resyncFlag[i]=true;}
+                if (yDownTriggers[i].process(params[Y1D_BUTTON + i * 4].getValue())) { divide[i] -= 1.f; resyncFlag[i]=true;}
+                if (yUpTriggers[i].process(params[Y1U_BUTTON + i * 4].getValue()))   { divide[i] += 1.f; resyncFlag[i]=true;}
+                multiply[i] = clamp(multiply[i],0.0f,99.0f);
+                divide[i] = clamp(divide[i],0.0f, 99.0f); // divide[i] can be zero! So we have to be careful to actually de-activate the stage when we set it to zero.
+    
+                //Process Stage Selection Buttons
+                if (stageTriggers[i].process(params[STAGE_1_BUTTON + i].getValue())) selectedStage = i;
+            }
+            
+            inputSkipper = 0;            
         }
-        divide[0] = clamp(divide[0],1.f,9.f); // The top stage cannot be turned off, limited to 1 instead of 0.
+        divide[0] = clamp(divide[0],1.f,99.f); // The top stage cannot be turned off, limited to 1 instead of 0.
                                               // if (divide[i]==0.f) the stage is OFF
                                               // if (multiply[i]==0.f) the stage is muted.
 
         // Handle Stage Selection Syncing Priority
-        if (syncPoint && (currentStage != selectedStage)){
+        if (syncPoint && (currentStage != selectedStage) && playMode > 0.f){
             beatCount = 0;
             currentStage = selectedStage;
             beatTimer.reset(); // <-- Here Reset the Beat Timer
             syncPoint = false; //reset sync flag
-            if (endStage) EndPulse.trigger(0.001f);
+            if (endPulseAtStage) EndPulse.trigger(0.001f);
+            blinkEND = true;
             patternIndex++;
             if (patternReset) patternIndex=0;
-            patternIndex = clamp(patternIndex, 0, patternStages - 1); //clamp patternIndex before use
+            if (patternIndex >= patternStages) patternIndex = 0;
             if (patternState[patternIndex]==0) DonPulse.trigger(0.001f);
             if (patternState[patternIndex]==1) KaPulse.trigger(0.001f);
         }
@@ -320,27 +358,28 @@ void dataFromJson(json_t* rootJ) override {
         if (syncPoint && playMode > 0.f){
             beatCount++;
             if (firstSync) beatCount = 0; // Reset beat count on the first clock sync
-            int stageLength = static_cast<int>(std::floor(divide[currentStage])); //use floor to prevent rounding errors
+            int stageLength = static_cast<int>(divide[currentStage]);
             if (beatCount >= stageLength ){
                 beatCount = 0;
                 currentStage++;
                 selectedStage++;
                 beatTimer.reset(); // <-- Reset the Beat Timer
-                if (endStage) EndPulse.trigger(0.001f);
+                if (endPulseAtStage) {EndPulse.trigger(0.001f); blinkEND = true;}
                 patternIndex++;
                 if (patternReset) patternIndex=0;
-                patternIndex = clamp(patternIndex, 0, patternStages - 1); //clamp patternIndex before use
+                if (patternIndex >= patternStages) patternIndex = 0;
                 if (patternState[patternIndex]==0) DonPulse.trigger(0.001f);
                 if (patternState[patternIndex]==1) KaPulse.trigger(0.001f);
 
                 // Advance to next active stage
-                for (int i = 0; i < 7; i++) { // max 7 iterations to prevent infinite loop
-                    if (currentStage >= 7) {
+                for (int i = 0; i < STAGES; i++) { 
+                    if (currentStage >= STAGES) { //Stage Wrap-Around Point
                         currentStage = 0;
-                        if (!endStage) EndPulse.trigger(0.001f);                        
+                        if (!endPulseAtStage) { EndPulse.trigger(0.001f); blinkEND = true; }                                           
                         if (playMode == 2.0) { //one-shot mode
                             paramQuantities[ON_SWITCH]->setDisplayValue(0.0f);
                             playMode = 0.f;
+                            lastPlayMode = 2.0;
                         }
                     }
                     if (divide[currentStage] != 0) break;
@@ -352,7 +391,7 @@ void dataFromJson(json_t* rootJ) override {
         }
 
         // Beat Computing
-        if (divide[currentStage]>0.001f && multiply[currentStage]>0.001f && (!firstSync) && playMode > 0.f){
+        if (divide[currentStage]>0.f && multiply[currentStage]>0.f && (!firstSync) && playMode > 0.f){
             if (syncPoint || resyncFlag[currentStage]){
                 resyncFlag[currentStage] = false;
                 beatInterval = (divide[currentStage]*syncInterval)/multiply[currentStage];
@@ -360,18 +399,25 @@ void dataFromJson(json_t* rootJ) override {
             if (beatTimer.time >= beatInterval && playMode > 0.f && externalClockConnected){
                 beatTimer.reset();
                 patternIndex++;
-                patternIndex = clamp(patternIndex, 0, patternStages - 1); //clamp patternIndex before use
+                if (patternIndex >= patternStages) patternIndex = 0;
                 if (patternState[patternIndex]==0) DonPulse.trigger(0.001f);
                 if (patternState[patternIndex]==1) KaPulse.trigger(0.001f);
             }
         }
 
-        //Beat Outputs
-        bool DonActive = DonPulse.process(args.sampleTime);
-        bool KaActive = KaPulse.process(args.sampleTime);
-        bool EndActive = EndPulse.process(args.sampleTime);
+        //Beat Outputs      
+        bool DonActive = false;
+        bool KaActive = false;
+        bool EndActive = false;
+        
+        if (DonPulse.process(args.sampleTime)){ DonActive = true; blinkDON = true;}
+        if (KaPulse.process(args.sampleTime)) { KaActive = true; blinkKA = true;}
+        if (EndPulse.process(args.sampleTime)){ EndActive = true; blinkEND = true;}
 
-        if (divide[currentStage]>0.001f && multiply[currentStage]>0.001f && playMode > 0.f ){
+        KaPulse.process(args.sampleTime);
+        EndPulse.process(args.sampleTime);
+
+        if (divide[currentStage]>0.f && multiply[currentStage]>0.f && playMode > 0.f ){
             outputs[DON_OUTPUT].setVoltage(DonActive ? 10.f : 0.f);
             outputs[KA_OUTPUT].setVoltage(KaActive ? 10.f : 0.f);
         }
@@ -382,70 +428,23 @@ void dataFromJson(json_t* rootJ) override {
         if (inputs[RESET_INPUT].isConnected()){
             if(resetTrigger.process(inputs[RESET_INPUT].getVoltage()-0.1f)) reset = true;
         }
-        if (reset){
+        if (reset || resetCondition){
             currentStage = 0;
             selectedStage = 0;
             beatTimer.reset();
+            firstPulseReceived = false;
             patternIndex = 0;
             EndPulse.trigger(0.001f);
-            firstPulseReceived = false;  //reset the two clock syncing flags
-            firstSync = true;
-            patternIndex = clamp(patternIndex, 0, patternStages - 1); //clamp patternIndex before use
-            if (patternState[patternIndex]==0) DonPulse.trigger(0.001f);
-            if (patternState[patternIndex]==1) KaPulse.trigger(0.001f);
         }
 
         // Handle Pattern Buttons
-        for (int i = 0; i < 10; i++){
+        for (int i = 0; i < PATTERNS; i++){
             if(patternTrigger[i].process( params[PAT_1_BUTTON+i].getValue())){
                 patternState[i]++;
                 if (patternState[i]>2) patternState[i]=0;
             }
-            if (i < patternStages){
-                if (patternState[i] == 0){ //state=0 main
-                    lights[PAT_1_BIG_LIGHT + i + 10].value = 0.f; //blue-off
-                    lights[PAT_1_BIG_LIGHT + i + 20].value = 0.f; //red-off
-                    if (i == patternIndex){
-                        lights[PAT_1_BIG_LIGHT + i].value = 1.f; //large white(0-9)
-                    } else {
-                        lights[PAT_1_BIG_LIGHT + i].value = 0.3f;
-                    }
-                } else if (patternState[i] == 1){ //state=1 accent
-                    lights[PAT_1_BIG_LIGHT + i].value = 0.f; //white-off
-                    lights[PAT_1_BIG_LIGHT + i + 20].value = 0.f; //red-off
-                    if (i == patternIndex){
-                        lights[PAT_1_BIG_LIGHT + i + 10].value = 1.f;  //medium blue(10-19)
-                    } else {
-                        lights[PAT_1_BIG_LIGHT + i + 10].value = 0.3f;
-                    }
-                } else { //state=2 off
-                    lights[PAT_1_BIG_LIGHT + i].value = 0.f; //white-off
-                    lights[PAT_1_BIG_LIGHT + i + 10].value = 0.f; //blue-off
-                    if (i == patternIndex){
-                        lights[PAT_1_BIG_LIGHT + i + 20].value = 1.f; //small red(20-29)
-                    } else {
-                        lights[PAT_1_BIG_LIGHT + i + 20].value = 0.3f;
-                    }
-                }
-            } else {
-                    lights[PAT_1_BIG_LIGHT + i].value = 0.f; //off
-                    lights[PAT_1_BIG_LIGHT + i + 10].value = 0.f;
-                    lights[PAT_1_BIG_LIGHT + i + 20].value = 0.f;
-            }
+            
         }
-
-        // Stage Lights
-        for (int i = 0; i < 28; i++){ //blank out the old stage lights
-            lights[STAGE_1A_LIGHT + i].value = 0.f;
-            if (i < 7) lights[STAGE_1_LIGHT + i].value = 0.f; //only ten of these, so make sure not to go out of array bounds
-        }
-        selectedStage = clamp(selectedStage, 0, 6); //clamp stage in case bad data loaded from JSON
-        lights[STAGE_1_LIGHT + selectedStage].value = 1.0f; //illuminate selected stage.
-        // Compute Current Stage
-        lights[STAGE_1A_LIGHT + 4*currentStage].value = 0.3f; //illuminate current stage
-        lights[STAGE_1B_LIGHT + 4*currentStage].value = 0.3f;
-        lights[STAGE_1C_LIGHT + 4*currentStage].value = 0.3f;
-        lights[STAGE_1D_LIGHT + 4*currentStage].value = 0.3f;
 
     }//end process
 };
@@ -550,6 +549,10 @@ struct PicusWidget : ModuleWidget {
         addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(42, 115)), module, Picus::KA_OUTPUT));
         addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(52, 115)), module, Picus::END_OUTPUT));
 
+        addChild(createLightCentered<SmallLight<WhiteLight>>(mm2px(Vec(32-4, 115-4)), module, (Picus::DON_LIGHT)));
+        addChild(createLightCentered<SmallLight<BlueLight>>(mm2px(Vec(42-4, 115-4)), module, (Picus::KA_LIGHT)));
+        addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(52-4, 115-4)), module, (Picus::END_LIGHT)));
+
         addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(68,  115)), module, Picus::PATTERN_INPUT));
 
         addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(68, 95)), module, Picus::PATTERN_KNOB));
@@ -584,10 +587,10 @@ struct PicusWidget : ModuleWidget {
         struct GateOutputMenuItem : MenuItem {
             Picus* picusModule;
             void onAction(const event::Action& e) override {
-                picusModule->endStage = !picusModule->endStage;
+                picusModule->endPulseAtStage = !picusModule->endPulseAtStage;
             }
             void step() override {
-                rightText = picusModule->endStage ? "stage end ✔" : "sequence end ✔";
+                rightText = picusModule->endPulseAtStage ? "stage end ✔" : "sequence end ✔";
                 MenuItem::step();
             }
         };
@@ -638,7 +641,83 @@ struct PicusWidget : ModuleWidget {
                 }
             }
         }
-    }
+        
+        // Handle LIGHTS
+        for (int i = 0; i < 10; i++){
+            if (i < module->patternStages){
+                if (module->patternState[i] == 0){ //state=0 main
+                    module->lights[Picus::PAT_1_BIG_LIGHT + i + 10].setBrightness( 0.f); //blue-off
+                    module->lights[Picus::PAT_1_BIG_LIGHT + i + 20].setBrightness( 0.f); //red-off
+                    if (i == module->patternIndex){
+                        module->lights[Picus::PAT_1_BIG_LIGHT + i].setBrightness( 1.f); //large white(0-9)
+                    } else {
+                        module->lights[Picus::PAT_1_BIG_LIGHT + i].setBrightness( 0.25f);
+                    }
+                } else if (module->patternState[i] == 1){ //state=1 accent
+                    module->lights[Picus::PAT_1_BIG_LIGHT + i].setBrightness( 0.f); //white-off
+                    module->lights[Picus::PAT_1_BIG_LIGHT + i + 20].setBrightness( 0.f); //red-off
+                    if (i == module->patternIndex){
+                        module->lights[Picus::PAT_1_BIG_LIGHT + i + 10].setBrightness( 1.f);  //medium blue(10-19)
+                    } else {
+                        module->lights[Picus::PAT_1_BIG_LIGHT + i + 10].setBrightness( 0.25f);
+                    }
+                } else { //state=2 off
+                    module->lights[Picus::PAT_1_BIG_LIGHT + i].setBrightness( 0.f); //white-off
+                    module->lights[Picus::PAT_1_BIG_LIGHT + i + 10].setBrightness( 0.f); //blue-off
+                    if (i == module->patternIndex){
+                        module->lights[Picus::PAT_1_BIG_LIGHT + i + 20].setBrightness( 1.f); //small red(20-29)
+                    } else {
+                        module->lights[Picus::PAT_1_BIG_LIGHT + i + 20].setBrightness( 0.25f);
+                    }
+                }
+            } else {
+                    module->lights[Picus::PAT_1_BIG_LIGHT + i].setBrightness( 0.f); //off
+                    module->lights[Picus::PAT_1_BIG_LIGHT + i + 10].setBrightness( 0.f);
+                    module->lights[Picus::PAT_1_BIG_LIGHT + i + 20].setBrightness( 0.f);
+            }
+        }
+
+        // Stage Lights
+        for (int i = 0; i < 28; i++){ // blank out 7 stages * 4 buttons
+            module->lights[Picus::STAGE_1A_LIGHT + i].setBrightness( 0.f);
+        }
+        for (int i = 0; i < 7; i++){ //7 stage lights
+            module->lights[Picus::STAGE_1_LIGHT + i].setBrightness( 0.f); 
+        }
+
+
+        module->selectedStage = clamp(module->selectedStage, 0, 6); //clamp stage in case bad data loaded from JSON
+        module->lights[Picus::STAGE_1_LIGHT + module->selectedStage].setBrightness( 1.0f); //illuminate selected stage.
+        // Compute Current Stage
+        module->lights[Picus::STAGE_1A_LIGHT + 4*module->currentStage].setBrightness( 0.3f); //illuminate current stage
+        module->lights[Picus::STAGE_1B_LIGHT + 4*module->currentStage].setBrightness( 0.3f);
+        module->lights[Picus::STAGE_1C_LIGHT + 4*module->currentStage].setBrightness( 0.3f);
+        module->lights[Picus::STAGE_1D_LIGHT + 4*module->currentStage].setBrightness( 0.3f);        
+
+        if (module->blinkDON){
+            module->blinkDON= false; //reset blink token
+            module->lights[Picus::DON_LIGHT].setBrightness( 1.f);
+        } else {
+            float dim = module->lights[Picus::DON_LIGHT].getBrightness();
+            module->lights[Picus::DON_LIGHT].setBrightness( dim * .8f);
+        }          
+
+        if (module->blinkKA){
+            module->blinkKA = false; //reset blink token
+            module->lights[Picus::KA_LIGHT].setBrightness( 1.f);
+        } else {
+            float dim = module->lights[Picus::KA_LIGHT].getBrightness();
+            module->lights[Picus::KA_LIGHT].setBrightness( dim * .8f);
+        }          
+
+        if (module->blinkEND){
+            module->blinkEND = false; //reset blink token
+            module->lights[Picus::END_LIGHT].setBrightness( 1.f);
+        } else {
+            float dim = module->lights[Picus::END_LIGHT].getBrightness();
+            module->lights[Picus::END_LIGHT].setBrightness( dim * .8f);
+        }          
+    }  
 
     DigitalDisplay* createDigitalDisplay(Vec position, std::string initialValue) {
         DigitalDisplay* display = new DigitalDisplay();

@@ -65,9 +65,9 @@
      borderopacity="1.0"
      inkscape:pageopacity="0.0"
      inkscape:pageshadow="2"
-     inkscape:zoom="1.31"
-     inkscape:cx="137.78626"
-     inkscape:cy="242.74809"
+     inkscape:zoom="2.0149341"
+     inkscape:cx="156.08451"
+     inkscape:cy="110.67359"
      inkscape:document-units="mm"
      inkscape:current-layer="svg8"
      showgrid="false"
@@ -78,7 +78,7 @@
      inkscape:snap-bbox-edge-midpoints="false"
      inkscape:window-width="1340"
      inkscape:window-height="916"
-     inkscape:window-x="184"
+     inkscape:window-x="116"
      inkscape:window-y="38"
      inkscape:window-maximized="0"
      inkscape:snap-bbox-midpoints="true"
@@ -86,7 +86,7 @@
      inkscape:showpageshadow="2"
      inkscape:pagecheckerboard="0"
      inkscape:deskcolor="#d1d1d1"
-     showguides="true"><sodipodi:guide
+     showguides="false"><sodipodi:guide
        position="-32.455556,114.74169"
        orientation="1,0"
        id="guide11520"
@@ -430,7 +430,7 @@
      aria-label="REPEAT PATTERN"
      id="text12550"
      style="font-size:3.175px;font-family:Menlo-BoldItalic, Menlo, monospace;-inkscape-font-specification:'Menlo-BoldItalic, Menlo, monospace';text-align:center;text-anchor:middle;fill:#ffffff;stroke-width:0.352777;stroke-linecap:round;paint-order:fill markers stroke"
-     transform="translate(0,-3.7122455)"><path
+     transform="translate(0,-2.6539121)"><path
        d="m 26.258686,27.292671 q 0.111621,0.0217 0.178284,0.10387 0.06821,0.08216 0.151929,0.356567 l 0.187585,0.63252 h -0.311609 l -0.164331,-0.584461 q -0.06821,-0.241845 -0.153479,-0.31781 -0.08372,-0.07596 -0.254248,-0.07596 h -0.297656 l -0.190686,0.978235 h -0.31471 L 25.5378,26.07104 h 0.644922 q 0.320911,0 0.496094,0.139527 0.176733,0.137976 0.176733,0.390674 0,0.283703 -0.16123,0.469738 -0.159681,0.186035 -0.435633,0.221692 z m -0.454236,-0.964282 -0.158129,0.821655 h 0.339514 q 0.252697,0 0.403076,-0.131775 0.151929,-0.133325 0.151929,-0.353466 0,-0.173633 -0.09767,-0.254248 -0.09767,-0.08217 -0.308508,-0.08217 z"
        style="font-style:italic;font-family:Menlo;-inkscape-font-specification:'Menlo Italic';stroke-width:0.352778"
        id="path24410" /><path
@@ -665,4 +665,12 @@
        id="path841" /><path
        d="M 20.275315,32.424912 21.20239,30.40488 h 0.333313 l -1.114661,2.314587 H 20.021067 L 19.793174,30.40488 h 0.306958 z"
        style="fill:#ffffff;stroke-width:0.352778"
-       id="path843" /></g></svg>
+       id="path843" /></g><rect
+     style="opacity:1;fill:none;stroke:#d08c59;stroke-width:0.35513;stroke-linecap:square;stroke-opacity:1;paint-order:fill markers stroke"
+     id="rect4881"
+     width="65.321869"
+     height="12.146869"
+     x="4.9595652"
+     y="9.9125643"
+     rx="1.9999996"
+     ry="2" /></svg>
