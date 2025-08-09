@@ -95,6 +95,13 @@ struct Hammer : Module {
     int fillGlobal = 0;
     int masterClockCycle = 0;
 
+    //for sample-based clocking
+    uint64_t masterSampleCounter = 0; // counts audio samples between master ticks
+    uint64_t processSampleCounter = 0; // counts process cycles
+    uint64_t masterClockLength = (uint64_t)std::round(APP->engine->getSampleRate());
+    uint64_t swingOffsetSamples = 0;
+
+
     bool resyncFlag[9] = {false,false,false,false,false,false,false,false,false};
     bool firstClockPulse = true;
     bool sequenceRunning = true;
@@ -241,6 +248,14 @@ struct Hammer : Module {
 
     void process(const ProcessArgs& args) override {
 
+        masterSampleCounter++;
+        processSampleCounter++;
+        double deltaTime = args.sampleTime;
+
+        // Process timers
+        SyncTimer.process(deltaTime);
+        SwingTimer.process(deltaTime);
+
         // Process Swing and Rotate Inputs
         swing = params[SWING_KNOB].getValue();
 
@@ -269,22 +284,28 @@ struct Hammer : Module {
                     return; // Don't process as normal clock
                 }
 
-                // Normal clock processing
                 if (!firstClockPulse) {
-                     PrevSyncInterval = SyncInterval;  //save interval before overwriting it
-                     SyncInterval = SyncTimer.time; // Get the accumulated time since the last reset
+                    PrevSyncInterval = SyncInterval;  //save interval before overwriting it
+                    SyncInterval = SyncTimer.time; // Get the accumulated time since the last reset
+
+                    if (masterSampleCounter > 0) {
+                        // args.sampleRate * 60 / samples == BPM
+                        bpm = static_cast<float>((args.sampleRate * 60.0) / static_cast<double>(masterSampleCounter));
+                        masterClockLength = masterSampleCounter;
+                    }
                 }
+                masterSampleCounter = 0; // restart counting for next tick
 
                 SyncTimer.reset(); // Reset the timer for the next trigger interval measurement
+                
                 clockPulse.trigger(args.sampleTime);  //Trigger Pulse for Chain Connection
                 phases[0] = 0.0f;
                 ClockTimer[0].reset();
                 resetPulse = true;
                 firstClockPulse = false;
             }
-            bpm = (SyncInterval > 0.0001f) ? (60.f / SyncInterval) : 120.f; // Use default 120 BPM if SyncInterval is zero
 
-        } else {
+        } else { // Internally clock instead
             // Calculate phase increment
             if ( clockCVAsVoct && inputs[CLOCK_INPUT].isConnected() ) {
                 float input_v_oct = inputs[CLOCK_INPUT].getVoltage();//ignore the attenuator in this mode
@@ -292,18 +313,15 @@ struct Hammer : Module {
                 bpm = 120.f * powf(2.f, input_v_oct);
             } else {
                 bpm = params[CLOCK_KNOB].getValue() + (inputs[CLOCK_INPUT].isConnected() ? 10.f * inputs[CLOCK_INPUT].getVoltage() * params[CLOCK_ATT].getValue() : 0.0f);
+                // samples = args.sampleRate*60/BPM
+                masterClockLength = static_cast<int>(std::roundf((args.sampleRate * 60) / bpm));
             }
         }
-
-        double deltaTime = args.sampleTime;
-
-        // Process timers
-        SyncTimer.process(deltaTime);
-        SwingTimer.process(deltaTime);
 
         // Compute swing
         SwingPhase = SwingTimer.time / (120.0 / bpm);
         if (swing != 0.f) deltaTime *= (1.0 + (swing / 100.0) * cos(2.0 * M_PI * SwingPhase));
+        if (swing != 0.f) swingOffsetSamples = (swing/100.0) * masterClockLength * 0.5f * cos(2.0 * M_PI * SwingPhase);
 
         // Check for on/off input or on/off button
         if (inputs[ON_OFF_INPUT].isConnected()) {
@@ -416,11 +434,13 @@ struct Hammer : Module {
                 }
             }
 
-            if (ClockTimer[i].time >= (60.0f / (bpm * ratio[i]))) {
-
-                ClockTimer[i].reset();
-
-                if (i < 1) {  // Master clock reset point
+            if ( (ClockTimer[i].time >= (60.0f / (bpm * ratio[i]))) && i>0) ClockTimer[i].reset();  //Process Channels via timer for continuous swing
+            
+            if (processSampleCounter >= (masterClockLength) ){  //Process Master via samples for higher precision where it counts most
+                processSampleCounter = 0;
+    
+                ClockTimer[0].reset(); //Process master clock with straight sample-based clock and swing offset
+                if (i == 0) {  // Master clock reset point
                     masterClockCycle++;
                     clockPulse.trigger(args.sampleTime);  //Trigger Pulse for Chain Connection
                     // Rotate phases
@@ -454,18 +474,19 @@ struct Hammer : Module {
             // compute normalized phase (ClockTimer reset ensures phase < 1.0)
             float phaseDenominator = 60.0f / (bpm * ratio[i]);
             phases[i] = ClockTimer[i].time / phaseDenominator;
-
-            // Compute rotation source index: src is channel index in 1..CHANNELS for channels >0
-            int srcIndex; // corresponds to rotated source channel number (1..CHANNELS) for i>0
-            if (i == 0) {
-                srcIndex = 0;
-            } else {
-                int tmp = clockRotate + i - 1;          // tmp in possibly 0..(2*CHANNELS-2)
-                if (tmp >= CHANNELS) tmp -= CHANNELS;  // fast modulo for small range
-                // no need to handle negative tmp here because clockRotate is 0..CHANNELS-1
-                srcIndex = tmp + 1;                    // convert to 1..CHANNELS
-            }
             
+            // Compute rotation source index: src is channel index in 1..CHANNELS for i>0
+            // This section is more CPU efficient than the previous method using fmod
+            int srcIndex;
+            if (i == 0) {
+                srcIndex = 0; // master channel never rotates
+            } else {
+                // ensure rotation wraps cleanly in both directions
+                int tmp = (clockRotate + (i - 1)) % CHANNELS; // tmp in 0..CHANNELS-1
+                if (tmp < 0) tmp += CHANNELS;                 // handle negative rotation
+                srcIndex = tmp + 1;                           // convert to 1..CHANNELS
+            }
+           
             // highState read uses already-normalized phases
             bool highState = (i == 0) ? (phases[0] < 0.5f) : (phases[srcIndex] < 0.5f);
  
@@ -474,7 +495,7 @@ struct Hammer : Module {
                     // Phasor mode: compute adjusted phase only when needed (and avoid fmod)
                     float phase_offset = 0.5f;
     
-                    if (multiply[(i == 0) ? 0 : srcIndex] > 0.0f || i == 0) {
+                    if (multiply[srcIndex] > 0.0f || i == 0) {
                         // fetch the source phase
                         float srcPhase = (i == 0) ? phases[0] : phases[srcIndex];
                         float adjusted_phase = srcPhase + phase_offset;
@@ -494,7 +515,7 @@ struct Hammer : Module {
                         }
                     }
                 } else {
-                    if (multiply[(i == 0) ? 0 : srcIndex] > 0.0f || i == 0) {
+                    if (multiply[srcIndex] > 0.0f || i == 0) {
                         outputs[CLOCK_OUTPUT + i].setVoltage(highState ? 10.0f : 0.0f);
                         if (polyConnected && i > 0) {
                             outputs[POLY_OUTPUT].setVoltage(highState ? 10.0f : 0.0f, i - 1);
