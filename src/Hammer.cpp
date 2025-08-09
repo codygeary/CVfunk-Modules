@@ -100,6 +100,7 @@ struct Hammer : Module {
     uint64_t processSampleCounter = 0; // counts process cycles
     uint64_t masterClockLength = (uint64_t)std::round(APP->engine->getSampleRate());
     uint64_t swingOffsetSamples = 0;
+    double masterClockError = 0.0; // accumulates fractional sample drift
 
 
     bool resyncFlag[9] = {false,false,false,false,false,false,false,false,false};
@@ -109,19 +110,19 @@ struct Hammer : Module {
     bool clockCVAsVoct = false;
     bool clockCVAsBPM = true;
     bool resetPulse = false;
+    bool syncPoint = false;
 
     bool onOffCondition = false;
     bool resetCondition = false;
-    bool remoteToggle = false;
+    bool remoteOFF = false;
+    bool remoteON = false;
 
     bool lastResetState = false;
     bool lastSequenceRunning = true;
-    dsp::PulseGenerator chainReset, chainOnOff, clockPulse, resetPulseGen;
+    dsp::PulseGenerator chainReset, chainON, chainOFF, clockPulse, resetPulseGen;
 
     int inputSkipper = 0;
     int inputSkipsTotal = 100; //only process button presses every 1/100 steps as it takes way too much CPU
-    int lightSkipper = 0;
-    int lightSkipsTotal = 1000; //only light one out of every 1000 frames.
 
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
@@ -207,7 +208,7 @@ struct Hammer : Module {
         configParam(SWING_KNOB, -99.0f, 99.0f, 0.0f, "Swing", " %");
 
         // Configure inputs and outputs
-        configInput(EXT_CLOCK_INPUT, "External Clock");
+        configInput(EXT_CLOCK_INPUT, "Ext. Clock Input \n (Also accepts CHAIN from Hammer.) \n");
         configInput(RESET_INPUT, "Reset");
         configInput(ON_OFF_INPUT, "ON/OFF");
         configOutput(CLOCK_OUTPUT, "Main Clock");
@@ -215,9 +216,9 @@ struct Hammer : Module {
             configOutput(CLOCK_OUTPUT_1+i, "Clock " + std::to_string(i+1) );
         }
         configOutput(POLY_OUTPUT, "Poly Clock Out \n Ch 1-8 Clock Gate Outs \n Ch 9-16 Inverted Gate Outs");
-        configOutput(CHAIN_OUTPUT, "Chains to the EXT CLOCK of other Hammers to control them.");
+        configOutput(CHAIN_OUTPUT, "CHAIN links to CLOCK input of Hammer or Picus.\n CHAIN");
 
-        configInput(CLOCK_INPUT , "Clock" );
+        configInput(CLOCK_INPUT, "Clock" );
         configInput(ROTATE_INPUT , "Rotation" );
         configParam(RESET_BUTTON, 0.0, 1.0, 0.0, "Reset" );
         configParam(ON_OFF_BUTTON, 0.0, 1.0, 0.0, "On / Off " );
@@ -266,6 +267,7 @@ struct Hammer : Module {
         // Flags for resetting and on/off switch
         onOffCondition = false;
         resetCondition = false;
+        syncPoint = false;
 
         // Process clock sync input
         if (inputs[EXT_CLOCK_INPUT].isConnected()) {
@@ -277,10 +279,17 @@ struct Hammer : Module {
             } else { resetCondition = false;}
 
             if (SyncTrigger.process(SyncInputVoltage)) {
+                syncPoint = true;
+                
                 // Check for special control voltages first
-                if (abs(SyncInputVoltage - 10.86f) < 0.1f) {  //ON OFF VOLTAGE for CVfunk Chain function
+                if (abs(SyncInputVoltage - 10.69f) < 0.1f) {  //ON VOLTAGE for CVfunk Chain function
                     // Toggle On/Off signal received from chain
-                    remoteToggle = true;
+                    remoteON = true;
+                    return; // Don't process as normal clock
+                }
+                if (abs(SyncInputVoltage - 10.86f) < 0.1f) {  //OFF VOLTAGE for CVfunk Chain function
+                    // Toggle On/Off signal received from chain
+                    remoteOFF = true;
                     return; // Don't process as normal clock
                 }
 
@@ -306,16 +315,34 @@ struct Hammer : Module {
             }
 
         } else { // Internally clock instead
-            // Calculate phase increment
-            if ( clockCVAsVoct && inputs[CLOCK_INPUT].isConnected() ) {
-                float input_v_oct = inputs[CLOCK_INPUT].getVoltage();//ignore the attenuator in this mode
-                // Process input_v_oct into BPM using V/Oct scale centered on 120 BPM
+            if (clockCVAsVoct && inputs[CLOCK_INPUT].isConnected()) {
+                float input_v_oct = inputs[CLOCK_INPUT].getVoltage();
                 bpm = 120.f * powf(2.f, input_v_oct);
             } else {
-                bpm = params[CLOCK_KNOB].getValue() + (inputs[CLOCK_INPUT].isConnected() ? 10.f * inputs[CLOCK_INPUT].getVoltage() * params[CLOCK_ATT].getValue() : 0.0f);
-                // samples = args.sampleRate*60/BPM
-                masterClockLength = static_cast<int>(std::roundf((args.sampleRate * 60) / bpm));
-            }
+                bpm = params[CLOCK_KNOB].getValue() +
+                      (inputs[CLOCK_INPUT].isConnected()
+                           ? 10.f * inputs[CLOCK_INPUT].getVoltage() * params[CLOCK_ATT].getValue()
+                           : 0.0f);
+            
+                // Compute ideal samples per cycle as double for precision
+                double exactSamples = (args.sampleRate * 60.0) / static_cast<double>(bpm);
+                double integerPart;
+                double fractionalPart = modf(exactSamples, &integerPart);
+            
+                // Accumulate fractional error
+                masterClockError += fractionalPart;
+            
+                // Adjust integer part when enough fractional error has built up
+                if (masterClockError >= 1.0) {
+                    integerPart += 1.0;
+                    masterClockError -= 1.0;
+                } else if (masterClockError <= -1.0) {
+                    integerPart -= 1.0;
+                    masterClockError += 1.0;
+                }
+            
+                masterClockLength = static_cast<uint64_t>(integerPart);
+            } 
         }
 
         // Compute swing
@@ -331,10 +358,14 @@ struct Hammer : Module {
         }
 
         // Process ON/OFF Toggling
-        if (remoteToggle || onOffCondition) {
-
-            remoteToggle = false; //reset remote Toggle (since it returns and escapes the process)
+        if (remoteON || remoteOFF || onOffCondition) {
             sequenceRunning = !sequenceRunning; // Toggle sequenceRunning
+
+            if (remoteON) sequenceRunning = true; //remote directly controls instead of toggle
+            if (remoteOFF) sequenceRunning = false;
+            
+            remoteON = false;
+            remoteOFF = false; //reset tokens
 
             if (sequenceRunning){ //sequencer just started again
                 for (int i = 0; i < (CHANNELS+1); i++) {
@@ -436,7 +467,7 @@ struct Hammer : Module {
 
             if ( (ClockTimer[i].time >= (60.0f / (bpm * ratio[i]))) && i>0) ClockTimer[i].reset();  //Process Channels via timer for continuous swing
             
-            if (processSampleCounter >= (masterClockLength) ){  //Process Master via samples for higher precision where it counts most
+            if ( (processSampleCounter >= (masterClockLength)) || syncPoint ){  //Process Master via samples for higher precision where it counts most  //OR at Sync Points!
                 processSampleCounter = 0;
     
                 ClockTimer[0].reset(); //Process master clock with straight sample-based clock and swing offset
@@ -543,7 +574,11 @@ struct Hammer : Module {
             }
             // Check for on/off state change
             else if (sequenceRunning != lastSequenceRunning) {
-                chainOnOff.trigger(args.sampleTime);
+                if (sequenceRunning) {
+                    chainON.trigger(args.sampleTime);
+                } else {
+                    chainOFF.trigger(args.sampleTime);
+                }
             }
             lastResetState = currentResetState;
             lastSequenceRunning = sequenceRunning;
@@ -551,13 +586,17 @@ struct Hammer : Module {
 
         //Chain Outputs
         bool ResetActive = (params[RESET_BUTTON].getValue()>0.1f || resetPulseGen.process(args.sampleTime) );
-        bool OnOffActive = chainOnOff.process(args.sampleTime);
+        bool OnActive = chainON.process(args.sampleTime);
+        bool OffActive = chainOFF.process(args.sampleTime);
+
         bool ClockPulseActive = clockPulse.process(args.sampleTime);
 
         outputs[CHAIN_OUTPUT].setVoltage(0.0f);
         if (ClockPulseActive) outputs[CHAIN_OUTPUT].setVoltage(5.0f);
         if (ResetActive) outputs[CHAIN_OUTPUT].setVoltage(10.42f);
-        if (OnOffActive) outputs[CHAIN_OUTPUT].setVoltage(10.86f);
+        if (OnActive) outputs[CHAIN_OUTPUT].setVoltage(10.69f);
+        if (OffActive) outputs[CHAIN_OUTPUT].setVoltage(10.86f);
+
 
         if (deltaTime <= 0) {
             deltaTime = 1.0f / 48000.0f;  // Assume a default sample rate if deltaTime is zero to avoid division by zero
