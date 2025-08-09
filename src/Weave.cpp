@@ -769,14 +769,6 @@ struct WeaveWidget : ModuleWidget {
         }
     }
     
-    const char* getNoteName(int semitone, bool useFlats) {
-        static const char* sharpNames[12] = { "C", "C#", "D", "D#", "E", "F",
-                                              "F#", "G", "G#", "A", "A#", "B" };
-        static const char* flatNames[12]  = { "C", "Db", "D", "Eb", "E", "F",
-                                              "Gb", "G", "Ab", "A", "Bb", "B" };
-        semitone = (semitone % 12 + 12) % 12;
-        return useFlats ? flatNames[semitone] : sharpNames[semitone];
-    }
 
     void draw(const DrawArgs& args) override {
         ModuleWidget::draw(args);
@@ -784,13 +776,13 @@ struct WeaveWidget : ModuleWidget {
         if (!module) return;
     
       int rootNoteVal = 0;
+      std::string rootNoteNames[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
       if (chordDisplay) {
             for (int i=0; i<17; i++){ //blank all chord lights
                 module->lights[Weave::CHORD_1_LIGHT + i].setBrightness(0.0f);
             }
             if (module->chordIndex >= 0 && module->noteValue >= 0) {
                 // Display the current root note and chord type
-                std::string rootNoteNames[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
                 std::string chordTypeNames[16] = {"Maj", "Min", "7", "Maj7", "Min7", "6", "Min6", "9", "Maj9", "Min9", "Add9", "Sus2", "Sus4", "5", "Aug", "Dim"};
                 rootNoteVal = static_cast<int>(roundf(module->noteValue + 12*module->extOffset));
                 rootNoteVal = (rootNoteVal % 12 + 12) % 12;
@@ -807,30 +799,31 @@ struct WeaveWidget : ModuleWidget {
     
         // Update note displays with permutation applied
         for (int i = 0; i < 6; i++) {
-            if (noteDisplays[i]) {
+            if (noteDisplays[i]) {        
                 float pitchVoltage = module->finalNotes[i] + module->extOffset;
-    
+        
                 // Compute note name and octave
                 int octave = static_cast<int>(pitchVoltage + 4);
                 double fractionalPart = fmod(pitchVoltage, 1.0);
                 int semitone = std::roundf(fractionalPart * 12);
                 semitone = (semitone % 12 + 12) % 12;
-    
-                // Reuse rootNoteVal from chord section if you want consistent accidental style
-                bool useFlats = !keyPrefersFlats(rootNoteVal);  // Use same accidental style as chord
-    
-                const char* noteName = getNoteName(semitone, useFlats);  // <-- Modified
-    
+        
+                // Note names
+                const char* noteNames[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+                const char* noteName = noteNames[semitone];
+        
+                // Format full note display
                 char fullNote[7];
-                snprintf(fullNote, sizeof(fullNote), "%s%d", noteName, octave);
-    
+                snprintf(fullNote, sizeof(fullNote), "%s%d", noteName, octave);        
+                
+                // Safe array access with bounds checking
                 int displayIndex = module->currentPermute[i];
                 if (displayIndex >= 0 && displayIndex < 6 && noteDisplays[displayIndex]) {
                     noteDisplays[displayIndex]->text = fullNote;
                 }
             }
-        } 
-
+        }
+        
         // Set lights based on octave state
         if (module->octaveState == 1) {
             module->lights[Weave::OCTAVE_UP_LIGHT].setBrightness(1.0f);
