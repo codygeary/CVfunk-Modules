@@ -1064,11 +1064,11 @@ struct CartesiaWidget : ModuleWidget {
                 if (module->quantize){
                     // Compute the note name of the note and the octave
                     float pitchVoltage = module->finalNotes[i];
-                    int octave = static_cast<int>(pitchVoltage + 4);  // The integer part represents the octave
 
-                    // Calculate the semitone
-                    double fractionalPart = fmod(pitchVoltage, 1.0);
-                    int semitone = std::roundf(fractionalPart * 12);
+                    int totalSemitones = std::roundf(pitchVoltage * 12.0f);
+                    int semitone = (totalSemitones % 12 + 12) % 12;
+                    int octave = totalSemitones / 12 + 4;  // Adjust to match 0V = C4
+
                     semitone = (semitone % 12 + 12) % 12;  // Ensure it's a valid semitone (0 to 11)
 
                     // Define the note names
@@ -1093,7 +1093,7 @@ struct CartesiaWidget : ModuleWidget {
             if (module->quantize){
                 // Compute the note name of the note and the octave
                 float pitchVoltage = module->knobMin;
-                int octave = static_cast<int>(pitchVoltage + 4);  // The integer part represents the octave
+                int octave = static_cast<int>(std::roundf(pitchVoltage) + 4);  // The integer part represents the octave
 
                 // Calculate the semitone
                 double fractionalPart = fmod(pitchVoltage, 1.0);
@@ -1120,7 +1120,7 @@ struct CartesiaWidget : ModuleWidget {
             if (module->quantize){
                 // Compute the note name of the note and the octave
                 float pitchVoltage = fmin(module->knobMin + module->knobRange, 10.f);
-                int octave = static_cast<int>(pitchVoltage + 4);  // The integer part represents the octave
+                int octave = static_cast<int>(std::roundf(pitchVoltage) + 4);  // The integer part represents the octave
 
                 // Calculate the semitone
                 double fractionalPart = fmod(pitchVoltage, 1.0);

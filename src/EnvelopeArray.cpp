@@ -98,13 +98,13 @@ struct EnvelopeArray : Module {
     float gate_no_output[6] = {0.0f,0.0f,0.0f,0.0f,0.0f,0.0f}; // Initialize with all elements set to true
 
     // Initialize variables for trigger detection
-    dsp::SchmittTrigger Trigger[6];
+    dsp::SchmittTrigger Trigger[6], triggerButton;
 
     int processSkipCounter = 0;
     int processSkipRate = 10;  // Skip some cycles to save CPU
     bool prevEnablePolyOut = false;  // Track the previous state
 
-    bool retrigEnabled = false;
+    bool retrigEnabled = true;
     bool enablePolyOut = false;
 
     //poly logic
@@ -353,8 +353,6 @@ struct EnvelopeArray : Module {
                 }
             }
 
-
-
             // loop over six stage parts:
             for (int part = 0; part < 6; part++) {
 
@@ -397,7 +395,7 @@ struct EnvelopeArray : Module {
                 }
 
                 // Set gate for the current part
-                if ( Trigger[part].process(in_trig[part]) ) {
+                if ( Trigger[part].process(in_trig[part]) || (triggerButton.process(params[TRIGGER_BUTTON].getValue() && part ==0) ) ) {
                     // Open the gate if the current part's trigger is detected
                     // and it is not already outputting, or it can self-trigger
                     if (gate_no_output[part] == 10.0f ) {
@@ -470,9 +468,6 @@ struct EnvelopeArray : Module {
     
                 //Compute next interpolation chunk
                 next_chunk[part] = (out[part] - current_out[part]);
-
-                lights[_1_LIGHT + part].setBrightness(out[part] / 10.0);
-                lights[_1_LIGHT + 6 + part].setBrightness(gate_no_output[part] / 10.0);
 
             } // for (int part, ... )
         }//if (++processSkipCounter...        
@@ -660,7 +655,18 @@ struct EnvelopeArrayWidget : ModuleWidget {
         polyOutItem->envelopeArrayModule = envelopeArrayModule;
         menu->addChild(polyOutItem);
     }
-    
+
+    void draw(const DrawArgs& args) override {
+        ModuleWidget::draw(args);
+        EnvelopeArray* module = dynamic_cast<EnvelopeArray*>(this->module);
+        if (!module) return;
+
+        for (int part = 0; part < 6; part++){
+            module->lights[EnvelopeArray::_1_LIGHT + part].setBrightness(module->out[part] / 10.0);
+            module->lights[EnvelopeArray::_1_LIGHT + 6 + part].setBrightness(module->gate_no_output[part] / 10.0);
+        }
+
+    }       
 };
 
 Model* modelEnvelopeArray = createModel<EnvelopeArray, EnvelopeArrayWidget>("EnvelopeArray");

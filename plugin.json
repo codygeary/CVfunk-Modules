@@ -1,7 +1,7 @@
 {
   "slug": "CVfunk",
   "name": "CV funk Modules",
-  "version": "2.0.22",
+  "version": "2.0.23",
   "license": "MIT",
   "brand": "CV funk",
   "author": "Cody Geary",
@@ -275,6 +275,15 @@
         "Clock generator",
         "Clock modulator"
       ]
-    }
+    },
+    {
+      "slug": "Hub",
+      "name": "Hub",
+      "description": "Two animated knob macro controllers with gain, offset, and knob range CV control.",
+      "tags": [
+        "Voltage-controlled amplifier",
+        "Utility"
+      ]
+    }   
   ]
 }
