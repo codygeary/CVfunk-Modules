@@ -28,15 +28,11 @@ struct Wonk : Module {
     }
 
     enum ParamId {
-        RATE_ATT,
-        RATE_KNOB,
-        WONK_KNOB,
-        WONK_ATT,
+        RATE_ATT, RATE_KNOB,
+        WONK_ATT, WONK_KNOB, 
         POS_KNOB,
-        NODES_ATT,
-        NODES_KNOB,
-        MOD_DEPTH_ATT,
-        MOD_DEPTH,
+        NODES_ATT, NODES_KNOB,
+        MOD_DEPTH_ATT, MOD_DEPTH,
         RESET_BUTTON,
         PARAMS_LEN
     };
@@ -50,12 +46,9 @@ struct Wonk : Module {
         INPUTS_LEN
     };
     enum OutputId {
-        _1_OUTPUT,
-        _2_OUTPUT,
-        _3_OUTPUT,
-        _4_OUTPUT,
-        _5_OUTPUT,
-        _6_OUTPUT,
+        _1_OUTPUT, _2_OUTPUT,
+        _3_OUTPUT, _4_OUTPUT,
+        _5_OUTPUT, _6_OUTPUT,
         POLY_OUTPUT,
         OUTPUTS_LEN
     };
@@ -69,6 +62,7 @@ struct Wonk : Module {
 
     bool syncPoint = false; 
     float syncInterval = 1.0f;
+    float prevSyncInterval = 1.0f;
 
     float freqHz = 1.0f; //frequency in Hz
     bool firstPulseReceived = false;
@@ -91,7 +85,6 @@ struct Wonk : Module {
     float nextChunk[6] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
     int SINprocessCounter = 0; // Counter to track process cycles
     int SkipProcesses = 4; //Number of process cycles to skip for the sine calculation
-    float currentOutput[6] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
     float lfoHistory[6][4] = {}; // ring buffer of last 4 sine values per channel
     int lfoHistPos = 0; // 0 to 3 ring buffer position
 
@@ -99,7 +92,8 @@ struct Wonk : Module {
     float rawwonkMod[6] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f}; //store the raw value
     bool modClockSync = false; //Sync the modulation bus to the master clock instead of stage clock
     float modulationDepth = 5.0f;
-
+    bool resetCondition = false;
+    bool syncActive = false;
     dsp::PulseGenerator syncPulse;
 
     Wonk() {
@@ -135,38 +129,68 @@ struct Wonk : Module {
 
         float deltaTime = args.sampleTime;
         syncTimer.process(deltaTime);
+        
+        resetCondition = false; //remote reset token
+        syncPoint = false; //internal reset-sync token
 
         // Clock handling logic
         bool externalClockConnected = inputs[CLOCK_INPUT].isConnected();
-        if (externalClockConnected && clockTrigger.process(inputs[CLOCK_INPUT].getVoltage() - 0.1f)) {
-            if (firstPulseReceived) {
-                syncInterval = syncTimer.time;
-                syncTimer.reset();
-                firstSync = false;
+        if (externalClockConnected ) {
+            float SyncInputVoltage = inputs[CLOCK_INPUT].getVoltage();
+    
+            if (abs(SyncInputVoltage - 10.42f) < 0.1f) { //RESET VOLTAGE for CVfunk Chain function
+                syncPoint = true;
+                syncInterval = prevSyncInterval;
+                firstSync = true;
+                firstPulseReceived = false;
+                resetCondition = true;
             }
-            firstPulseReceived = true;
+    
+            if (clockTrigger.process(SyncInputVoltage - 0.1f)) {
+                
+                // Check for special control voltages first
+                if (abs(SyncInputVoltage - 10.69f) < 0.1f) {  //ON VOLTAGE for CVfunk Chain function
+                    syncPoint = true;
+                    syncInterval = prevSyncInterval;
+                    firstSync = true;
+                    firstPulseReceived = false;
+                    return; // Don't process as normal clock
+                }
+                if (abs(SyncInputVoltage - 10.86f) < 0.1f) {  //OFF VOLTAGE for CVfunk Chain function
+                    syncInterval = prevSyncInterval;
+                    firstSync = true;
+                    firstPulseReceived = false;
+                    return; // Don't process as normal clock
+                }
+
+                // Compute SYNC INTERVAL here
+                if (firstPulseReceived) {
+                    prevSyncInterval = syncInterval;  //save interval before overwriting it
+                    syncInterval = syncTimer.time;
+                    syncTimer.reset();
+                    firstSync = false;                
+                }
+                firstPulseReceived = true;
+            }
         }
         
-
         freqHz = 1.0f/fmax(syncInterval, 0.0001f); //limit syncInterval to avoid div by zero.
 
         // Resetting Logic
         bool resetConnected = inputs[RESET_INPUT].isConnected();
-        syncPoint = false;
-        if (resetConnected && resetTrigger.process(inputs[RESET_INPUT].getVoltage() - 0.1f)) syncPoint = true;
-        if (resetButton.process(params[RESET_BUTTON].getValue())) syncPoint = true;
+        if (resetConnected && resetTrigger.process(inputs[RESET_INPUT].getVoltage() - 0.1f)) syncPoint = true; //Sync on Reset Trigger
+        if (resetButton.process(params[RESET_BUTTON].getValue())) syncPoint = true; //Sync on Reset Button Press
+        if (resetCondition) syncPoint = true; //Reset on chain reset signal
+        
         if (syncPoint) syncPulse.trigger(0.2f);
-        bool syncActive = syncPulse.process(args.sampleTime);
-        if (syncActive) {
-            lights[RESET_LIGHT].setBrightness(1.0f);
-        } else {
-            lights[RESET_LIGHT].setBrightness(0.f);
-        }
+        
+        syncActive = syncPulse.process(args.sampleTime);
 
         // Compute Modulation Depth
         modulationDepth = params[MOD_DEPTH].getValue();
         if (inputs[MOD_DEPTH_INPUT].isConnected()){
-            modulationDepth = clamp (inputs[MOD_DEPTH_INPUT].getVoltage() * params[MOD_DEPTH_ATT].getValue() * 0.5f + modulationDepth, 0.f, 5.f); //map 0-10V to 5V.
+            modulationDepth = clamp (
+                inputs[MOD_DEPTH_INPUT].getVoltage() * params[MOD_DEPTH_ATT].getValue() * 0.5f + modulationDepth, 0.f, 5.f); //map 0-10V to 5V.
         } 
 
         processSkipper++;
@@ -187,7 +211,6 @@ struct Wonk : Module {
         if (modulationDepth > 0.0f){ // skip the whole LFO logic if mod depth is 0
 
             SINprocessCounter++;  //Skip some SINE computations to save CPU  
-            float currentOutput[6] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
             float rawRate = params[RATE_KNOB].getValue(); 
             if (inputs[RATE_INPUT].isConnected()) {
                 rawRate = inputs[RATE_INPUT].getVoltage() * params[RATE_ATT].getValue() + rawRate;
@@ -206,7 +229,7 @@ struct Wonk : Module {
                 rate = 1.0f;
             }
     
-            rate = rate * freqHz; 
+            rate = rate * freqHz; //convert from multiple to rate in Hz
     
             float nodePosition = params[NODES_KNOB].getValue();
             if (inputs[NODES_INPUT].isConnected()){
@@ -262,9 +285,9 @@ struct Wonk : Module {
                     targetPhase = linearInterpolate(trimodalPhase, bimodalPhase, blendFactor); // Blend trimodal behavior
                 }
     
-                if (syncPoint ){
-                    place[i] = 0.0f;
-                    lfoPhase[i] = targetPhase;
+                if (syncPoint ){ // SYNC
+                    place[i] = 0.0f; //Reset place to zero
+                    lfoPhase[i] = targetPhase; //Reset phase to computed node positions
                 }
     
                 targetPhase += place[i];
@@ -300,29 +323,24 @@ struct Wonk : Module {
                 if (SINprocessCounter > SkipProcesses) {
                     // Compute new sine, store in ring buffer
                     for (int i = 0; i < 6; ++i) {
-                        float newSin = 5.0f * sinf(2.0f * M_PI * lfoPhase[i]);
+                        float newSin = 5.0f * sinf(2.0f * M_PI * lfoPhase[i]); //Real sine is important for feedback circuit
                         lfoHistory[i][lfoHistPos] = newSin;
                     }
                     SINprocessCounter = 0;
-                    lfoHistPos = (lfoHistPos + 1) % 4;
+                    lfoHistPos = (lfoHistPos + 1) % 4; //Store the LFO history for interpolation use. Increment and rotate vals of 0...3
                 }
  
                 float t = static_cast<float>(SINprocessCounter) / static_cast<float>(SkipProcesses);
    
-                // Indices for Lagrange interpolation
-                int i0 = (lfoHistPos + 0) % 4;
-                int i1 = (lfoHistPos + 1) % 4;
-                int i2 = (lfoHistPos + 2) % 4;
-                int i3 = (lfoHistPos + 3) % 4;
+                // Recall History for Lagrange interpolation            
+                float y0 = lfoHistory[i][(lfoHistPos + 0) % 4]; // Ring buffer of 4
+                float y1 = lfoHistory[i][(lfoHistPos + 1) % 4];
+                float y2 = lfoHistory[i][(lfoHistPos + 2) % 4];
+                float y3 = lfoHistory[i][(lfoHistPos + 3) % 4];
             
-                float y0 = lfoHistory[i][i0];
-                float y1 = lfoHistory[i][i1];
-                float y2 = lfoHistory[i][i2];
-                float y3 = lfoHistory[i][i3];
+                float interpolated = lagrange4(y0, y1, y2, y3, t); // Smooth interpolation 
             
-                float interpolated = lagrange4(y0, y1, y2, y3, t);
-            
-                wonkMod[i] = interpolated * modulationDepth * 0.2f;
+                wonkMod[i] = interpolated * (modulationDepth * 0.2f); // modDepth can be up to 5V, normalize to 1 here
                 
                 if (outputs[POLY_OUTPUT].isConnected()) {
                     outputs[POLY_OUTPUT].setVoltage(wonkMod[i], i);
@@ -334,7 +352,7 @@ struct Wonk : Module {
              
         if (SINprocessCounter > SkipProcesses) { SINprocessCounter = 0; }
             
-    }
+    }   
 };
 
 struct WonkWidget : ModuleWidget {
@@ -453,7 +471,22 @@ struct WonkWidget : ModuleWidget {
                 addChild(display);
             }
         }
-    }  
+    } 
+    
+    void draw(const DrawArgs& args) override {
+        ModuleWidget::draw(args);
+        Wonk* module = dynamic_cast<Wonk*>(this->module);
+        if (!module) return;
+
+        if (module->syncActive) {
+            module->lights[Wonk::RESET_LIGHT].setBrightness(1.0f);
+        } else {
+            module->lights[Wonk::RESET_LIGHT].setBrightness(0.f);
+        }
+
+
+    }   
+     
 };
 
 Model* modelWonk = createModel<Wonk, WonkWidget>("Wonk");

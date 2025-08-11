@@ -8,34 +8,26 @@
 //   Two-channel stereo saturating VCA mixer
 //
 ////////////////////////////////////////////////////////////
-
-
 #include "rack.hpp"
 #include "plugin.hpp"
 
 struct Node : Module {
     enum ParamId {
-        MUTE1_PARAM,
-        MUTE2_PARAM,
-        GAIN1_PARAM,
-        GAIN2_PARAM,
+        MUTE1_PARAM, MUTE2_PARAM,
+        GAIN1_PARAM, GAIN2_PARAM,
         VOL_PARAM,
         XFADE_PARAM,
         PARAMS_LEN
     };
     enum InputId {
-        _1_IN1,
-        _1_IN2,
-        _2_IN1,
-        _2_IN2,
-        CV1_IN,
-        CV2_IN,
+        _1_IN1, _1_IN2,
+        _2_IN1, _2_IN2,
+        CV1_IN, CV2_IN,
         XFADE_IN,
         INPUTS_LEN
     };
     enum OutputId {
-        OUT1,
-        OUT2,
+        OUT1, OUT2,
         OUTPUTS_LEN
     };
     enum LightId {
@@ -84,14 +76,12 @@ struct Node : Module {
     float fadeLevel[2] = {1.0f, 1.0f};
     int transitionCount[2] = {0, 0};  // Array to track transition progress for each channel
 
-
     Node() {
         config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
         configParam(MUTE1_PARAM, 0.f, 1.f, 0.f, "Channel I Mute");
         configParam(MUTE2_PARAM, 0.f, 1.f, 0.f, "Channel II Mute");
-
-        configParam(GAIN1_PARAM, 0.f, 5.f, 1.f, "Gain I (0-5x)");
-        configParam(GAIN2_PARAM, 0.f, 5.f, 1.f, "Gain II (0-5x)");
+        configParam(GAIN1_PARAM, 0.f, 10.f, 1.f, "Gain I (0-10x)");
+        configParam(GAIN2_PARAM, 0.f, 10.f, 1.f, "Gain II (0-10x)");
         configParam(VOL_PARAM, 0.f, 1.f, 0.5f, "Volume");
         configParam(XFADE_PARAM, -1.f, 1.f, 0.f, "Crossfader (-1=I, 1=II)");
 
@@ -100,9 +90,9 @@ struct Node : Module {
         configInput(_2_IN1, "Channel II L");
         configInput(_2_IN2, "Channel II R");
         configInput(XFADE_IN, "Crossfader (-5...5V range)");
-
         configInput(CV1_IN, "CV I (0...10V range)");
         configInput(CV2_IN, "CV II (0...10V range)");
+
         configOutput(OUT1, "Output L");
         configOutput(OUT2, "Output R");
 
@@ -110,136 +100,133 @@ struct Node : Module {
     }
 
     void process(const ProcessArgs& args) override {
-    
         cycleCount++;
-        
-        // CV GAIN 
-        float CV1 = 1.0f;
-        if (inputs[CV1_IN].isConnected())
-            CV1 = clamp(inputs[CV1_IN].getVoltage() * 0.1f, 0.f, 1.f);
-        float gainChannel1 = params[GAIN1_PARAM].getValue() * CV1;
     
-        float CV2 = 1.0f;
-        if (inputs[CV2_IN].isConnected())
-            CV2 = clamp(inputs[CV2_IN].getVoltage() * 0.1f, 0.f, 1.f);
-        float gainChannel2 = params[GAIN2_PARAM].getValue() * CV2; 
-    
-        // XFADE CV 
-        float xfadeCV = params[XFADE_PARAM].getValue();
+        // ===== XFADE CV =====
+        float xfadeParam = params[XFADE_PARAM].getValue();
+        float xfadeCV = 0.f;
         if (inputs[XFADE_IN].isConnected()) {
             xfadeCV = clamp(inputs[XFADE_IN].getVoltage() * 0.2f, -1.f, 1.f);
-            params[XFADE_PARAM].setValue(xfadeCV); //override and animate the param if input is connected   
+            params[XFADE_PARAM].setValue(xfadeCV); // animate param if CV connected
         }
-        
-        float xfadeAmount = clamp(params[XFADE_PARAM].getValue() + xfadeCV, -1.f, 1.f);
+        float xfadeAmount = clamp(xfadeParam + xfadeCV, -1.f, 1.f);
         float channel2Amt = (xfadeAmount + 1.f) * 0.5f;
         float channel1Amt = 1.f - channel2Amt;
     
-        // INPUTS 
-        float in1L = 0.f, in1R = 0.f;
-        bool in1LConnected = inputs[_1_IN1].isConnected();
-        bool in1RConnected = inputs[_1_IN2].isConnected();
-        
-        if (in1LConnected && in1RConnected) {
-            in1L = getAverageVoltage(inputs[_1_IN1]);
-            in1R = getAverageVoltage(inputs[_1_IN2]);
-        } else if (in1LConnected) {
-            in1L = in1R = getAverageVoltage(inputs[_1_IN1]);
-        } else if (in1RConnected) {
-            in1L = in1R = getAverageVoltage(inputs[_1_IN2]);
-        }
-        
-        float in2L = 0.f, in2R = 0.f;
-        bool in2LConnected = inputs[_2_IN1].isConnected();
-        bool in2RConnected = inputs[_2_IN2].isConnected();
-        
-        if (in2LConnected && in2RConnected) {
-            in2L = getAverageVoltage(inputs[_2_IN1]);
-            in2R = getAverageVoltage(inputs[_2_IN2]);
-        } else if (in2LConnected) {
-            in2L = in2R = getAverageVoltage(inputs[_2_IN1]);
-        } else if (in2RConnected) {
-            in2L = in2R = getAverageVoltage(inputs[_2_IN2]);
-        }
-
-        // Handle Mutes
+        // ===== Handle mutes and fade transitions =====
         if (mute1Trigger.process(params[MUTE1_PARAM].getValue())) {
             muteState[0] = !muteState[0];
-            transitionCount[0] = transitionSamples;  // Reset the transition count
-            lights[MUTE_LIGHT1].setBrightness(muteState[0] ? 1.0f : 0.f) ;
+            transitionCount[0] = transitionSamples;
+            lights[MUTE_LIGHT1].setBrightness(muteState[0] ? 1.0f : 0.f);
         }
         if (mute2Trigger.process(params[MUTE2_PARAM].getValue())) {
             muteState[1] = !muteState[1];
-            transitionCount[1] = transitionSamples;  // Reset the transition count
-            lights[MUTE_LIGHT2].setBrightness(muteState[1] ? 1.0f : 0.f) ;
+            transitionCount[1] = transitionSamples;
+            lights[MUTE_LIGHT2].setBrightness(muteState[1] ? 1.0f : 0.f);
         }
-
-        for (int i=0; i<2; i++){
+        for (int i = 0; i < 2; i++) {
             if (transitionCount[i] > 0) {
-                if (muteState[i]){
-                    fadeLevel[i] += -1.0f/transitionSamples;
+                fadeLevel[i] += (muteState[i] ? -1.f : 1.f) / transitionSamples;
+                if ((muteState[i] && fadeLevel[i] <= 0.f) || (!muteState[i] && fadeLevel[i] >= 1.f)) {
+                    fadeLevel[i] = muteState[i] ? 0.f : 1.f;
+                    transitionCount[i] = 0;
                 } else {
-                    fadeLevel[i] += 1.0f/transitionSamples;
-                }
-    
-                // Clamp fade level at boundaries
-                if ((muteState[i] && fadeLevel[i] <= 0.0f) || (!muteState[i] && fadeLevel[i] >= 1.0f)) {
-                    fadeLevel[i] = muteState[i] ? 0.0f : 1.0f;
-                    transitionCount[i] = 0;  // End transition
-                } else {
-                    transitionCount[i]--;  // Decrease transition count
+                    transitionCount[i]--;
                 }
             } else {
-                // Set fadeLevel to the target value once transition completes
-                fadeLevel[i] = muteState[i] ? 0.0f : 1.0f;
+                fadeLevel[i] = muteState[i] ? 0.f : 1.f;
             }
         }
-
-        // Fade the signal in or out based on the Mute   
-        in1L *= fadeLevel[0]; 
-        in1R *= fadeLevel[0];
-        in2L *= fadeLevel[1];  
-        in2R *= fadeLevel[1];
-   
-        // MIX AND OUTPUT 
+    
+        // ===== Process Channel 1 (stereo poly aware) =====
+        int ch1Channels = std::max(inputs[_1_IN1].getChannels(), inputs[_1_IN2].getChannels());
+        int cv1Channels = inputs[CV1_IN].getChannels();
+        float ch1Lsum = 0.f, ch1Rsum = 0.f;
+        for (int c = 0; c < ch1Channels; c++) {
+            float inL = (inputs[_1_IN1].getChannels() > c) ? inputs[_1_IN1].getPolyVoltage(c) : 0.f;
+            float inR = (inputs[_1_IN2].getChannels() > c) ? inputs[_1_IN2].getPolyVoltage(c) : inL;
+    
+            float cv = 1.f;
+            if (cv1Channels == 1) {
+                cv = clamp(inputs[CV1_IN].getPolyVoltage(0) * 0.1f, 0.f, 1.f);
+            } else if (cv1Channels > c) {
+                cv = clamp(inputs[CV1_IN].getPolyVoltage(c) * 0.1f, 0.f, 1.f);
+            } else if (cv1Channels > 1) {
+                cv = 0.f;
+            }
+            float gain = params[GAIN1_PARAM].getValue() * cv;
+    
+            inL *= fadeLevel[0] * gain;
+            inR *= fadeLevel[0] * gain;
+    
+            ch1Lsum += inL;
+            ch1Rsum += inR;
+        }
+        float in1L = (ch1Channels > 0) ? ch1Lsum / ch1Channels : 0.f;
+        float in1R = (ch1Channels > 0) ? ch1Rsum / ch1Channels : 0.f;
+    
+        // ===== Process Channel 2 (stereo poly aware) =====
+        int ch2Channels = std::max(inputs[_2_IN1].getChannels(), inputs[_2_IN2].getChannels());
+        int cv2Channels = inputs[CV2_IN].getChannels();
+        float ch2Lsum = 0.f, ch2Rsum = 0.f;
+        for (int c = 0; c < ch2Channels; c++) {
+            float inL = (inputs[_2_IN1].getChannels() > c) ? inputs[_2_IN1].getPolyVoltage(c) : 0.f;
+            float inR = (inputs[_2_IN2].getChannels() > c) ? inputs[_2_IN2].getPolyVoltage(c) : inL;
+    
+            float cv = 1.f;
+            if (cv2Channels == 1) {
+                cv = clamp(inputs[CV2_IN].getPolyVoltage(0) * 0.1f, 0.f, 1.f);
+            } else if (cv2Channels > c) {
+                cv = clamp(inputs[CV2_IN].getPolyVoltage(c) * 0.1f, 0.f, 1.f);
+            } else if (cv2Channels > 1) {
+                cv = 0.f;
+            }
+            float gain = params[GAIN2_PARAM].getValue() * cv;
+    
+            inL *= fadeLevel[1] * gain;
+            inR *= fadeLevel[1] * gain;
+    
+            ch2Lsum += inL;
+            ch2Rsum += inR;
+        }
+        float in2L = (ch2Channels > 0) ? ch2Lsum / ch2Channels : 0.f;
+        float in2R = (ch2Channels > 0) ? ch2Rsum / ch2Channels : 0.f;
+    
+        // ===== MIX AND OUTPUT =====
         volume = params[VOL_PARAM].getValue();
-        float Ch1L = in1L * gainChannel1 ;
-        float Ch2L = in2L * gainChannel2 ;
-        float outL = Ch1L * channel1Amt + Ch2L * channel2Amt;      
-        float Ch1R = in1R * gainChannel1 ; 
-        float Ch2R = in2R * gainChannel2 ;        
+        float Ch1L = in1L, Ch2L = in2L;
+        float Ch1R = in1R, Ch2R = in2R;
+        float outL = Ch1L * channel1Amt + Ch2L * channel2Amt;
         float outR = Ch1R * channel1Amt + Ch2R * channel2Amt;
- 
-        // MEASURE VOLUMES
-        // Calculate scale factor based on the current sample rate
+    
+        // ===== METERING =====
         float sampleRate = args.sampleRate;
-        float scaleFactor =  sampleRate / 96000.0f; // Reference sample rate (96 kHz)
-        float decayRate = pow(0.999f, scaleFactor);  // Decay rate adjusted for sample rate
-        
-        volTotalL = volTotalL * decayRate + fabs(outL) * (1.0f - decayRate);
-        volTotalR = volTotalR * decayRate + fabs(outR) * (1.0f - decayRate);
-        
-        Ch1TotalL = Ch1TotalL * decayRate + fabs(Ch1L) * (1.0f - decayRate);
-        Ch1TotalR = Ch1TotalR * decayRate + fabs(Ch1R) * (1.0f - decayRate);
-        Ch2TotalL = Ch2TotalL * decayRate + fabs(Ch2L) * (1.0f - decayRate);
-        Ch2TotalR = Ch2TotalR * decayRate + fabs(Ch2R) * (1.0f - decayRate);
-
-        // Apply ADAA
-        float maxHeadRoom = 13.14f; 
+        float scaleFactor = sampleRate / 96000.f;
+        float decayRate = pow(0.999f, scaleFactor);
+        volTotalL = volTotalL * decayRate + fabs(outL) * (1.f - decayRate);
+        volTotalR = volTotalR * decayRate + fabs(outR) * (1.f - decayRate);
+        Ch1TotalL = Ch1TotalL * decayRate + fabs(Ch1L) * (1.f - decayRate);
+        Ch1TotalR = Ch1TotalR * decayRate + fabs(Ch1R) * (1.f - decayRate);
+        Ch2TotalL = Ch2TotalL * decayRate + fabs(Ch2L) * (1.f - decayRate);
+        Ch2TotalR = Ch2TotalR * decayRate + fabs(Ch2R) * (1.f - decayRate);
+    
+        // ===== ADAA =====
+        float maxHeadRoom = 13.14f;
         outL = clamp(outL, -maxHeadRoom, maxHeadRoom);
         outR = clamp(outR, -maxHeadRoom, maxHeadRoom);
-        outL = applyADAA(outL/10.f, lastOutputL, sampleRate); 
-        outR = applyADAA(outR/10.f, lastOutputR, sampleRate);
+        outL = applyADAA(outL / 10.f, lastOutputL, sampleRate);
+        outR = applyADAA(outR / 10.f, lastOutputR, sampleRate);
         lastOutputL = outL;
         lastOutputR = outR;
-
-        // OUTPUT    
-        outputs[OUT1].setVoltage(clamp(outL*volume*6.9f, -10.f, 10.f));
-        outputs[OUT2].setVoltage(clamp(outR*volume*6.9f, -10.f, 10.f));
-
-        // Update lights periodically
+    
+        // ===== OUTPUT =====
+        outputs[OUT1].setVoltage(clamp(outL * volume * 6.9f, -10.f, 10.f));
+        outputs[OUT2].setVoltage(clamp(outR * volume * 6.9f, -10.f, 10.f));
+    
+        // ===== LIGHTS =====
         updateLights();
     }
+
 
     float getAverageVoltage(rack::engine::Input& input) {
         int channels = input.getChannels();

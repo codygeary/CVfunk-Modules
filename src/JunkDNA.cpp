@@ -8,7 +8,7 @@ using namespace rack;
 
 
 // Accepted IUPAC chars (uppercase only)
-static const std::string VALID_IUPAC = "ACGUTRYWSKMBDHVN";
+static const std::string VALID_IUPAC = "ACGUTRYWSKMBDHVNX";
 
 #define GENE_CAPACITY 2056
 
@@ -124,7 +124,7 @@ struct JunkDNA : Module {
         configOutput(V_OUT, "V (Not T)");
         configOutput(B_OUT, "B (Not A)");
         configOutput(N_OUT, "N (aNy) - Outputs trigger each step");
-        configOutput(DNA_OUT, "DNA Signal: 0=A, 1=T, 2=C 3=G");
+        configOutput(DNA_OUT, "DNA Signal: 1=A, 2=T, 3=C, 4=G, -1=break");
 
         configParam(FWD_BUTTON, 0.f, 1.f, 0.f, "Forward");
         configParam(REV_BUTTON, 0.f, 1.f, 0.f, "Reverse");
@@ -155,7 +155,8 @@ struct JunkDNA : Module {
             {'D', {0, 1, 3}},     // Not C
             {'H', {0, 1, 2}},     // Not G
             {'V', {0, 2, 3}},     // Not T
-            {'N', {0, 1, 2, 3}}   // Any base
+            {'N', {0, 1, 2, 3}},  // Any base
+            {'X', {4}}            // No base
         };
     
         // Fit gene to exact multiple of pattern
@@ -167,7 +168,7 @@ struct JunkDNA : Module {
             if (base == 'U') base = 'T';  // normalize
     
             auto it = iupacToBases.find(base);
-            std::vector<int> choices = (it != iupacToBases.end()) ? it->second : std::vector<int>{3}; // default to G
+            std::vector<int> choices = (it != iupacToBases.end()) ? it->second : std::vector<int>{0}; // default to A
     
             std::uniform_int_distribution<int> dist(0, choices.size() - 1);
             gene[i] = choices[dist(rng)];
@@ -250,7 +251,7 @@ struct JunkDNA : Module {
                 lights[H_LIGHT].value = 1.f;
                 lights[D_LIGHT].value = 1.f;
                 lights[V_LIGHT].value = 1.f;
-                outputs[DNA_OUT].setVoltage(0.f);
+                outputs[DNA_OUT].setVoltage(1.f);
                 break;
     
             case 1: // T/U
@@ -268,7 +269,7 @@ struct JunkDNA : Module {
                 lights[H_LIGHT].value = 1.f;
                 lights[D_LIGHT].value = 1.f;
                 lights[B_LIGHT].value = 1.f;
-                outputs[DNA_OUT].setVoltage(1.f);
+                outputs[DNA_OUT].setVoltage(2.f);
                 break;
 
             case 2: // C
@@ -286,7 +287,7 @@ struct JunkDNA : Module {
                 lights[H_LIGHT].value = 1.f;
                 lights[V_LIGHT].value = 1.f;
                 lights[B_LIGHT].value = 1.f;
-                outputs[DNA_OUT].setVoltage(2.f);
+                outputs[DNA_OUT].setVoltage(3.f);
                 break;
     
             case 3: // G
@@ -304,8 +305,14 @@ struct JunkDNA : Module {
                 lights[D_LIGHT].value = 1.f;
                 lights[V_LIGHT].value = 1.f;
                 lights[B_LIGHT].value = 1.f;
-                outputs[DNA_OUT].setVoltage(3.f);                
+                outputs[DNA_OUT].setVoltage(4.f);                
                 break;
+            case 4: // X strand break, no lights
+                outputs[N_OUT].setVoltage(0.f);
+                lights[N_LIGHT].value = 0.f;
+                outputs[DNA_OUT].setVoltage(-1.f);                
+                break;
+                
         }
             
         updateDisplays();        
@@ -325,6 +332,7 @@ struct JunkDNA : Module {
                 case 1: baseChar = 'T'; break;
                 case 2: baseChar = 'C'; break;
                 case 3: baseChar = 'G'; break;
+                case 4: baseChar = ' '; break;
             }
 
             if (displayRibbon[i]) displayRibbon[i]->text = std::string(1, baseChar);
@@ -348,6 +356,9 @@ struct SequenceTextField : rack::ui::TextField {
             c = toupper(c);
             if (c == 'U') //Auto-switch RNA to DNA
                 c = 'T';
+                
+            if (c == ' ') //Space auto turn into X
+                c = 'X';
 
             if (VALID_IUPAC.find(c) != std::string::npos) {
                 out += c;
@@ -604,7 +615,8 @@ struct JunkDNAWidget : ModuleWidget {
             {"D", "not C (A/G/T)"},
             {"H", "not G (A/C/T)"},
             {"V", "not T (A/C/G)"},
-            {"N", "any base"}
+            {"N", "any base"},
+            {"X", "strand break"}
         };
     
         for (const auto& pair : codes) {

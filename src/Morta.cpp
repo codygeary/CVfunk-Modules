@@ -80,6 +80,9 @@ struct Morta : Module {
         configOutput(OUTPUT_4_2, "5→0" );
         configOutput(OUTPUT_4_3, "10→0");
         configOutput(OUTPUT_4_4, "R→0" );
+
+        configOutput(MAIN_OUTPUT, "Main" );
+
       
         isEditing[0] = false; // Initialize editing state to false    
     }

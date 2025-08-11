@@ -85,8 +85,8 @@ struct Hammer : Module {
     float SyncInterval = 1.0f;
     float PrevSyncInterval = 1.0f;
     float clockRate = 120.0f;
-    float phases[9] = {0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};  // Array to store phases for each clock
-    float tempPhases[9] = {0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};
+    float phases[CHANNELS+1] = {0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};  // Array to store phases for each clock
+    float tempPhases[CHANNELS+1] = {0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};
     float swing = 0.f;
     int outputIndex[CHANNELS] = {0,1,2,3,4,5,6,7}; //For clock rotation function
 
@@ -103,7 +103,7 @@ struct Hammer : Module {
     double masterClockError = 0.0; // accumulates fractional sample drift
 
 
-    bool resyncFlag[9] = {false,false,false,false,false,false,false,false,false};
+    bool resyncFlag[CHANNELS+1] = {false,false,false,false,false,false,false,false,false};
     bool firstClockPulse = true;
     bool sequenceRunning = true;
     bool phasorMode = false;
@@ -128,13 +128,13 @@ struct Hammer : Module {
         json_t* rootJ = json_object();
 
         json_t* multiplyJ = json_array();
-        for (int i = 0; i < 9; i++) {
+        for (int i = 0; i < (CHANNELS+1); i++) {
             json_array_append_new(multiplyJ, json_real(multiply[i]));
         }
         json_object_set_new(rootJ, "multiply", multiplyJ);
 
         json_t* divideJ = json_array();
-        for (int i = 0; i < 9; i++) {
+        for (int i = 0; i < (CHANNELS+1); i++) {
             json_array_append_new(divideJ, json_real(divide[i]));
         }
         json_object_set_new(rootJ, "divide", divideJ);
@@ -260,7 +260,10 @@ struct Hammer : Module {
         // Process Swing and Rotate Inputs
         swing = params[SWING_KNOB].getValue();
 
-        float rotate = params[ROTATE_KNOB].getValue() + (inputs[ROTATE_INPUT].isConnected() ? 0.1f*inputs[ROTATE_INPUT].getVoltage() * params[ROTATE_ATT].getValue() : 0.0f);
+        float rotate = params[ROTATE_KNOB].getValue()+ (
+                    inputs[ROTATE_INPUT].isConnected() 
+                    ? 0.1f*inputs[ROTATE_INPUT].getVoltage() * params[ROTATE_ATT].getValue() 
+                    : 0.0f );
         float rotationRange = static_cast<float>(CHANNELS); //float version of CHANNELS for use in rotation
         clockRotate = static_cast<int>(std::roundf(fmod(-rotationRange * rotate, rotationRange)));
 
@@ -278,7 +281,7 @@ struct Hammer : Module {
                 resetPulseGen.trigger(args.sampleTime);  //1 sample Trigger Pulse for Chain Connection                
             } else { resetCondition = false;}
 
-            if (SyncTrigger.process(SyncInputVoltage)) {
+            if (SyncTrigger.process(SyncInputVoltage-0.1f)) {
                 syncPoint = true;
                 
                 // Check for special control voltages first
@@ -377,7 +380,7 @@ struct Hammer : Module {
                 swingCount = 0;
                 masterClockCycle = 0; //reset LCM alignment
                 firstClockPulse = true;
-                SyncInterval = PrevSyncInterval;
+                SyncInterval = PrevSyncInterval; //Recall previous sync interval to avoid using a bad starting timing
             }
         }
 
@@ -402,13 +405,20 @@ struct Hammer : Module {
         if (inputSkipper > inputSkipsTotal){ //Process button inputs infrequently to reduce CPU load. 
             // Process Ratio Buttons
             for (int i = 0; i < CHANNELS; i++) {
-                if (xDownTriggers[i].process(params[X1D_BUTTON + i * 4].getValue())) { multiply[i+1] -= 1.f; resyncFlag[i+1]=true;}
-                if (xUpTriggers[i].process(params[X1U_BUTTON + i * 4].getValue()))   { multiply[i+1] += 1.f; resyncFlag[i+1]=true;}
-                if (yDownTriggers[i].process(params[Y1D_BUTTON + i * 4].getValue())) { divide[i+1] -= 1.f; resyncFlag[i+1]=true;}
-                if (yUpTriggers[i].process(params[Y1U_BUTTON + i * 4].getValue()))   { divide[i+1] += 1.f; resyncFlag[i+1]=true;}
-                multiply[i+1] = clamp(multiply[i+1],0.0f, 99.0f);
-                divide[i+1] = clamp(divide[i+1],1.0f, 99.0f);
-                ratio[i+1] = multiply[i+1] / divide[i+1];
+
+                int srcIndex;
+                // ensure rotation wraps cleanly in both directions
+                int tmp = (clockRotate + i ) % CHANNELS; // tmp in 0..CHANNELS-1
+                if (tmp < 0) tmp += CHANNELS;                 // handle negative rotation
+                srcIndex = tmp + 1;                           // convert to 1..CHANNELS
+
+                if (xDownTriggers[i].process(params[X1D_BUTTON + i * 4].getValue())) { multiply[srcIndex] -= 1.f; resyncFlag[srcIndex]=true;}
+                if (xUpTriggers[i].process(params[X1U_BUTTON + i * 4].getValue()))   { multiply[srcIndex] += 1.f; resyncFlag[srcIndex]=true;}
+                if (yDownTriggers[i].process(params[Y1D_BUTTON + i * 4].getValue())) { divide[srcIndex] -= 1.f; resyncFlag[srcIndex]=true;}
+                if (yUpTriggers[i].process(params[Y1U_BUTTON + i * 4].getValue()))   { divide[srcIndex] += 1.f; resyncFlag[srcIndex]=true;}
+                multiply[srcIndex] = clamp(multiply[srcIndex],0.0f, 99.0f);
+                divide[srcIndex] = clamp(divide[srcIndex],1.0f, 99.0f);
+                ratio[srcIndex] = multiply[srcIndex] / divide[srcIndex];
             }
             inputSkipper = 0;
         }
@@ -517,6 +527,15 @@ struct Hammer : Module {
                 if (tmp < 0) tmp += CHANNELS;                 // handle negative rotation
                 srcIndex = tmp + 1;                           // convert to 1..CHANNELS
             }
+
+
+
+
+
+
+
+
+
            
             // highState read uses already-normalized phases
             bool highState = (i == 0) ? (phases[0] < 0.5f) : (phases[srcIndex] < 0.5f);
@@ -708,7 +727,7 @@ struct HammerWidget : ModuleWidget {
 
             // Ratio Displays Initialization
             for (int i = 0; i < CHANNELS; i++) {
-                module->ratioDisplays[i] = createDigitalDisplay(mm2px(Vec(24.f+xoffset, 46.365f + (float)i * 10.386f + yoffset)), "1:1", 16.f);
+                module->ratioDisplays[i] = createDigitalDisplay(mm2px(Vec(24.f+xoffset, 46.365f + (float)i * 10.386f + yoffset)), "1:1", 14.f);
                 addChild(module->ratioDisplays[i]);
             }
         }

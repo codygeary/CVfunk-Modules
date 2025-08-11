@@ -37,3 +37,4 @@ extern Model* modelNode;
 extern Model* modelWeave;
 extern Model* modelWonk;
 extern Model* modelHammer;
+extern Model* modelHub;
