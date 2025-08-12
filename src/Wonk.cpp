@@ -61,10 +61,10 @@ struct Wonk : Module {
     dsp::Timer syncTimer;
 
     bool syncPoint = false; 
-    float syncInterval = 1.0f;
-    float prevSyncInterval = 1.0f;
+    float syncInterval = 2.0f;
+    float prevSyncInterval = 2.0f;
 
-    float freqHz = 1.0f; //frequency in Hz
+    float freqHz = 0.5f; //frequency in Hz
     bool firstPulseReceived = false;
     bool firstSync = true; //it is the first sync at the start
 
@@ -103,8 +103,8 @@ struct Wonk : Module {
         configParam(RATE_KNOB, -24.0f, 24.f, 1.f, "Rate multiplier (or divider for negative)");
         configParam(WONK_KNOB, 0.f, 1.f, 0.f, "Wonk Intensity");
         configParam(WONK_ATT, -1.f, 1.f, 0.f, "Wonk Input Attenuverter");
-        configParam(POS_KNOB, 1.f, 6.f, 1.f, "Wonk Feedback Position");
-        configParam(NODES_ATT, -1.f, 1.f, 0.f, "Nodes Atternuverter");
+        configParam(POS_KNOB, 1.f, 6.f, 1.f, "Wonk Feedback Position")->snapEnabled=true;
+        configParam(NODES_ATT, -1.f, 1.f, 0.f, "Nodes Attenuverter");
         configParam(NODES_KNOB, -3.f, 3.f, 1.f, "Number of Modulation Nodes");
         configParam(MOD_DEPTH_ATT, -1.f, 1.f, 0.f, "Modulation Depth Attenuverter");
         configParam(MOD_DEPTH, 0.f, 5.f, 5.f, "Modulation Depth");
@@ -190,7 +190,7 @@ struct Wonk : Module {
         modulationDepth = params[MOD_DEPTH].getValue();
         if (inputs[MOD_DEPTH_INPUT].isConnected()){
             modulationDepth = clamp (
-                inputs[MOD_DEPTH_INPUT].getVoltage() * params[MOD_DEPTH_ATT].getValue() * 0.5f + modulationDepth, 0.f, 5.f); //map 0-10V to 5V.
+                inputs[MOD_DEPTH_INPUT].getVoltage() * params[MOD_DEPTH_ATT].getValue() * 0.5f + modulationDepth, -5.f, 5.f); //map 0-10V to 5V.
         } 
 
         processSkipper++;
@@ -208,151 +208,141 @@ struct Wonk : Module {
             processSkipper = 0;
         }
 
-        if (modulationDepth > 0.0f){ // skip the whole LFO logic if mod depth is 0
-
-            SINprocessCounter++;  //Skip some SINE computations to save CPU  
-            float rawRate = params[RATE_KNOB].getValue(); 
-            if (inputs[RATE_INPUT].isConnected()) {
-                rawRate = inputs[RATE_INPUT].getVoltage() * params[RATE_ATT].getValue() + rawRate;
-            }
-            float rate = 1.0f;
-    
-            // Compute the effective rate
-            if (rawRate >= 1.0f) {
-                // Positive values: Multiplier
-                rate = rawRate;
-            } else if (rawRate <= -1.0f) {
-                // Negative values: Divider
-                rate = 1.0f / std::abs(rawRate);
-            } else {
-                // Handle the -1.0 to 1.0 range (e.g., default to 1.0)
-                rate = 1.0f;
-            }
-    
-            rate = rate * freqHz; //convert from multiple to rate in Hz
-    
-            float nodePosition = params[NODES_KNOB].getValue();
-            if (inputs[NODES_INPUT].isConnected()){
-                nodePosition = nodePosition + inputs[NODES_INPUT].getVoltage() * params[NODES_ATT].getValue();
-            }
-            float modRate[6] = {rate, rate, rate, rate, rate, rate};
-            float wonky = params[WONK_KNOB].getValue();
-            if (inputs[WONK_INPUT].isConnected()){
-                wonky = clamp(inputs[WONK_INPUT].getVoltage()*params[WONK_ATT].getValue() / 10.f + wonky, 0.f, 1.f);
-            }
-            int wonkPos = static_cast<int>( clamp( roundf(params[POS_KNOB].getValue() - 0.5f), 0.0f, 5.0f ) );
-    
-            nodePosition = clamp(nodePosition + nodePosition * (wonky * wonkMod[wonkPos] / 25.0f), -3.0f, 3.0f);
-            deltaTime = args.sampleTime;
-                
-            for (int i = 0; i < 6; i++) {
-                int adjWonkPos = wonkPos+i;
-                if (adjWonkPos >= 6){adjWonkPos -= 6;}
-                if (adjWonkPos < 0){adjWonkPos += 6;}
-    
-                modRate[i] = rate + rate * 0.95f * (wonky * wonkMod[adjWonkPos] / 5.0f);
-    
-                float basePhase = i / -6.0f;
-                float targetPhase = basePhase;
-    
-                if (nodePosition < -2.0f) {
-                    // -3.0 <= nodePosition < -2.0: Bimodal behavior (reversed)
-                    float trimodalPhase = (i % 3) / 3.0f; // Calculate trimodal phase negatively
-                    float bimodalPhase = (i % 2) / 2.0f; // Calculate bimodal phase negatively
-                    float blendFactor = -nodePosition - 2.0f; // Shift to a positive blend factor
-                    targetPhase = linearInterpolate(trimodalPhase * -1.0f, bimodalPhase * -1.0f, blendFactor);
-                } else if (nodePosition < -1.0f) {
-                    // -2.0 <= nodePosition < -1.0: Transition towards trimodal (synchronized)
-                    float trimodalPhase = (i % 3) / 3.0f; // Calculate trimodal phase negatively
-                    float blendFactor = -nodePosition - 1.0f; // Shift blend factor to ensure synchronization
-                    targetPhase = linearInterpolate(basePhase * -1.0f, trimodalPhase * -1.0f, blendFactor); // Synchronized transition
-                } else if (nodePosition < 0.0f) {
-                    // -1.0 <= nodePosition < 0.0: Hexamodal behavior (reversed)
-                    targetPhase = linearInterpolate(0.5f, basePhase * -1.0f, -nodePosition); // Hexamodal reflected negatively
-                } else if (nodePosition < 1.0f) {
-                    // 0.0 <= nodePosition < 1.0: Hexamodal behavior
-                    targetPhase = linearInterpolate(0.5f, basePhase, nodePosition); // Transition to hexamodal
-                } else if (nodePosition < 2.0f) {
-                    // 1.0 <= nodePosition < 2.0: Transition from hexamodal to trimodal
-                    float trimodalPhase = (i % 3) / 3.0f; // Calculate trimodal phase positively
-                    float blendFactor = nodePosition - 1.0f; // Shift blend factor to ensure synchronization
-                    targetPhase = linearInterpolate(basePhase , trimodalPhase , blendFactor); // Synchronized transition
-                } else {
-                    // 2.0 <= nodePosition < 3.0: Bimodal behavior
-                    float bimodalPhase = (i % 2) / 2.0f; // Calculate bimodal phase positively
-                    float trimodalPhase = (i % 3) / 3.0f; // Calculate trimodal phase positively
-                    float blendFactor = nodePosition - 2.0f; // Blend factor for interpolation
-                    targetPhase = linearInterpolate(trimodalPhase, bimodalPhase, blendFactor); // Blend trimodal behavior
-                }
-    
-                if (syncPoint ){ // SYNC
-                    place[i] = 0.0f; //Reset place to zero
-                    lfoPhase[i] = targetPhase; //Reset phase to computed node positions
-                }
-    
-                targetPhase += place[i];
-    
-                while (targetPhase >= 1.0f) targetPhase -= 1.0f;
-                while (targetPhase < 0.0f) targetPhase += 1.0f;
-    
-                float phaseDiff = targetPhase - lfoPhase[i];
-                if (phaseDiff > 0.5f) phaseDiff -= 1.0f;
-                if (phaseDiff < -0.5f) phaseDiff += 1.0f;
-    
-                float placeDiff = 0.f - place[i];
-                if (placeDiff > 0.5f) placeDiff -= 1.0f;
-                if (placeDiff < -0.5f) placeDiff += 1.0f;
-    
-                if (syncPoint) {
-                    lfoPhase[i] += phaseDiff * 0.2f;
-                } else {
-                    lfoPhase[i] += phaseDiff * 0.2f;
-                }
-    
-                while (lfoPhase[i] >= 1.0f) lfoPhase[i] -= 1.0f;
-                while (lfoPhase[i] < 0.0f) lfoPhase[i] += 1.0f;
-    
-                lfoPhase[i] += modRate[i] * deltaTime;
-                while (lfoPhase[i] >= 1.0f) lfoPhase[i] -= 1.0f;
-                while (lfoPhase[i] < 0.0f) lfoPhase[i] += 1.0f;
-    
-                place[i] += modRate[i] * deltaTime;
-                while (place[i] >= 1.0f) place[i] -= 1.0f;
-                while (place[i] < 0.0f) place[i] += 1.0f;
-    
-                if (SINprocessCounter > SkipProcesses) {
-                    // Compute new sine, store in ring buffer
-                    for (int i = 0; i < 6; ++i) {
-                        float newSin = 5.0f * sinf(2.0f * M_PI * lfoPhase[i]); //Real sine is important for feedback circuit
-                        lfoHistory[i][lfoHistPos] = newSin;
-                    }
-                    SINprocessCounter = 0;
-                    lfoHistPos = (lfoHistPos + 1) % 4; //Store the LFO history for interpolation use. Increment and rotate vals of 0...3
-                }
- 
-                float t = static_cast<float>(SINprocessCounter) / static_cast<float>(SkipProcesses);
-   
-                // Recall History for Lagrange interpolation            
-                float y0 = lfoHistory[i][(lfoHistPos + 0) % 4]; // Ring buffer of 4
-                float y1 = lfoHistory[i][(lfoHistPos + 1) % 4];
-                float y2 = lfoHistory[i][(lfoHistPos + 2) % 4];
-                float y3 = lfoHistory[i][(lfoHistPos + 3) % 4];
-            
-                float interpolated = lagrange4(y0, y1, y2, y3, t); // Smooth interpolation 
-            
-                wonkMod[i] = interpolated * (modulationDepth * 0.2f); // modDepth can be up to 5V, normalize to 1 here
-                
-                if (outputs[POLY_OUTPUT].isConnected()) {
-                    outputs[POLY_OUTPUT].setVoltage(wonkMod[i], i);
-                }                
-                outputs[_1_OUTPUT + i].setVoltage(wonkMod[i]);
-    
-            }//LFO layers
+        SINprocessCounter++;  //Skip some SINE computations to save CPU  
+        float rawRate = params[RATE_KNOB].getValue(); 
+        if (inputs[RATE_INPUT].isConnected()) {
+            rawRate = inputs[RATE_INPUT].getVoltage() * params[RATE_ATT].getValue() + rawRate;
         }
+        float rate = 1.0f;
+
+        // Compute the effective rate
+        if (rawRate >= 1.0f) {
+            // Positive values: Multiplier
+            rate = rawRate;
+        } else if (rawRate <= -1.0f) {
+            // Negative values: Divider
+            rate = 1.0f / std::abs(rawRate);
+        } else {
+            // Handle the -1.0 to 1.0 range (e.g., default to 1.0)
+            rate = 1.0f;
+        }
+
+        rate = rate * freqHz * 0.5f; //convert from multiple to rate in Hz
+
+        float nodePosition = params[NODES_KNOB].getValue();
+        if (inputs[NODES_INPUT].isConnected()){
+            nodePosition = nodePosition + inputs[NODES_INPUT].getVoltage() * params[NODES_ATT].getValue();
+        }
+        float modRate[6] = {rate, rate, rate, rate, rate, rate};
+        float wonky = params[WONK_KNOB].getValue();
+        if (inputs[WONK_INPUT].isConnected()){
+            wonky = clamp(inputs[WONK_INPUT].getVoltage()*params[WONK_ATT].getValue() / 10.f + wonky, 0.f, 1.f);
+        }
+        int wonkPos = static_cast<int>( clamp( roundf(params[POS_KNOB].getValue() - 0.5f), 0.0f, 5.0f ) );
+
+        nodePosition = clamp(nodePosition + nodePosition * (wonky * wonkMod[wonkPos] / 25.0f), -3.0f, 3.0f);
+        deltaTime = args.sampleTime;
+        
+        nodePosition = nodePosition - nodePosition*(wonky*0.9); //when wonky==1 nodes =0.1, Narrowing nodes keeps wonk from going crazy
+            
+        for (int i = 0; i < 6; i++) {
+            int adjWonkPos = wonkPos+i;
+            if (adjWonkPos >= 6){adjWonkPos -= 6;}
+            if (adjWonkPos < 0){adjWonkPos += 6;}
+
+            modRate[i] = rate + rate * 0.95f * (wonky * wonkMod[adjWonkPos] / 5.0f);
+
+            float basePhase = i / -6.0f;
+            float targetPhase = basePhase;
+
+            if (nodePosition < -2.0f) {
+                // -3.0 <= nodePosition < -2.0: Bimodal behavior (reversed)
+                float trimodalPhase = (i % 3) / 3.0f; // Calculate trimodal phase negatively
+                float bimodalPhase = (i % 2) / 2.0f; // Calculate bimodal phase negatively
+                float blendFactor = -nodePosition - 2.0f; // Shift to a positive blend factor
+                targetPhase = linearInterpolate(trimodalPhase * -1.0f, bimodalPhase * -1.0f, blendFactor);
+            } else if (nodePosition < -1.0f) {
+                // -2.0 <= nodePosition < -1.0: Transition towards trimodal (synchronized)
+                float trimodalPhase = (i % 3) / 3.0f; // Calculate trimodal phase negatively
+                float blendFactor = -nodePosition - 1.0f; // Shift blend factor to ensure synchronization
+                targetPhase = linearInterpolate(basePhase * -1.0f, trimodalPhase * -1.0f, blendFactor); // Synchronized transition
+            } else if (nodePosition < 0.0f) {
+                // -1.0 <= nodePosition < 0.0: Hexamodal behavior (reversed)
+                targetPhase = linearInterpolate(0.5f, basePhase * -1.0f, -nodePosition); // Hexamodal reflected negatively
+            } else if (nodePosition < 1.0f) {
+                // 0.0 <= nodePosition < 1.0: Hexamodal behavior
+                targetPhase = linearInterpolate(0.5f, basePhase, nodePosition); // Transition to hexamodal
+            } else if (nodePosition < 2.0f) {
+                // 1.0 <= nodePosition < 2.0: Transition from hexamodal to trimodal
+                float trimodalPhase = (i % 3) / 3.0f; // Calculate trimodal phase positively
+                float blendFactor = nodePosition - 1.0f; // Shift blend factor to ensure synchronization
+                targetPhase = linearInterpolate(basePhase , trimodalPhase , blendFactor); // Synchronized transition
+            } else {
+                // 2.0 <= nodePosition < 3.0: Bimodal behavior
+                float bimodalPhase = (i % 2) / 2.0f; // Calculate bimodal phase positively
+                float trimodalPhase = (i % 3) / 3.0f; // Calculate trimodal phase positively
+                float blendFactor = nodePosition - 2.0f; // Blend factor for interpolation
+                targetPhase = linearInterpolate(trimodalPhase, bimodalPhase, blendFactor); // Blend trimodal behavior
+            }
+
+            if (syncPoint ){ // SYNC
+                place[i] = 0.0f; //Reset place to zero
+                lfoPhase[i] = targetPhase; //Reset phase to computed node positions
+            }
+
+            targetPhase += place[i];
+
+            targetPhase = wrap01(targetPhase + place[i]); //more efficient wrap logic wrap01 0...1  and wrapPhaseDiff -0.5...0.5
+            
+            float phaseDiff = wrapPhaseDiff(targetPhase - lfoPhase[i]);
+            
+            lfoPhase[i] = wrap01(lfoPhase[i] + phaseDiff * 0.2f);
+            lfoPhase[i] = wrap01(lfoPhase[i] + modRate[i] * deltaTime);
+            place[i]    = wrap01(place[i]    + modRate[i] * deltaTime);
+            
+            if (SINprocessCounter > SkipProcesses) {
+                // Compute new sine, store in ring buffer
+                for (int i = 0; i < 6; ++i) {
+                    float newSin = 5.0f * sinf(2.0f * M_PI * lfoPhase[i]); //Real sine is important for feedback circuit
+                    lfoHistory[i][lfoHistPos] = newSin;
+                }
+                SINprocessCounter = 0;
+                lfoHistPos = (lfoHistPos + 1) % 4; //Store the LFO history for interpolation use. Increment and rotate vals of 0...3
+            }
+
+            float t = static_cast<float>(SINprocessCounter) / static_cast<float>(SkipProcesses);
+
+            // Recall History for Lagrange interpolation            
+            float y0 = lfoHistory[i][(lfoHistPos + 0) % 4]; // Ring buffer of 4
+            float y1 = lfoHistory[i][(lfoHistPos + 1) % 4];
+            float y2 = lfoHistory[i][(lfoHistPos + 2) % 4];
+            float y3 = lfoHistory[i][(lfoHistPos + 3) % 4];
+        
+            float interpolated = lagrange4(y0, y1, y2, y3, t); // Smooth interpolation 
+        
+            wonkMod[i] = interpolated * (modulationDepth * 0.2f); // modDepth can be up to 5V, normalize to 1 here
+            
+            if (outputs[POLY_OUTPUT].isConnected()) {
+                outputs[POLY_OUTPUT].setVoltage(wonkMod[i], i);
+            }                
+            outputs[_1_OUTPUT + i].setVoltage(wonkMod[i]);
+
+        }//LFO layers
              
         if (SINprocessCounter > SkipProcesses) { SINprocessCounter = 0; }
             
-    }   
+    } 
+
+    // Wrap to [0, 1)
+    inline float wrap01(float x) {
+        return x - floorf(x);
+    }
+    
+    // Wrap phase diff to [-0.5, 0.5)
+    inline float wrapPhaseDiff(float x) {
+        return x - roundf(x);
+    }    
+      
 };
 
 struct WonkWidget : ModuleWidget {
@@ -483,10 +473,7 @@ struct WonkWidget : ModuleWidget {
         } else {
             module->lights[Wonk::RESET_LIGHT].setBrightness(0.f);
         }
-
-
     }   
-     
 };
 
 Model* modelWonk = createModel<Wonk, WonkWidget>("Wonk");
