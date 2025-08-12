@@ -241,7 +241,7 @@
       "description": "Compose sequences of trigger bursts. Program a sequence of up to seven clock multiplier stages. Customizable trigger patterns.",
       "tags": [
         "Sequencer",
-        "Clock modulator",        
+        "Clock modulator"        
       ]
     },
     {
