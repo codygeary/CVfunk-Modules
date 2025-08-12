@@ -69,11 +69,6 @@ struct Syncro : Module {
         NUM_LIGHTS
     };
 
-    DigitalDisplay* phasorDisplay = nullptr;
-    DigitalDisplay* bpmDisplay = nullptr;
-    DigitalDisplay* swingDisplay = nullptr;
-    DigitalDisplay* ratioDisplays[8] = {nullptr};
-
     Light fillLights[8];
     Light gateStateLights[18];
 
@@ -509,6 +504,10 @@ struct Syncro : Module {
 };
 
 struct SyncroWidget : ModuleWidget {
+    DigitalDisplay* phasorDisplay = nullptr;
+    DigitalDisplay* bpmDisplay = nullptr;
+    DigitalDisplay* swingDisplay = nullptr;
+    DigitalDisplay* ratioDisplays[8] = {nullptr};
 
     SyncroWidget(Syncro* module) {
         setModule(module);
@@ -576,25 +575,24 @@ struct SyncroWidget : ModuleWidget {
             addOutput(createOutputCentered<ThemedPJ301MPort>(Vec(368,35 + i * 38), module, Syncro::CLOCK_OUTPUT + 2*i + 1));
         }
 
-        if (module) {
-            // BPM Display Initialization
-            module->bpmDisplay = createDigitalDisplay(Vec(27, 28), "120.0");
-            addChild(module->bpmDisplay);
+		// BPM Display Initialization
+		bpmDisplay = createDigitalDisplay(Vec(27, 28), "120.0");
+		addChild(bpmDisplay);
 
-            // Swing Display Initialization
-            module->swingDisplay = createDigitalDisplay(Vec(90, 28), "0.0%");
-            addChild(module->swingDisplay);
+		// Swing Display Initialization
+		swingDisplay = createDigitalDisplay(Vec(90, 28), "0.0%");
+		addChild(swingDisplay);
 
-            // Phasor Display Initialization
-            module->phasorDisplay = createDigitalDisplay(Vec(230, 26), "");
-            addChild(module->phasorDisplay);
+		// Phasor Display Initialization
+		phasorDisplay = createDigitalDisplay(Vec(230, 26), "");
+		addChild(phasorDisplay);
 
-            // Ratio Displays Initialization
-            for (int i = 0; i < 8; i++) {
-                module->ratioDisplays[i] = createDigitalDisplay(Vec(210, 65 + i * 38), "1:1");
-                addChild(module->ratioDisplays[i]);
-            }
-        }
+		// Ratio Displays Initialization
+		for (int i = 0; i < 8; i++) {
+			ratioDisplays[i] = createDigitalDisplay(Vec(210, 65 + i * 38), "1:4");
+			addChild(ratioDisplays[i]);
+		}
+        
     }
 
     void appendContextMenu(Menu* menu) override {
@@ -672,27 +670,27 @@ struct SyncroWidget : ModuleWidget {
         if (!module) return;
 
         // Update BPM and Swing displays
-        if (module->bpmDisplay) {
+        if (bpmDisplay) {
             char bpmText[16];
             if (module->clockCVAsVoct) {
                 snprintf(bpmText, sizeof(bpmText), "▸%.1f", module->bpm);//symbol indicates v/oct mode
             } else {
                 snprintf(bpmText, sizeof(bpmText), "%.1f", module->bpm);
             }
-            module->bpmDisplay->text = bpmText;
+            bpmDisplay->text = bpmText;
         }
 
-        if (module->swingDisplay) {
+        if (swingDisplay) {
             char swingText[16];
             snprintf(swingText, sizeof(swingText), "%.1f%%", module->swing);
-            module->swingDisplay->text = swingText;
+            swingDisplay->text = swingText;
         }
 
-        if (module->phasorDisplay) {
+        if (phasorDisplay) {
             if (module->phasorMode){
-                module->phasorDisplay->text = "Phasor Mode";
+                phasorDisplay->text = "Phasor Mode";
             } else {
-                module->phasorDisplay->text = "";
+                phasorDisplay->text = "";
             }
         }
 
@@ -705,13 +703,13 @@ struct SyncroWidget : ModuleWidget {
 
             module->disp_multiply[i] = round(module->params[Syncro::MULTIPLY_KNOB_1 + index].getValue()) + (module->fill[i-1] ? module->fillGlobal : 0);
             module->disp_divide[i] = round(module->params[Syncro::DIVIDE_KNOB_1 + index].getValue());
-            if (module->ratioDisplays[i-1]) {
+            if (ratioDisplays[i-1]) {
                 char ratioText[16];
                 snprintf(ratioText, sizeof(ratioText), "%d:%d", static_cast<int>(module->disp_multiply[i]), static_cast<int>(module->disp_divide[i]));
                 if (index == 0) { // Check if the current index corresponds to the rotated position
-                    module->ratioDisplays[i-1]->text = "▸" + std::string(ratioText);
+                    ratioDisplays[i-1]->text = "▸" + std::string(ratioText);
                 } else {
-                    module->ratioDisplays[i-1]->text = ratioText;
+                    ratioDisplays[i-1]->text = ratioText;
                 }
             }
         }

@@ -352,13 +352,15 @@ struct WonkWidget : ModuleWidget {
         int index;        // Index from 0 to 5 for each rectangle
     
         void drawLayer(const DrawArgs& args, int layer) override {
-            if (!module)
-                return;
     
             if (layer == 1) { // Self-illuminating layer
-                // Get the value from wonkMod array
-                float value = module->wonkMod[index];
-    
+
+                float fake[6] = {-4.f, 3.f, -1.f, 5.f, 2.f, 4.f};
+                float value = fake[index]; //fake data
+                if (module) {
+                    value = module->wonkMod[index];
+                }
+   
                 // Clamp the value to -5V to +5V range
                 value = clamp( value, -5.0f, 5.0f );
     
@@ -439,28 +441,27 @@ struct WonkWidget : ModuleWidget {
         addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(48.512, 76.777)), module, Wonk::_6_OUTPUT));
         addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(48.512, 86.875)), module, Wonk::POLY_OUTPUT));
 
-        if (module){
-            // Coordinates for each widget
-            Vec wonkPositions[6] = {
-                mm2px(Vec(7.398f, 26.018f)),
-                mm2px(Vec(7.398f, 35.293f)),
-                mm2px(Vec(7.398f, 44.568f)),
-                mm2px(Vec(7.398f, 53.843f)),
-                mm2px(Vec(7.398f, 63.118f)),
-                mm2px(Vec(7.398f, 72.393f))
-            };
+        // Coordinates for each widget
+        Vec wonkPositions[6] = {
+            mm2px(Vec(7.398f, 26.018f)),
+            mm2px(Vec(7.398f, 35.293f)),
+            mm2px(Vec(7.398f, 44.568f)),
+            mm2px(Vec(7.398f, 53.843f)),
+            mm2px(Vec(7.398f, 63.118f)),
+            mm2px(Vec(7.398f, 72.393f))
+        };
 
-            // Size of each widget
-            Vec widgetSize = mm2px(Vec(33.642f, 8.829f));
+        // Size of each widget
+        Vec widgetSize = mm2px(Vec(33.642f, 8.829f));
 
-            for (int i = 0; i < 6; i++) {
-                WonkDisplay* display = createWidget<WonkDisplay>(wonkPositions[i]);
-                display->box.size = widgetSize;
-                display->module = module;
-                display->index = i;
-                addChild(display);
-            }
+        for (int i = 0; i < 6; i++) {
+            WonkDisplay* display = createWidget<WonkDisplay>(wonkPositions[i]);
+            display->box.size = widgetSize;
+            display->module = module;
+            display->index = i;
+            addChild(display);
         }
+            
     } 
     
     void draw(const DrawArgs& args) override {

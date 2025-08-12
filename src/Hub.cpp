@@ -68,14 +68,12 @@ struct Hub : Module {
     float inputValue_I = 0.f;
     float scaledValue_I = 0.f;
     float displayValue_I = 0.0f;
-    DigitalDisplay* voltDisplay_I = nullptr;
     int numChannelsI = 1;
 
     // Channel II state
     float inputValue_II = 0.f;
     float scaledValue_II = 0.f;
     float displayValue_II = 0.0f;
-    DigitalDisplay* voltDisplay_II = nullptr;
     int numChannelsII = 1;
 
     Hub() {
@@ -215,6 +213,8 @@ struct Hub : Module {
 };
 
 struct HubWidget : ModuleWidget {
+    DigitalDisplay* voltDisplay_I = nullptr;
+    DigitalDisplay* voltDisplay_II = nullptr;
 
     template <typename BaseKnob>
     struct SmartKnob : BaseKnob {
@@ -281,13 +281,10 @@ struct HubWidget : ModuleWidget {
             addChild(createLightCentered<SmallLight<YellowLight>>(Vec(box.size.x/2 + 53 + stepsize, 119-i*stepsize - 34 - stepsize/2), module, Hub::HUB_I_2+i*2));
             addChild(createLightCentered<TinyLight<WhiteLight>>(Vec(box.size.x/2 + 53, 119-i*stepsize - 34), module, Hub::HUB_IB_1+i*2));
             addChild(createLightCentered<TinyLight<WhiteLight>>(Vec(box.size.x/2 + 53 + stepsize, 119-i*stepsize - 34 - stepsize/2), module, Hub::HUB_IB_2+i*2));
-
         }
 
-        if (module) {
-            module->voltDisplay_I = createDigitalDisplay(Vec(box.size.x / 2 - 25, 110), "0.000 V");
-            addChild(module->voltDisplay_I);
-        }
+		voltDisplay_I = createDigitalDisplay(Vec(box.size.x / 2 - 25, 110), "0.000 V");
+		addChild(voltDisplay_I);
 
         // ==== BOTTOM (II) ====
         addInput(createInputCentered<ThemedPJ301MPort>(Vec(box.size.x / 2 - 50, 70 + YOFFSET), module, Hub::MAIN_INPUT_II));
@@ -307,10 +304,8 @@ struct HubWidget : ModuleWidget {
             addChild(createLightCentered<TinyLight<WhiteLight>>(Vec(box.size.x/2 + 53 + stepsize, 119-i*stepsize - 34 - stepsize/2 + YOFFSET), module, Hub::HUB_IIB_2+i*2));
         }
 
-        if (module) {
-            module->voltDisplay_II = createDigitalDisplay(Vec(box.size.x / 2 - 25, 110 + YOFFSET), "0.000 V");
-            addChild(module->voltDisplay_II);
-        }
+		voltDisplay_II = createDigitalDisplay(Vec(box.size.x / 2 - 25, 110 + YOFFSET), "0.000 V");
+		addChild(voltDisplay_II);
     }
 
     void draw(const DrawArgs& args) override {
@@ -318,15 +313,15 @@ struct HubWidget : ModuleWidget {
         Hub* module = dynamic_cast<Hub*>(this->module);
         if (!module) return;
     
-        if (module->voltDisplay_I) {
+        if (voltDisplay_I) {
             char voltText[16];
             snprintf(voltText, sizeof(voltText), "%.3f V", module->displayValue_I);             
-            module->voltDisplay_I->text = voltText;
+            voltDisplay_I->text = voltText;
         }
-        if (module->voltDisplay_II) {
+        if (voltDisplay_II) {
             char voltText[16];
             snprintf(voltText, sizeof(voltText), "%.3f V", module->displayValue_II);             
-            module->voltDisplay_II->text = voltText;
+            voltDisplay_II->text = voltText;
         }
 
         for (int i=0; i<16 ; i++){

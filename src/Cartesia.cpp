@@ -163,9 +163,6 @@ struct Cartesia : Module {
                         sliceTrigger[4], stageTrigger[16];
 
     dsp::PulseGenerator resetPulse, triggerPulse;
-    DigitalDisplay* minDisplay = nullptr;
-    DigitalDisplay* maxDisplay = nullptr;
-    DigitalDisplay* noteDisplays[16] = {nullptr};
 
     //For Copy/Paste function
     float copiedKnobStates[16] = {0.f};  
@@ -737,6 +734,10 @@ struct Cartesia : Module {
 };
 
 struct CartesiaWidget : ModuleWidget {
+    DigitalDisplay* minDisplay = nullptr;
+    DigitalDisplay* maxDisplay = nullptr;
+    DigitalDisplay* noteDisplays[16] = {nullptr};
+
     CartesiaWidget(Cartesia* module) {
         setModule(module);
 
@@ -1035,21 +1036,18 @@ struct CartesiaWidget : ModuleWidget {
         addChild(createLightCentered<SmallLight<RedLight>>(Vec(scale*331.039, scale*308.325), module, Cartesia::POLY4_LIGHT));
 
         //Text Displays
-        if (module) {
-            // (Vec(28.32, 17.76))  display size
-            module->minDisplay = createDigitalDisplay((Vec(scale*149.520, scale*154.62)), "Min");
-            addChild(module->minDisplay);
+        minDisplay = createDigitalDisplay((Vec(scale*149.520, scale*154.62)), "C3");
+        addChild(minDisplay);
 
-            module->maxDisplay = createDigitalDisplay((Vec(scale*180.310, scale*154.62)), "Max");
-            addChild(module->maxDisplay);
+        maxDisplay = createDigitalDisplay((Vec(scale*180.310, scale*154.62)), "C5");
+        addChild(maxDisplay);
 
-            for (int i=0; i<4; i++){
-                for (int j=0; j<4; j++){
-                    module->noteDisplays[i+j*4] = createDigitalDisplay((Vec(scale*235.512 + scale*58.06*i, scale*30.475 + scale*63.0*j)), "C4");
-                    addChild(module->noteDisplays[i+j*4]);
-                }
+        for (int i=0; i<4; i++){
+            for (int j=0; j<4; j++){
+                noteDisplays[i+j*4] = createDigitalDisplay((Vec(scale*235.512 + scale*58.06*i, scale*30.475 + scale*63.0*j)), "C4");
+                addChild(noteDisplays[i+j*4]);
             }
-        }
+        }    
 
     }
 
@@ -1060,7 +1058,7 @@ struct CartesiaWidget : ModuleWidget {
 
         // Update note displays
         for (int i = 0; i < 16; i++) {
-            if (module->noteDisplays[i]) {
+            if (noteDisplays[i]) {
                 if (module->quantize){
                     // Compute the note name of the note and the octave
                     float pitchVoltage = module->finalNotes[i];
@@ -1079,17 +1077,17 @@ struct CartesiaWidget : ModuleWidget {
                     char fullNote[7];  // Enough space for note name + octave + null terminator
                     snprintf(fullNote, sizeof(fullNote), "%s%d", noteName, octave);  // Combine note and octave
 
-                    module->noteDisplays[i]->text = fullNote;
+                    noteDisplays[i]->text = fullNote;
                 } else {
                     char fullNote[7];
                     snprintf(fullNote, sizeof(fullNote), "%.2f", module->finalNotes[i]);
-                    module->noteDisplays[i]->text = fullNote;
+                    noteDisplays[i]->text = fullNote;
                 }
             }
         }
 
         // Update Min Max display
-        if (module->minDisplay){
+        if (minDisplay){
             if (module->quantize){
                 // Compute the note name of the note and the octave
                 float pitchVoltage = module->knobMin;
@@ -1108,15 +1106,15 @@ struct CartesiaWidget : ModuleWidget {
                 char fullNote[7];  // Enough space for note name + octave + null terminator
                 snprintf(fullNote, sizeof(fullNote), "%s%d", noteName, octave);  // Combine note and octave
 
-                module->minDisplay->text = fullNote;
+                minDisplay->text = fullNote;
             } else {
                 char rangeDisp[7];
                 snprintf(rangeDisp, sizeof(rangeDisp), "%.1f", module->knobMin);
-                module->minDisplay->text = rangeDisp;
+                minDisplay->text = rangeDisp;
             }
         }
 
-        if (module->maxDisplay){
+        if (maxDisplay){
             if (module->quantize){
                 // Compute the note name of the note and the octave
                 float pitchVoltage = fmin(module->knobMin + module->knobRange, 10.f);
@@ -1135,12 +1133,12 @@ struct CartesiaWidget : ModuleWidget {
                 char fullNote[7];  // Enough space for note name + octave + null terminator
                 snprintf(fullNote, sizeof(fullNote), "%s%d", noteName, octave);  // Combine note and octave
 
-                module->maxDisplay->text = fullNote;
+                maxDisplay->text = fullNote;
             } else {
                 char rangeDisp[7];
                 float knobMax = fmin(module->knobMin + module->knobRange, 10.f);
                 snprintf(rangeDisp, sizeof(rangeDisp), "%.1f", knobMax);
-                module->maxDisplay->text = rangeDisp;
+                maxDisplay->text = rangeDisp;
             }
         }
 
@@ -1360,6 +1358,7 @@ struct CartesiaWidget : ModuleWidget {
         gateTriggerItem->cartesiaModule = cartesiaModule;
         menu->addChild(gateTriggerItem);
         
-    }    
+    } 
+          
 };
 Model* modelCartesia = createModel<Cartesia, CartesiaWidget>("Cartesia");

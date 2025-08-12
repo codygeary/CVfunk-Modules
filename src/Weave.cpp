@@ -28,6 +28,36 @@ const float baseFrequencies[6] =  { -1.6667f, // E2
 
 const int WEAVE_PATTERNS=21; //total weave patterns
 
+//WEAVE PATTERNS
+const std::array<std::array<int, 6>, WEAVE_PATTERNS> Weave_Chart = {{
+    
+    {0,1,2,3,4,5}, //default, no weave - 0 
+    {5,0,1,2,3,4}, //6-state: rotate
+    {1,2,3,4,5,0}, //rotate rev
+         
+    {5,4,3,2,1,0}, //2-state - full flip
+    {1,0,3,2,5,4}, //          pair flips
+    {2,4,0,5,1,3},
+    {3,4,5,0,1,2},
+    {4,5,3,2,0,1},
+   
+    {2,0,1,4,5,3}, //3-state
+    {2,0,1,5,3,4},
+    
+    {4,5,0,1,2,3}, //4-state  
+    {3,0,4,1,5,2},
+    {3,2,5,4,0,1},
+    
+    {1,2,5,0,3,4},
+    {3,0,1,4,5,2},
+    {1,2,4,5,0,3},
+    {1,3,5,0,2,4},
+    {3,4,5,2,1,0},
+    {3,2,5,4,1,0},
+    {4,5,3,0,1,2},
+    {3,4,1,2,5,0}    
+}};
+
 struct Weave : Module {
     enum ParamId {
         WEAVE_KNOB_PARAM, WEAVE_ATT_PARAM,
@@ -86,36 +116,6 @@ struct Weave : Module {
     int processSkips = 100;
     bool prevNoteConnected = false;
     int weaveSetting = 0;
-
-   //WEAVE PATTERNS
-    const std::array<std::array<int, 6>, WEAVE_PATTERNS> Weave_Chart = {{
-        
-        {0,1,2,3,4,5}, //default, no weave - 0 
-        {5,0,1,2,3,4}, //6-state: rotate
-        {1,2,3,4,5,0}, //rotate rev
-             
-        {5,4,3,2,1,0}, //2-state - full flip
-        {1,0,3,2,5,4}, //          pair flips
-        {2,4,0,5,1,3},
-        {3,4,5,0,1,2},
-        {4,5,3,2,0,1},
-       
-        {2,0,1,4,5,3}, //3-state
-        {2,0,1,5,3,4},
-        
-        {4,5,0,1,2,3}, //4-state  
-        {3,0,4,1,5,2},
-        {3,2,5,4,0,1},
-        
-        {1,2,5,0,3,4},
-        {3,0,1,4,5,2},
-        {1,2,4,5,0,3},
-        {1,3,5,0,2,4},
-        {3,4,5,2,1,0},
-        {3,2,5,4,1,0},
-        {4,5,3,0,1,2},
-        {3,4,1,2,5,0}    
-    }};
 
     const std::array<std::array<std::string, 16>, 12> Chord_Chart = {{
         // Maj       min        7        Maj7       min7      6        min6       9         Maj9     min9      add9      sus2      sus4       pow       aug        dim
@@ -621,14 +621,8 @@ struct WeaveWidget : ModuleWidget {
     struct WeaveDisplay : TransparentWidget {
         Weave* module = nullptr;
         int index;        // Index from 0 to 5 for each envelope
-    
-        WeaveDisplay() {
-            // Initialize if necessary
-        }
-    
+        
         void drawLayer(const DrawArgs& args, int layer) override {
-            if (!module)
-                return;
     
             if (layer == 1) { // Self-illuminating layer
 
@@ -649,8 +643,11 @@ struct WeaveWidget : ModuleWidget {
                 nvgFillColor(args.vg, color);
                 nvgFill(args.vg);     
                 
-                int tempPermute[6]={module->currentPermute[0], module->currentPermute[1], module->currentPermute[2],
-                                 module->currentPermute[3], module->currentPermute[4], module->currentPermute[5]} ;               
+                int tempPermute[6]={5,0,1,2,3,4};
+                
+                if (module){
+                    for (int i=0; i<6; i++) tempPermute[i] = module->currentPermute[i];
+                }              
 
                 for (int i=0; i<(columns-1); i++){                    
 
@@ -658,7 +655,10 @@ struct WeaveWidget : ModuleWidget {
                         nvgBeginPath(args.vg);                    
                         nvgMoveTo(args.vg, columnWidth*i + buffer, tempPermute[j]*rowHeight + 0.5*buffer);
                         
-                        int lineDest = module->Weave_Chart[module->weaveSetting][ tempPermute[j] ];
+                        int curWeaveSetting = 1; //default to a fav pattern                      
+                        if (module ) curWeaveSetting = module->weaveSetting;
+                        
+                        int lineDest = Weave_Chart[curWeaveSetting][ tempPermute[j] ];
                         
                         nvgLineTo(args.vg, columnWidth*(i+1) + buffer, lineDest*rowHeight + 0.5*buffer);
 
@@ -666,15 +666,11 @@ struct WeaveWidget : ModuleWidget {
                         nvgStrokeWidth(args.vg, 0.4f*( j + 1) );
                         nvgStroke(args.vg);
 
-                        tempPermute[j] = module->Weave_Chart[module->weaveSetting][ tempPermute[j] ];
+                        tempPermute[j] = lineDest;
                         
                     }
                 }                
             }
-        }
-    
-        void draw(const DrawArgs& args) override {
-            // Optionally, draw non-illuminating elements here
         }
     };
 
@@ -725,18 +721,18 @@ struct WeaveWidget : ModuleWidget {
         chordDisplay = createDigitalDisplay(mm2px(Vec(47.667f,55.419f)), "Oct", 14.f);
         addChild(chordDisplay);
 
+        // Create and add the Weave Display
+        WeaveDisplay* weaveDisplay = createWidget<WeaveDisplay>(mm2px(Vec(28.f, 13.5))); // Positioning
+        weaveDisplay->box.size = Vec(115.f, 63.f); // Size of the display widget
+        weaveDisplay->module = module;
+        addChild(weaveDisplay);                       
+
         if (module) {          
             // Quantizer display
             KeyboardDisplay* keyboardDisplay = createWidget<KeyboardDisplay>(mm2px(Vec(10.7f, 87.5f)));
             keyboardDisplay->box.size = mm2px(Vec(50.501f, 16.168f));
             keyboardDisplay->setModule(module);
-            addChild(keyboardDisplay);
-            
-            // Create and add the Weave Display
-            WeaveDisplay* weaveDisplay = createWidget<WeaveDisplay>(mm2px(Vec(28.f, 13.5))); // Positioning
-            weaveDisplay->box.size = Vec(115.f, 63.f); // Size of the display widget
-            weaveDisplay->module = module;
-            addChild(weaveDisplay);                       
+            addChild(keyboardDisplay);            
         }
     }
     
@@ -753,31 +749,14 @@ struct WeaveWidget : ModuleWidget {
         }
     }
 
-    bool keyPrefersFlats(int rootIndex) {
-        // rootIndex is 0–11 representing C to B
-        switch (rootIndex) {
-            case 5:  // F
-            case 10: // Bb (A#)
-            case 3:  // Eb (D#)
-            case 8:  // Ab (G#)
-            case 1:  // Db (C#)
-            case 6:  // Gb (F#)
-            case 11: // Cb (B)
-                return true;
-            default:
-                return false;
-        }
-    }
-    
-
     void draw(const DrawArgs& args) override {
         ModuleWidget::draw(args);
         Weave* module = dynamic_cast<Weave*>(this->module);
         if (!module) return;
     
-      int rootNoteVal = 0;
-      std::string rootNoteNames[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
-      if (chordDisplay) {
+        int rootNoteVal = 0;
+        std::string rootNoteNames[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
+        if (chordDisplay) {
             for (int i=0; i<17; i++){ //blank all chord lights
                 module->lights[Weave::CHORD_1_LIGHT + i].setBrightness(0.0f);
             }

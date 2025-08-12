@@ -59,11 +59,6 @@ struct Hammer : Module {
 
     dsp::SchmittTrigger xDownTriggers[CHANNELS], xUpTriggers[CHANNELS], yDownTriggers[CHANNELS], yUpTriggers[CHANNELS];
 
-    DigitalDisplay* phasorDisplay = nullptr;
-    DigitalDisplay* bpmDisplay = nullptr;
-    DigitalDisplay* swingDisplay = nullptr;
-    DigitalDisplay* ratioDisplays[CHANNELS] = {nullptr};
-
     dsp::Timer SyncTimer;
     dsp::Timer SwingTimer;
     dsp::Timer ClockTimer[CHANNELS+1];  // Array to store timers for each clock
@@ -527,15 +522,6 @@ struct Hammer : Module {
                 if (tmp < 0) tmp += CHANNELS;                 // handle negative rotation
                 srcIndex = tmp + 1;                           // convert to 1..CHANNELS
             }
-
-
-
-
-
-
-
-
-
            
             // highState read uses already-normalized phases
             bool highState = (i == 0) ? (phases[0] < 0.5f) : (phases[srcIndex] < 0.5f);
@@ -616,7 +602,6 @@ struct Hammer : Module {
         if (OnActive) outputs[CHAIN_OUTPUT].setVoltage(10.69f);
         if (OffActive) outputs[CHAIN_OUTPUT].setVoltage(10.86f);
 
-
         if (deltaTime <= 0) {
             deltaTime = 1.0f / 48000.0f;  // Assume a default sample rate if deltaTime is zero to avoid division by zero
         }
@@ -653,6 +638,11 @@ struct Hammer : Module {
 };
 
 struct HammerWidget : ModuleWidget {
+    DigitalDisplay* phasorDisplay = nullptr;
+    DigitalDisplay* bpmDisplay = nullptr;
+    DigitalDisplay* swingDisplay = nullptr;
+    DigitalDisplay* ratioDisplays[CHANNELS] = {nullptr};
+
 
     HammerWidget(Hammer* module) {
         setModule(module);
@@ -717,20 +707,18 @@ struct HammerWidget : ModuleWidget {
         addParam(createParamCentered<Trimpot>         (Vec(27, 195+25.25+30), module, Hammer::ROTATE_ATT));
         addInput(createInputCentered<ThemedPJ301MPort>(Vec(27, 195 + 48.58+30), module, Hammer::ROTATE_INPUT));
 
-        if (module){
-            // BPM Display Initialization
-            module->bpmDisplay = createDigitalDisplay(Vec(19, 40), "120.0", 16.f);
-            addChild(module->bpmDisplay);
+        // BPM Display Initialization
+        bpmDisplay = createDigitalDisplay(Vec(19, 40), "120.0", 16.f);
+        addChild(bpmDisplay);
 
-            module->phasorDisplay = createDigitalDisplay(Vec(32, 48), "", 7.f);
-            addChild(module->phasorDisplay);
+        phasorDisplay = createDigitalDisplay(Vec(32, 48), "", 7.f);
+        addChild(phasorDisplay);
 
-            // Ratio Displays Initialization
-            for (int i = 0; i < CHANNELS; i++) {
-                module->ratioDisplays[i] = createDigitalDisplay(mm2px(Vec(24.f+xoffset, 46.365f + (float)i * 10.386f + yoffset)), "1:1", 14.f);
-                addChild(module->ratioDisplays[i]);
-            }
-        }
+        // Ratio Displays Initialization
+        for (int i = 0; i < CHANNELS; i++) {
+            ratioDisplays[i] = createDigitalDisplay(mm2px(Vec(24.f+xoffset, 46.365f + (float)i * 10.386f + yoffset)), "1:1", 14.f);
+            addChild(ratioDisplays[i]);
+        }        
     }
 
     void appendContextMenu(Menu* menu) override {
@@ -816,28 +804,28 @@ struct HammerWidget : ModuleWidget {
 
             module->disp_multiply[i] = module->multiply[index+1];
             module->disp_divide[i] = module->divide[index+1];
-            if (module->ratioDisplays[i-1]) {
+            if (ratioDisplays[i-1]) {
                 char ratioText[16];
                 snprintf(ratioText, sizeof(ratioText), "%d:%d", static_cast<int>(module->disp_multiply[i]), static_cast<int>(module->disp_divide[i]));
                 if (index == 0) { // Check if the current index corresponds to the rotated position
                     if (module->disp_multiply[i]>0){
-                        module->ratioDisplays[i-1]->text = "▸" + std::string(ratioText);
+                        ratioDisplays[i-1]->text = "▸" + std::string(ratioText);
                     } else {
-                        module->ratioDisplays[i-1]->text = "▸off";
+                        ratioDisplays[i-1]->text = "▸off";
                     }
 
                 } else {
                     if (module->disp_multiply[i]>0){
-                        module->ratioDisplays[i-1]->text = std::string(ratioText);
+                        ratioDisplays[i-1]->text = std::string(ratioText);
                     } else {
-                        module->ratioDisplays[i-1]->text = "off";
+                        ratioDisplays[i-1]->text = "off";
                     }
                 }
             }
         }
 
         // Update BPM display
-        if (module->bpmDisplay) {
+        if (bpmDisplay) {
             char bpmText[16];
             if (module->clockCVAsVoct) {
                 float bpmRounded = std::round(module->bpm * 10.0f) / 10.0f;
@@ -846,14 +834,14 @@ struct HammerWidget : ModuleWidget {
                 float bpmRounded = std::round(module->bpm * 10.0f) / 10.0f;
                 snprintf(bpmText, sizeof(bpmText), "%.1f", bpmRounded);
             }
-            module->bpmDisplay->text = bpmText;
+            bpmDisplay->text = bpmText;
         }
 
-        if (module->phasorDisplay) {
+        if (phasorDisplay) {
             if (module->phasorMode){
-                module->phasorDisplay->text = "Phasor Mode";
+                phasorDisplay->text = "Phasor Mode";
             } else {
-                module->phasorDisplay->text = "";
+                phasorDisplay->text = "";
             }
         }
 

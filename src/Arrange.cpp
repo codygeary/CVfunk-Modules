@@ -50,11 +50,7 @@ struct Arrange : Module {
 
     alignas(std::atomic<bool>) std::atomic<bool> isEditing[7]; //For the smart knobs
     alignas(std::atomic<bool>) std::atomic<bool> smartKnobStates[7]; //For the smart knobs
-
     alignas(std::atomic<bool>) std::atomic<bool> isShiftHeld; // For the copy to all feature
-
-    DigitalDisplay* digitalDisplay = nullptr;
-    DigitalDisplay* chanDisplays[7] = {nullptr};
    
     dsp::SchmittTrigger resetTrigger, forwardTrigger, backwardTrigger, recTrigger, forwardInput, backwardInput, recInput, resetInput;
     dsp::SchmittTrigger channelButtonTriggers[7];
@@ -557,16 +553,14 @@ struct Arrange : Module {
             float voltage = (channel == 0) ? outputs[CHAN_1_OUTPUT].getVoltage() : outputs[CHAN_1_OUTPUT + channel].getVoltage();
             outputs[CHAN_1_OUTPUT].setVoltage(voltage, channel);
         }
-
-    }//void process
-        
+    }//void process        
 };
 
 struct ProgressDisplay : TransparentWidget {
     Arrange* module;
 
     void drawLayer(const DrawArgs& args, int layer) override {
-        if (!module || layer != 1) return;  // Only draw on the correct layer
+        if (layer != 1) return;  // Only draw on the correct layer
 
         // Make sure we have a valid drawing area
         if (box.size.x <= 0 || box.size.y <= 0) return;  // Prevent any drawing if size is invalid
@@ -578,8 +572,14 @@ struct ProgressDisplay : TransparentWidget {
         nvgFill(args.vg);
 
         // Variables for drawing
-        int dotsToMake = module->maxStages;
-        int currentDot = module->currentStage;
+        int dotsToMake = 4;
+        int currentDot = 0;
+        
+        if (module){
+            dotsToMake = module->maxStages;
+            currentDot = module->currentStage;
+        }
+        
         float inactiveDotRadius = 2.0f;  // Inactive dot size, half of the active dot size
         float activeDotRadius = 4.0f;  // Active dot size (current stage)
         float yPosition = box.size.y * 0.5f;  // Centered vertically
@@ -607,11 +607,13 @@ struct ProgressDisplay : TransparentWidget {
             
             nvgFill(args.vg);
         }
-    }
-    
+    }   
 };
 
 struct ArrangeWidget : ModuleWidget {
+    //Define screens
+    DigitalDisplay* digitalDisplay = nullptr;
+    DigitalDisplay* chanDisplays[7] = {nullptr};
 
     //Define a SmartKnob that tracks if we are turning it
     template <typename BaseKnob>
@@ -660,7 +662,6 @@ struct ArrangeWidget : ModuleWidget {
     using SmartRoundLargeBlackKnob = SmartKnob<RoundLargeBlackKnob>;
     using SmartRoundHugeBlackKnob = SmartKnob<RoundHugeBlackKnob>;
 
-
     ArrangeWidget(Arrange* module) {
         setModule(module);
 
@@ -682,15 +683,11 @@ struct ArrangeWidget : ModuleWidget {
         digitalDisplay->fontPath = asset::plugin(pluginInstance, "res/fonts/DejaVuSansMono.ttf");
         digitalDisplay->box.pos = Vec(41.5 + 25, 34); // Position on the module
         digitalDisplay->box.size = Vec(100, 18); // Size of the display
-        digitalDisplay->text = "Stage : Max"; // Initial text
+        digitalDisplay->text = "1 / 4"; // Initial text
         digitalDisplay->fgColor = nvgRGB(208, 140, 89); // White color text
         digitalDisplay->textPos = Vec(0, 15); // Text position
         digitalDisplay->setFontSize(16.0f); // Set the font size as desired
         addChild(digitalDisplay);
-
-        if (module) {
-            module->digitalDisplay = digitalDisplay; // Link the module to the display
-        }
 
         // Create and add the ProgressBar Display
         ProgressDisplay* progressDisplay = createWidget<ProgressDisplay>(Vec(46.5 + 25, 50)); // Positioning
@@ -705,7 +702,6 @@ struct ArrangeWidget : ModuleWidget {
         addParam(createParamCentered<TL1105>                  (Vec(45, 90), module, Arrange::REC_BUTTON));
         addInput(createInputCentered<ThemedPJ301MPort>        (Vec(20 , 90), module, Arrange::REC_INPUT));
         addChild(createLightCentered<LargeLight<RedLight>>(Vec(45, 90), module, Arrange::REC_LIGHT));
-
 
         addParam(createParamCentered<TL1105>                  (Vec(100 , 90), module, Arrange::BACKWARDS_BUTTON));
         addInput(createInputCentered<ThemedPJ301MPort>        (Vec(75 , 90), module, Arrange::BACKWARDS_INPUT));
@@ -727,11 +723,9 @@ struct ArrangeWidget : ModuleWidget {
             addChild(createLightCentered<LargeLight<YellowLight>>(Vec(20 + 30, yPos), module, Arrange::CHAN_1_LIGHT_B + i));
             addParam(createParamCentered<SmartRoundBlackKnob>          (Vec(50 + 35, yPos), module, Arrange::CHAN_1_KNOB + i));
 
-            if (module) {
-                // Ratio Displays Initialization
-                module->chanDisplays[i] = createDigitalDisplay(Vec(75 + 40, yPos -  10), "Ready");
-                addChild(module->chanDisplays[i]);
-            }
+            // Ratio Displays Initialization
+            chanDisplays[i] = createDigitalDisplay(Vec(75 + 40, yPos -  10), "C4");
+            addChild(chanDisplays[i]);
  
             addOutput(createOutputCentered<ThemedPJ301MPort>    (Vec(157 + 45, yPos), module, Arrange::CHAN_1_OUTPUT + i));
         }
@@ -743,14 +737,14 @@ struct ArrangeWidget : ModuleWidget {
         if (!module) return;
 
         // Update Stage progress display
-        if (module->digitalDisplay) {
-            module->digitalDisplay->text =  std::to_string(module->currentStage + 1) + " / " + std::to_string(module->maxStages);
+        if (digitalDisplay) {
+            digitalDisplay->text =  std::to_string(module->currentStage + 1) + " / " + std::to_string(module->maxStages);
         }
 
         // Update channel quantizer displays
         for (int i = 0; i < 7; i++) {
 
-            if (module->chanDisplays[i]) {
+            if (chanDisplays[i]) {
                 if (module->channelButton[i]==0) {
 
                     char buffer[32]; // Create a buffer to hold the formatted string
@@ -761,7 +755,7 @@ struct ArrangeWidget : ModuleWidget {
                     
                     // Set the formatted text
                     std::string voltageDisplay = std::string(buffer) + " V";
-                    module->chanDisplays[i]->text = voltageDisplay;  
+                    chanDisplays[i]->text = voltageDisplay;  
                     module->lights[Arrange::CHAN_1_LIGHT + i].setBrightness(0.0f); 
                     module->lights[Arrange::CHAN_1_LIGHT_B + i].setBrightness(0.0f); 
                 
@@ -783,7 +777,7 @@ struct ArrangeWidget : ModuleWidget {
                     char fullNote[7];  // Enough space for note name + octave + null terminator
                     snprintf(fullNote, sizeof(fullNote), "%s%d", noteName, octave);  // Combine note and octave
                 
-                    module->chanDisplays[i]->text = fullNote;  
+                    chanDisplays[i]->text = fullNote;  
                     module->lights[Arrange::CHAN_1_LIGHT + i].setBrightness(1.0f); 
                     module->lights[Arrange::CHAN_1_LIGHT_B + i].setBrightness(0.0f); 
                     
@@ -800,7 +794,7 @@ struct ArrangeWidget : ModuleWidget {
                     snprintf(percentageBuffer, sizeof(percentageBuffer), "%d%%", percentage);  // Format as a percentage
                     
                     // Set the percentage display
-                    module->chanDisplays[i]->text = percentageBuffer;  
+                    chanDisplays[i]->text = percentageBuffer;  
                     
                     // Set the brightness for the secondary light (CHAN_1_LIGHT_B) in this mode
                     module->lights[Arrange::CHAN_1_LIGHT + i].setBrightness(0.0f); 
@@ -809,17 +803,6 @@ struct ArrangeWidget : ModuleWidget {
                 }               
             }
         }
-    }
-
-    DigitalDisplay* createDigitalDisplay(Vec position, std::string initialValue) {
-        DigitalDisplay* display = new DigitalDisplay();
-        display->box.pos = position;
-        display->box.size = Vec(50, 18);
-        display->text = initialValue;
-        display->fgColor = nvgRGB(208, 140, 89); // Gold color text
-        display->fontPath = asset::plugin(pluginInstance, "res/fonts/DejaVuSansMono.ttf");
-        display->setFontSize(14.0f);
-        return display;
     }
 
     // Update the context menu structure and ensure correct function calling
@@ -938,8 +921,7 @@ struct ArrangeWidget : ModuleWidget {
             void step() override {
                 rightText = ">"; // Add ">" to indicate a submenu
                 MenuItem::step();
-            }
-            
+            }           
         };
         
         // Add the Polyphony Channel Count submenu
@@ -1019,7 +1001,19 @@ struct ArrangeWidget : ModuleWidget {
         pasteAllLayersItem->arrangeModule = arrangeModule;
         menu->addChild(pasteAllLayersItem);
 
-    }    
+    }
+    
+    DigitalDisplay* createDigitalDisplay(Vec position, std::string initialValue) {
+        DigitalDisplay* display = new DigitalDisplay();
+        display->box.pos = position;
+        display->box.size = Vec(50, 18);
+        display->text = initialValue;
+        display->fgColor = nvgRGB(208, 140, 89); // Gold color text
+        display->fontPath = asset::plugin(pluginInstance, "res/fonts/DejaVuSansMono.ttf");
+        display->setFontSize(14.0f);
+        return display;
+    } 
+        
 };
 
 Model* modelArrange = createModel<Arrange, ArrangeWidget>("Arrange");

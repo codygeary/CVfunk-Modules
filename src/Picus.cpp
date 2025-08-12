@@ -81,8 +81,6 @@ struct Picus : Module {
     bool syncPoint = false; //keep track of when the sync point is for linking the clocks correct
     float syncInterval = 1.0f;
 
-    DigitalDisplay* ratioDisplays[STAGES] = {nullptr};
-
     bool firstPulseReceived = false;
     bool firstSync = true;
     int currentStage = 0;
@@ -450,6 +448,7 @@ struct Picus : Module {
 };
 
 struct PicusWidget : ModuleWidget {
+    DigitalDisplay* ratioDisplays[STAGES] = {nullptr};
 
     PicusWidget(Picus* module) {
         setModule(module);
@@ -558,12 +557,10 @@ struct PicusWidget : ModuleWidget {
         addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(68, 95)), module, Picus::PATTERN_KNOB));
         addParam(createParamCentered<Trimpot>(mm2px(Vec(68, 105)), module, Picus::PATTERN_ATT));
 
-        if (module){
-            // Ratio Displays Initialization
-            for (int i = 0; i < 7; i++) {
-                module->ratioDisplays[i] = createDigitalDisplay(mm2px(Vec(24.f+xoffset, 46.365f + (float)i * 10.386f + yoffset)), "1:1");
-                addChild(module->ratioDisplays[i]);
-            }
+        // Ratio Displays Initialization
+        for (int i = 0; i < 7; i++) {
+            ratioDisplays[i] = createDigitalDisplay(mm2px(Vec(24.f+xoffset, 46.365f + (float)i * 10.386f + yoffset)), "3:4");
+            addChild(ratioDisplays[i]);
         }
 
         float bufferSpace = 17.0f;
@@ -616,7 +613,6 @@ struct PicusWidget : ModuleWidget {
         PatternResetItem->picusModule = picusModule;
         menu->addChild(PatternResetItem);
 
-
     }
 
     void draw(const DrawArgs& args) override {
@@ -626,18 +622,18 @@ struct PicusWidget : ModuleWidget {
 
         // Update ratio displays
         for (int i = 0; i < 7; i++) {
-            if (module->ratioDisplays[i]) {
+            if (ratioDisplays[i]) {
                 char ratioText[16];
                 snprintf(ratioText, sizeof(ratioText), "%d:%d", static_cast<int>(module->multiply[i]), static_cast<int>(module->divide[i]));
                 if (module->currentStage != i){
-                    module->ratioDisplays[i]->fgColor = nvgRGB(154, 105, 65); // Dimmed text
+                    ratioDisplays[i]->fgColor = nvgRGB(154, 105, 65); // Dimmed text
                 } else {
-                    module->ratioDisplays[i]->fgColor = nvgRGB(208, 140, 89); // Gold color text
+                    ratioDisplays[i]->fgColor = nvgRGB(208, 140, 89); // Gold color text
                 }
                 if (module->divide[i]!=0){
-                    module->ratioDisplays[i]->text = ratioText;
+                    ratioDisplays[i]->text = ratioText;
                 } else {
-                    module->ratioDisplays[i]->text = "off";
+                    ratioDisplays[i]->text = "off";
                 }
             }
         }
@@ -684,7 +680,6 @@ struct PicusWidget : ModuleWidget {
         for (int i = 0; i < 7; i++){ //7 stage lights
             module->lights[Picus::STAGE_1_LIGHT + i].setBrightness( 0.f); 
         }
-
 
         module->selectedStage = clamp(module->selectedStage, 0, 6); //clamp stage in case bad data loaded from JSON
         module->lights[Picus::STAGE_1_LIGHT + module->selectedStage].setBrightness( 1.0f); //illuminate selected stage.
