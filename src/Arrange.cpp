@@ -556,64 +556,65 @@ struct Arrange : Module {
     }//void process        
 };
 
-struct ProgressDisplay : TransparentWidget {
-    Arrange* module;
-
-    void drawLayer(const DrawArgs& args, int layer) override {
-        if (layer != 1) return;  // Only draw on the correct layer
-
-        // Make sure we have a valid drawing area
-        if (box.size.x <= 0 || box.size.y <= 0) return;  // Prevent any drawing if size is invalid
-
-        // Clear the drawing area
-        nvgBeginPath(args.vg);
-        nvgRect(args.vg, 0, 0, box.size.x, box.size.y);
-        nvgFillColor(args.vg, nvgRGBA(0, 0, 0, 0));  // Transparent background
-        nvgFill(args.vg);
-
-        // Variables for drawing
-        int dotsToMake = 4;
-        int currentDot = 0;
-        
-        if (module){
-            dotsToMake = module->maxStages;
-            currentDot = module->currentStage;
-        }
-        
-        float inactiveDotRadius = 2.0f;  // Inactive dot size, half of the active dot size
-        float activeDotRadius = 4.0f;  // Active dot size (current stage)
-        float yPosition = box.size.y * 0.5f;  // Centered vertically
-        float dotSpacing = box.size.x / dotsToMake;  // Space between dots
-
-        // Safety checks
-        if (dotsToMake <= 0) dotsToMake = 1;  // Avoid division by zero
-        
-        // Draw the dots
-        for (int i = 0; i < dotsToMake; i++) {
-            float xPosition = i * dotSpacing + dotSpacing / 2;  // Center the dots within each segment
-
-            nvgBeginPath(args.vg);
-            
-            // Check if this dot represents the current stage
-            if (i == currentDot) {
-                // Draw the current stage dot (active, larger size)
-                nvgCircle(args.vg, xPosition, yPosition, activeDotRadius);
-                nvgFillColor(args.vg, nvgRGBA(255, 255, 255, 255));  // Bright white color for active dot
-            } else {
-                // Draw inactive dots (smaller size)
-                nvgCircle(args.vg, xPosition, yPosition, inactiveDotRadius);
-                nvgFillColor(args.vg, nvgRGBA(100, 100, 100, 255));  // Light grey color for inactive dots
-            }
-            
-            nvgFill(args.vg);
-        }
-    }   
-};
 
 struct ArrangeWidget : ModuleWidget {
     //Define screens
-    DigitalDisplay* digitalDisplay = nullptr;
+    DigitalDisplay* stageDisplay = nullptr;
     DigitalDisplay* chanDisplays[7] = {nullptr};
+
+    struct ProgressDisplay : TransparentWidget {
+        Arrange* module;
+    
+        void drawLayer(const DrawArgs& args, int layer) override {
+            if (layer != 1) return;  // Only draw on the correct layer
+    
+            // Make sure we have a valid drawing area
+            if (box.size.x <= 0 || box.size.y <= 0) return;  // Prevent any drawing if size is invalid
+    
+            // Clear the drawing area
+            nvgBeginPath(args.vg);
+            nvgRect(args.vg, 0, 0, box.size.x, box.size.y);
+            nvgFillColor(args.vg, nvgRGBA(0, 0, 0, 0));  // Transparent background
+            nvgFill(args.vg);
+    
+            // Variables for drawing
+            int dotsToMake = 4;
+            int currentDot = 0;
+            
+            if (module){
+                dotsToMake = module->maxStages;
+                currentDot = module->currentStage;
+            }
+            
+            float inactiveDotRadius = 2.0f;  // Inactive dot size, half of the active dot size
+            float activeDotRadius = 4.0f;  // Active dot size (current stage)
+            float yPosition = box.size.y * 0.5f;  // Centered vertically
+            float dotSpacing = box.size.x / dotsToMake;  // Space between dots
+    
+            // Safety checks
+            if (dotsToMake <= 0) dotsToMake = 1;  // Avoid division by zero
+            
+            // Draw the dots
+            for (int i = 0; i < dotsToMake; i++) {
+                float xPosition = i * dotSpacing + dotSpacing / 2;  // Center the dots within each segment
+    
+                nvgBeginPath(args.vg);
+                
+                // Check if this dot represents the current stage
+                if (i == currentDot) {
+                    // Draw the current stage dot (active, larger size)
+                    nvgCircle(args.vg, xPosition, yPosition, activeDotRadius);
+                    nvgFillColor(args.vg, nvgRGBA(255, 255, 255, 255));  // Bright white color for active dot
+                } else {
+                    // Draw inactive dots (smaller size)
+                    nvgCircle(args.vg, xPosition, yPosition, inactiveDotRadius);
+                    nvgFillColor(args.vg, nvgRGBA(100, 100, 100, 255));  // Light grey color for inactive dots
+                }
+                
+                nvgFill(args.vg);
+            }
+        }   
+    };
 
     //Define a SmartKnob that tracks if we are turning it
     template <typename BaseKnob>
@@ -678,16 +679,10 @@ struct ArrangeWidget : ModuleWidget {
 
         box.size = Vec(15 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT); 
 
-        // Configure and add the first digital display
-        DigitalDisplay* digitalDisplay = new DigitalDisplay();
-        digitalDisplay->fontPath = asset::plugin(pluginInstance, "res/fonts/DejaVuSansMono.ttf");
-        digitalDisplay->box.pos = Vec(41.5 + 25, 34); // Position on the module
-        digitalDisplay->box.size = Vec(100, 18); // Size of the display
-        digitalDisplay->text = "1 / 4"; // Initial text
-        digitalDisplay->fgColor = nvgRGB(208, 140, 89); // White color text
-        digitalDisplay->textPos = Vec(0, 15); // Text position
-        digitalDisplay->setFontSize(16.0f); // Set the font size as desired
-        addChild(digitalDisplay);
+        // Stage and Chord Display
+        stageDisplay = createDigitalDisplay(Vec(41.5 + 50, 34), "1 / 4");
+        addChild(stageDisplay);
+
 
         // Create and add the ProgressBar Display
         ProgressDisplay* progressDisplay = createWidget<ProgressDisplay>(Vec(46.5 + 25, 50)); // Positioning
@@ -737,8 +732,8 @@ struct ArrangeWidget : ModuleWidget {
         if (!module) return;
 
         // Update Stage progress display
-        if (digitalDisplay) {
-            digitalDisplay->text =  std::to_string(module->currentStage + 1) + " / " + std::to_string(module->maxStages);
+        if (stageDisplay) {
+            stageDisplay->text =  std::to_string(module->currentStage + 1) + " / " + std::to_string(module->maxStages);
         }
 
         // Update channel quantizer displays
@@ -1012,8 +1007,8 @@ struct ArrangeWidget : ModuleWidget {
         display->fontPath = asset::plugin(pluginInstance, "res/fonts/DejaVuSansMono.ttf");
         display->setFontSize(14.0f);
         return display;
-    } 
-        
+    }
+            
 };
 
 Model* modelArrange = createModel<Arrange, ArrangeWidget>("Arrange");
