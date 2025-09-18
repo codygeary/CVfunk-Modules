@@ -25,7 +25,7 @@ struct JunkDNA : Module {
         A_OUT, T_OUT, G_OUT, C_OUT,
         R_OUT, Y_OUT, S_OUT, W_OUT,
         D_OUT, H_OUT, V_OUT, B_OUT, N_OUT,
-        DNA_OUT,
+        DNA_OUT, POLY_OUT,
         NUM_OUTS
     };
     enum LightIds {
@@ -39,7 +39,7 @@ struct JunkDNA : Module {
     std::string prevSequenceText = "N";
     dsp::SchmittTrigger fwdTrigger, revTrigger, resetTrigger, fwdButtonTrigger, revButtonTrigger, resetButtonTrigger;
     dsp::PulseGenerator outputPulse;
-    bool pulseOutput = true;
+    bool gateOutput = true;
 
     DigitalDisplay* displayRibbon[31] = {nullptr}; //odd number allows for a central display
 
@@ -52,14 +52,28 @@ struct JunkDNA : Module {
     std::mt19937 rng;
 
     bool initializing = true;
-
+    
+    float aOutputVal = 1.f;
+    float tOutputVal = 2.f;
+    float cOutputVal = 3.f;
+    float gOutputVal = 4.f;
+    float xOutputVal = -1.f;
+    bool triggered = false;
+    bool prevOutputs[12] = {false};
+    
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
     
         json_object_set_new(rootJ, "sequenceText", json_string(sequenceText.c_str()));
         json_object_set_new(rootJ, "sequenceIndex", json_integer(sequenceIndex));
         json_object_set_new(rootJ, "geneSize", json_integer(geneSize));
-        json_object_set_new(rootJ, "pulseOutput", json_boolean(pulseOutput));
+        json_object_set_new(rootJ, "gateOutput", json_boolean(gateOutput));
+
+        json_object_set_new(rootJ, "aOutputVal", json_real(aOutputVal));
+        json_object_set_new(rootJ, "tOutputVal", json_real(tOutputVal));
+        json_object_set_new(rootJ, "cOutputVal", json_real(cOutputVal));
+        json_object_set_new(rootJ, "gOutputVal", json_real(gOutputVal));
+        json_object_set_new(rootJ, "xOutputVal", json_real(xOutputVal));
     
         json_t* geneJ = json_array();
         for (int i = 0; i < GENE_CAPACITY; i++) {
@@ -76,6 +90,28 @@ struct JunkDNA : Module {
             sequenceText = json_string_value(seqJ);
             prevSequenceText = sequenceText;
         }
+ 
+        json_t* aOutputValJ = json_object_get(rootJ, "aOutputVal");
+        if (aOutputValJ) {
+            aOutputVal = json_real_value(aOutputValJ);
+        }
+        
+        json_t* tOutputValJ = json_object_get(rootJ, "tOutputVal");
+        if (tOutputValJ) {
+            tOutputVal = json_real_value(tOutputValJ);
+        }
+        json_t* cOutputValJ = json_object_get(rootJ, "cOutputVal");
+        if (cOutputValJ) {
+            cOutputVal = json_real_value(cOutputValJ);
+        }
+        json_t* gOutputValJ = json_object_get(rootJ, "gOutputVal");
+        if (gOutputValJ) {
+            gOutputVal = json_real_value(gOutputValJ);
+        }
+        json_t* xOutputValJ = json_object_get(rootJ, "xOutputVal");
+        if (xOutputValJ) {
+            xOutputVal = json_real_value(xOutputValJ);
+        }
     
         json_t* idxJ = json_object_get(rootJ, "sequenceIndex");
         if (idxJ)
@@ -85,9 +121,9 @@ struct JunkDNA : Module {
         if (sizeJ)
             geneSize = json_integer_value(sizeJ);
 
-        json_t* gateOutputJ = json_object_get(rootJ, "pulseOutput");
+        json_t* gateOutputJ = json_object_get(rootJ, "gateOutput");
         if (gateOutputJ) {
-            pulseOutput = json_boolean_value(gateOutputJ);
+            gateOutput = json_boolean_value(gateOutputJ);
         }
 
         json_t* geneArrJ = json_object_get(rootJ, "gene");
@@ -124,7 +160,9 @@ struct JunkDNA : Module {
         configOutput(V_OUT, "V (Not T)");
         configOutput(B_OUT, "B (Not A)");
         configOutput(N_OUT, "N (aNy) - Outputs trigger each step");
-        configOutput(DNA_OUT, "DNA Signal: 1=A, 2=T, 3=C, 4=G, -1=break");
+        configOutput(DNA_OUT, "DNA Signal: set in context menu");
+        configOutput(POLY_OUT, "Polyphonic: A,T,C,G, R,Y,S,W, D,H,V,B ");
+
 
         configParam(FWD_BUTTON, 0.f, 1.f, 0.f, "Forward");
         configParam(REV_BUTTON, 0.f, 1.f, 0.f, "Reverse");
@@ -230,10 +268,10 @@ struct JunkDNA : Module {
             lights[N_LIGHT].value = 1.f;
         }
         
-        if (pulseOutput) {pulseActive = true;} //pulseOutput overrides the pulse-length
+        if (gateOutput) {pulseActive = true;} //gateOutput overrides the pulse-length
     
         float high = pulseActive ? 10.f : 0.f;
-     
+       
         // Now set specific outputs/lights for each NT
         switch (currentNT) {
             case 0: // A
@@ -251,7 +289,7 @@ struct JunkDNA : Module {
                 lights[H_LIGHT].value = 1.f;
                 lights[D_LIGHT].value = 1.f;
                 lights[V_LIGHT].value = 1.f;
-                outputs[DNA_OUT].setVoltage(1.f);
+                outputs[DNA_OUT].setVoltage(aOutputVal);
                 break;
     
             case 1: // T/U
@@ -269,7 +307,7 @@ struct JunkDNA : Module {
                 lights[H_LIGHT].value = 1.f;
                 lights[D_LIGHT].value = 1.f;
                 lights[B_LIGHT].value = 1.f;
-                outputs[DNA_OUT].setVoltage(2.f);
+                outputs[DNA_OUT].setVoltage(tOutputVal);
                 break;
 
             case 2: // C
@@ -287,7 +325,7 @@ struct JunkDNA : Module {
                 lights[H_LIGHT].value = 1.f;
                 lights[V_LIGHT].value = 1.f;
                 lights[B_LIGHT].value = 1.f;
-                outputs[DNA_OUT].setVoltage(3.f);
+                outputs[DNA_OUT].setVoltage(cOutputVal);
                 break;
     
             case 3: // G
@@ -305,14 +343,19 @@ struct JunkDNA : Module {
                 lights[D_LIGHT].value = 1.f;
                 lights[V_LIGHT].value = 1.f;
                 lights[B_LIGHT].value = 1.f;
-                outputs[DNA_OUT].setVoltage(4.f);                
+                outputs[DNA_OUT].setVoltage(gOutputVal);                
                 break;
             case 4: // X strand break, no lights
                 outputs[N_OUT].setVoltage(0.f);
                 lights[N_LIGHT].value = 0.f;
-                outputs[DNA_OUT].setVoltage(-1.f);                
+                outputs[DNA_OUT].setVoltage(xOutputVal);                
                 break;
                 
+        }
+ 
+        outputs[POLY_OUT].setChannels(12);
+        for (int chan=0; chan<12; chan++){
+            outputs[POLY_OUT].setVoltage(outputs[A_OUT + chan].getVoltage(), chan);
         }
             
         updateDisplays();        
@@ -540,6 +583,8 @@ struct JunkDNAWidget : ModuleWidget {
         addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(70, 30.5)), module, JunkDNA::FWD_IN));
 
         addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(70, 50)), module, JunkDNA::DNA_OUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(70, 120)), module, JunkDNA::POLY_OUT));
+
 
         addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(16.109, 64.81  )), module, JunkDNA::D_OUT));
         addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(60.123, 64.857 )), module, JunkDNA::H_OUT));
@@ -571,6 +616,33 @@ struct JunkDNAWidget : ModuleWidget {
 
     }
 
+    // Generic Quantity for any float member 
+    struct FloatMemberQuantity : Quantity {
+        JunkDNA* module;
+        float JunkDNA::*member; // pointer-to-member
+        std::string label;
+        float min, max, def;
+        int precision;
+    
+        FloatMemberQuantity(JunkDNA* m, float JunkDNA::*mem, std::string lbl,
+                            float mn, float mx, float df, int prec = 0)
+            : module(m), member(mem), label(lbl), min(mn), max(mx), def(df), precision(prec) {}
+    
+        void setValue(float v) override { module->*member = clamp(v, min, max); }
+        float getValue() override { return module->*member; }
+        float getDefaultValue() override { return def; }
+        float getMinValue() override { return min; }
+        float getMaxValue() override { return max; }
+        int getDisplayPrecision() override { return precision; }
+    
+        std::string getLabel() override { return label; }
+        std::string getDisplayValueString() override {
+            if (precision == 0)
+                return std::to_string((int)std::round(getValue()));
+            return string::f("%.*f", precision, getValue());
+        }
+    };
+
     void appendContextMenu(Menu* menu) override {
         ModuleWidget::appendContextMenu(menu);
  
@@ -583,10 +655,10 @@ struct JunkDNAWidget : ModuleWidget {
         struct GateOutputMenuItem : MenuItem {
             JunkDNA* junkDNAModule;
             void onAction(const event::Action& e) override {
-                junkDNAModule->pulseOutput = !junkDNAModule->pulseOutput;
+                junkDNAModule->gateOutput = !junkDNAModule->gateOutput;
             }
             void step() override {
-                rightText = junkDNAModule->pulseOutput ? "" : "✔";
+                rightText = junkDNAModule->gateOutput ? "" : "✔";
                 MenuItem::step();
             }
         };
@@ -595,6 +667,40 @@ struct JunkDNAWidget : ModuleWidget {
         gateOutputItem->text = "Output Pulses instead of Gates";
         gateOutputItem->junkDNAModule = junkDNAModule;
         menu->addChild(gateOutputItem);
+
+        menu->addChild(new MenuSeparator());
+
+        // Envelope polySpan
+        auto* aSlider = new ui::Slider();
+        aSlider->quantity = new FloatMemberQuantity(junkDNAModule, &JunkDNA::aOutputVal,
+            "Adenine Output Val", -10.f, 10.f, 1.f, 2);
+        aSlider->box.size.x = 200.f;
+        menu->addChild(aSlider);
+
+        auto* tSlider = new ui::Slider();
+        tSlider->quantity = new FloatMemberQuantity(junkDNAModule, &JunkDNA::tOutputVal,
+            "Thymine Output Val", -10.f, 10.f, 2.f, 2);
+        tSlider->box.size.x = 200.f;
+        menu->addChild(tSlider);
+
+        auto* cSlider = new ui::Slider();
+        cSlider->quantity = new FloatMemberQuantity(junkDNAModule, &JunkDNA::cOutputVal,
+            "Cytosine Output Val", -10.f, 10.f, 3.f, 2);
+        cSlider->box.size.x = 200.f;
+        menu->addChild(cSlider);
+
+        auto* gSlider = new ui::Slider();
+        gSlider->quantity = new FloatMemberQuantity(junkDNAModule, &JunkDNA::gOutputVal,
+            "Guanine Output Val", -10.f, 10.f, 4.f, 2);
+        gSlider->box.size.x = 200.f;
+        menu->addChild(gSlider);
+
+        auto* xSlider = new ui::Slider();
+        xSlider->quantity = new FloatMemberQuantity(junkDNAModule, &JunkDNA::xOutputVal,
+            "Gap (X) Output Val", -10.f, 10.f, -1.f, 2);
+        xSlider->box.size.x = 200.f;
+        menu->addChild(xSlider);
+
 
     
         menu->addChild(new MenuSeparator());

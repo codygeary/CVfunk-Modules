@@ -38,3 +38,5 @@ extern Model* modelWeave;
 extern Model* modelWonk;
 extern Model* modelHammer;
 extern Model* modelHub;
+extern Model* modelCVfunkBlank;
+extern Model* modelCVfunkBlank4HP;

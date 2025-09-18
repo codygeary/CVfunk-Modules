@@ -75,6 +75,59 @@ struct Node : Module {
     float transitionSamples = 100.f; // Number of samples to complete the transition, updated in config to 10ms
     float fadeLevel[2] = {1.0f, 1.0f};
     int transitionCount[2] = {0, 0};  // Array to track transition progress for each channel
+    float transitionTime = 10.0f; // 10ms default
+    
+    bool polyOutput = false; //for polyphonic chaining option
+    
+    json_t* dataToJson() override {
+        json_t* rootJ = json_object();
+
+        // Save polyOutput
+        json_object_set_new(rootJ, "polyOutput", json_boolean(polyOutput));
+
+        // Save transitionTime
+        json_object_set_new(rootJ, "transitionTime", json_real(transitionTime));
+        json_object_set_new(rootJ, "transitionSamples", json_real(transitionSamples));
+
+    
+        // Save muteState array
+        json_t* muteJ = json_array();
+        for (int i = 0; i < 2; i++) {
+            json_array_append_new(muteJ, json_boolean(muteState[i]));
+        }
+        json_object_set_new(rootJ, "muteState", muteJ);
+    
+        return rootJ;
+    }
+    
+    void dataFromJson(json_t* rootJ) override {    
+        // Load polyOutput
+        json_t* polyJ = json_object_get(rootJ, "polyOutput");
+        if (polyJ) {
+            polyOutput = json_boolean_value(polyJ);
+        }
+
+        // Load transitionTime
+        json_t* transitionTimeJ = json_object_get(rootJ, "transitionTime");
+        if (transitionTimeJ) {
+            transitionTime = json_real_value(transitionTimeJ);
+        }
+        json_t* transitionSamplesJ = json_object_get(rootJ, "transitionSamples");
+        if (transitionSamplesJ) {
+            transitionSamples = json_real_value(transitionSamplesJ);
+        }
+
+        // Load muteState array
+        json_t* muteJ = json_object_get(rootJ, "muteState");
+        if (muteJ) {
+            for (int i = 0; i < 2; i++) {
+                json_t* valJ = json_array_get(muteJ, i);
+                if (valJ) {
+                    muteState[i] = json_boolean_value(valJ);
+                }
+            }
+        }
+    }
 
     Node() {
         config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
@@ -96,11 +149,13 @@ struct Node : Module {
         configOutput(OUT1, "Output L");
         configOutput(OUT2, "Output R");
 
-        transitionSamples = 0.01 * APP->engine->getSampleRate(); // 10 ms * sample rate
+        transitionSamples = transitionTime * 0.001f * APP->engine->getSampleRate(); // 10 ms * sample rate
     }
 
     void process(const ProcessArgs& args) override {
         cycleCount++;
+
+        transitionSamples = transitionTime * 0.001f * APP->engine->getSampleRate(); // 10 ms * sample rate
     
         // ===== XFADE CV =====
         float xfadeParam = params[XFADE_PARAM].getValue();
@@ -117,12 +172,10 @@ struct Node : Module {
         if (mute1Trigger.process(params[MUTE1_PARAM].getValue())) {
             muteState[0] = !muteState[0];
             transitionCount[0] = transitionSamples;
-            lights[MUTE_LIGHT1].setBrightness(muteState[0] ? 1.0f : 0.f);
         }
         if (mute2Trigger.process(params[MUTE2_PARAM].getValue())) {
             muteState[1] = !muteState[1];
             transitionCount[1] = transitionSamples;
-            lights[MUTE_LIGHT2].setBrightness(muteState[1] ? 1.0f : 0.f);
         }
         for (int i = 0; i < 2; i++) {
             if (transitionCount[i] > 0) {
@@ -210,18 +263,51 @@ struct Node : Module {
         Ch2TotalL = Ch2TotalL * decayRate + fabs(Ch2L) * (1.f - decayRate);
         Ch2TotalR = Ch2TotalR * decayRate + fabs(Ch2R) * (1.f - decayRate);
     
-        // ===== ADAA =====
-        float maxHeadRoom = 13.14f;
-        outL = clamp(outL, -maxHeadRoom, maxHeadRoom);
-        outR = clamp(outR, -maxHeadRoom, maxHeadRoom);
-        outL = applyADAA(outL / 10.f, lastOutputL, sampleRate);
-        outR = applyADAA(outR / 10.f, lastOutputR, sampleRate);
-        lastOutputL = outL;
-        lastOutputR = outR;
-    
         // ===== OUTPUT =====
-        outputs[OUT1].setVoltage(clamp(outL * volume * 6.9f, -10.f, 10.f));
-        outputs[OUT2].setVoltage(clamp(outR * volume * 6.9f, -10.f, 10.f));
+        if (polyOutput) {
+            // Output full poly channels instead of stereo mix
+            int polyChannels = std::max(ch1Channels, ch2Channels);
+            outputs[OUT1].setChannels(polyChannels);
+            outputs[OUT2].setChannels(polyChannels);
+        
+            for (int c = 0; c < polyChannels; c++) {
+                float ch1L = (inputs[_1_IN1].getChannels() > c) ? inputs[_1_IN1].getPolyVoltage(c) : 0.f;
+                float ch1R = (inputs[_1_IN2].getChannels() > c) ? inputs[_1_IN2].getPolyVoltage(c) : ch1L;
+                float ch2L = (inputs[_2_IN1].getChannels() > c) ? inputs[_2_IN1].getPolyVoltage(c) : 0.f;
+                float ch2R = (inputs[_2_IN2].getChannels() > c) ? inputs[_2_IN2].getPolyVoltage(c) : ch2L;
+        
+                // Apply gains, fades, and crossfade per channel
+                float outL = (ch1L * fadeLevel[0] * params[GAIN1_PARAM].getValue() * channel1Amt) +
+                             (ch2L * fadeLevel[1] * params[GAIN2_PARAM].getValue() * channel2Amt);
+                float outR = (ch1R * fadeLevel[0] * params[GAIN1_PARAM].getValue() * channel1Amt) +
+                             (ch2R * fadeLevel[1] * params[GAIN2_PARAM].getValue() * channel2Amt);
+        
+                // Clamp and ADAA just like stereo mode
+                float maxHeadRoom = 13.14f;
+                outL = clamp(outL, -maxHeadRoom, maxHeadRoom);
+                outR = clamp(outR, -maxHeadRoom, maxHeadRoom);
+                outL = applyADAA(outL / 10.f, lastOutputL, args.sampleRate);
+                outR = applyADAA(outR / 10.f, lastOutputR, args.sampleRate);
+                lastOutputL = outL;
+                lastOutputR = outR;
+        
+                outputs[OUT1].setVoltage(clamp(outL * volume * 6.9f, -10.f, 10.f), c);
+                outputs[OUT2].setVoltage(clamp(outR * volume * 6.9f, -10.f, 10.f), c);
+            }
+        }
+        else {
+            // ===== ADAA stereo-mix path =====
+            float maxHeadRoom = 13.14f;
+            outL = clamp(outL, -maxHeadRoom, maxHeadRoom);
+            outR = clamp(outR, -maxHeadRoom, maxHeadRoom);
+            outL = applyADAA(outL / 10.f, lastOutputL, args.sampleRate);
+            outR = applyADAA(outR / 10.f, lastOutputR, args.sampleRate);
+            lastOutputL = outL;
+            lastOutputR = outR;
+        
+            outputs[OUT1].setVoltage(clamp(outL * volume * 6.9f, -10.f, 10.f));
+            outputs[OUT2].setVoltage(clamp(outR * volume * 6.9f, -10.f, 10.f));
+        }
     
         // ===== LIGHTS =====
         updateLights();
@@ -380,6 +466,16 @@ struct NodeWidget : ModuleWidget {
 
     }
 
+    void draw(const DrawArgs& args) override {
+        ModuleWidget::draw(args);
+        Node* module = dynamic_cast<Node*>(this->module);
+        if (!module) return;
+
+            module->lights[Node::MUTE_LIGHT1].setBrightness(module->muteState[0] ? 1.0f : 0.f);
+            module->lights[Node::MUTE_LIGHT2].setBrightness(module->muteState[1] ? 1.0f : 0.f);
+
+    }
+
     void addLightsAroundKnob(Module* module, float knobX, float knobY, int firstLightId, int numLights, float radius) {
         const float startAngle = M_PI*0.7f; // Start angle in radians (8 o'clock on the clock face)
         const float endAngle = 2.0f*M_PI+M_PI*0.3f;   // End angle in radians (4 o'clock on the clock face)
@@ -398,6 +494,71 @@ struct NodeWidget : ModuleWidget {
             }
         }
     }
+
+    // Generic Quantity for any float member 
+    struct FloatMemberQuantity : Quantity {
+        Node* module;
+        float Node::*member; // pointer-to-member
+        std::string label;
+        float min, max, def;
+        int precision;
+    
+        FloatMemberQuantity(Node* m, float Node::*mem, std::string lbl,
+                            float mn, float mx, float df, int prec = 0)
+            : module(m), member(mem), label(lbl), min(mn), max(mx), def(df), precision(prec) {}
+    
+        void setValue(float v) override { module->*member = clamp(v, min, max); }
+        float getValue() override { return module->*member; }
+        float getDefaultValue() override { return def; }
+        float getMinValue() override { return min; }
+        float getMaxValue() override { return max; }
+        int getDisplayPrecision() override { return precision; }
+    
+        std::string getLabel() override { return label; }
+        std::string getDisplayValueString() override {
+            if (precision == 0)
+                return std::to_string((int)std::round(getValue()));
+            return string::f("%.*f", precision, getValue());
+        }
+    };
+
+    void appendContextMenu(Menu* menu) override {
+        Node* nodeModule = dynamic_cast<Node*>(this->module);
+        assert(nodeModule);
+    
+        // Separator for new section
+        menu->addChild(new MenuSeparator);
+    
+        // Poly Output Menu Item
+        struct PolyOutputItem : MenuItem {
+            Node* nodeModule;
+    
+            void onAction(const event::Action& e) override {
+                // Toggle the polyOutput variable in the module
+                nodeModule->polyOutput = !nodeModule->polyOutput;
+            }
+    
+            void step() override {
+                rightText = nodeModule->polyOutput ? "✔" : ""; // Show checkmark if true
+                MenuItem::step();
+            }
+        };
+    
+        // Create the Poly Output menu item
+        PolyOutputItem* polyOutputItem = new PolyOutputItem();
+        polyOutputItem->text = "Output poly instead of mix"; // Set menu item text
+        polyOutputItem->nodeModule = nodeModule;             // Pass the module pointer
+        menu->addChild(polyOutputItem);                      // Add to context menu
+        
+        // Envelope polySpan
+        auto* fadeSlider = new ui::Slider();
+        fadeSlider->quantity = new FloatMemberQuantity(nodeModule, &Node::transitionTime,
+            "Mute Fade Time (ms)", 1.f, 2000.f, 19.f, 0);
+        fadeSlider->box.size.x = 200.f;
+        menu->addChild(fadeSlider);
+                
+    }
+
 
 };
 Model* modelNode = createModel<Node, NodeWidget>("Node");

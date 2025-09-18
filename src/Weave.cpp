@@ -183,6 +183,41 @@ struct Weave : Module {
         0.0f     // Dim -high root
     };
 
+    json_t* dataToJson() override {
+        json_t* rootJ = json_object();
+    
+        // Save octaveState
+        json_object_set_new(rootJ, "octaveState", json_integer(octaveState));
+    
+        // Save currentPermute array
+        json_t* permuteJ = json_array();
+        for (int i = 0; i < 6; i++) {
+            json_array_append_new(permuteJ, json_integer(currentPermute[i]));
+        }
+        json_object_set_new(rootJ, "currentPermute", permuteJ);
+    
+        return rootJ;
+    }
+    
+    void dataFromJson(json_t* rootJ) override {
+        // Load octaveState
+        json_t* octaveStateJ = json_object_get(rootJ, "octaveState");
+        if (octaveStateJ) {
+            octaveState = json_integer_value(octaveStateJ);
+        }
+    
+        // Load currentPermute array
+        json_t* permuteJ = json_object_get(rootJ, "currentPermute");
+        if (permuteJ) {
+            for (int i = 0; i < 6; i++) {
+                json_t* valJ = json_array_get(permuteJ, i);
+                if (valJ) {
+                    currentPermute[i] = json_integer_value(valJ);
+                }
+            }
+        }
+    }
+
     Weave() {
         config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
         configParam(WEAVE_KNOB_PARAM, 0.f, WEAVE_PATTERNS-1, 0.f, "Weave");
@@ -682,9 +717,9 @@ struct WeaveWidget : ModuleWidget {
         ));
 
         addChild(createWidget<ThemedScrew>(Vec(0, 0)));
-        addChild(createWidget<ThemedScrew>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, 0)));
+        addChild(createWidget<ThemedScrew>(Vec(box.size.x - 1 * RACK_GRID_WIDTH, 0)));
         addChild(createWidget<ThemedScrew>(Vec(0, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
-        addChild(createWidget<ThemedScrew>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
+        addChild(createWidget<ThemedScrew>(Vec(box.size.x - 1 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 
         addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(45.0, 42.00)), module, Weave::WEAVE_KNOB_PARAM));
         addParam(createParamCentered<Trimpot>(mm2px(Vec(55.0, 42.00)), module, Weave::WEAVE_ATT_PARAM));

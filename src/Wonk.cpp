@@ -10,6 +10,7 @@
 ////////////////////////////////////////////////////////////
 
 #include "plugin.hpp"
+#include "rack.hpp"
 
 struct Wonk : Module {
 
@@ -96,6 +97,56 @@ struct Wonk : Module {
     bool syncActive = false;
     dsp::PulseGenerator syncPulse;
 
+    // JSON Save/Load
+    json_t* dataToJson() override {
+        json_t* rootJ = json_object();
+        json_object_set_new(rootJ, "syncInterval", json_real(syncInterval));
+    
+        // Save place array
+        json_t* placeArrayJ = json_array();
+        for (int i = 0; i < 16; i++) {
+            json_array_append_new(placeArrayJ, json_real(place[i]));
+        }
+        json_object_set_new(rootJ, "place", placeArrayJ);
+    
+        // Save lfoPhase array
+        json_t* lfoPhaseArrayJ = json_array();
+        for (int i = 0; i < 16; i++) {
+            json_array_append_new(lfoPhaseArrayJ, json_real(lfoPhase[i]));
+        }
+        json_object_set_new(rootJ, "lfoPhase", lfoPhaseArrayJ);
+    
+        return rootJ;
+    }
+    
+    void dataFromJson(json_t* rootJ) override {    
+        json_t* siJ = json_object_get(rootJ, "syncInterval");
+        if (siJ)
+            syncInterval = (float)json_real_value(siJ);
+    
+        // Load place array
+        json_t* placeArrayJ = json_object_get(rootJ, "place");
+        if (placeArrayJ && json_is_array(placeArrayJ)) {
+            size_t i;
+            json_t* val;
+            json_array_foreach(placeArrayJ, i, val) {
+                if (i < 16)
+                    place[i] = (float)json_real_value(val);
+            }
+        }
+    
+        // Load lfoPhase array
+        json_t* lfoPhaseArrayJ = json_object_get(rootJ, "lfoPhase");
+        if (lfoPhaseArrayJ && json_is_array(lfoPhaseArrayJ)) {
+            size_t i;
+            json_t* val;
+            json_array_foreach(lfoPhaseArrayJ, i, val) {
+                if (i < 16)
+                    lfoPhase[i] = (float)json_real_value(val);
+            }
+        }
+    }
+
     Wonk() {
         config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
         configParam(RATE_ATT, -1.f, 1.f, 0.f, "Rate Attenuverter");
@@ -123,6 +174,19 @@ struct Wonk : Module {
         configOutput(POLY_OUTPUT, "Polyphonic");
         
         outputs[POLY_OUTPUT].setChannels(6);       
+    }
+
+    void onReset(const ResetEvent& e) override {
+        // Reset all parameters
+        Module::onReset(e);
+
+        syncInterval = 2.0f;
+        prevSyncInterval = 2.0f;
+
+        for (int i=0; i<6; i++){
+                place[i] = 0.0f; //Reset place to zero
+                lfoPhase[i] = i/6.f; //Reset phase to computed node positions
+        }              
     }
 
     void process(const ProcessArgs& args) override {

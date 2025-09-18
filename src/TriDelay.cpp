@@ -82,7 +82,7 @@ struct TriDelay : Module {
         GLOBAL_PAN, GLOBAL_PAN_ATT, TAP_1_PAN, TAP_2_PAN, TAP_3_PAN,
         GLOBAL_FEEDBACK, GLOBAL_FEEDBACK_ATT, TAP_1_FEEDBACK, TAP_2_FEEDBACK, TAP_3_FEEDBACK, 
         GLOBAL_WETDRY, GLOBAL_WETDRY_ATT,  
-        CLEAR_BUFFER_BUTTON, HOLD_BUTTON,   
+        CLEAR_BUFFER_BUTTON, HOLD_BUTTON, DELAY_SELECT, 
         NUM_PARAMS
     };
     enum InputIds {
@@ -146,7 +146,7 @@ struct TriDelay : Module {
     float filteredEnvelopeWetL = 0.0f;
     float filteredEnvelopeWetR = 0.0f;
     float filteredEnvelopeWet = 0.0f;
-    float delayLength = 3600.0f;
+    float delayLength = 360.0f;
     
     // Save state to JSON
     json_t* toJson() override {
@@ -173,13 +173,15 @@ struct TriDelay : Module {
         buffer[0].resize(bufferSize, 0.f);
         buffer[1].resize(bufferSize, 0.f);
 
+        configSwitch(DELAY_SELECT, 0.0, 2.0, 1.0, "Buffer Length (ms)", {"36", "360", "3600"});
+
         // Global Delay
         configParam(GLOBAL_DELAY, 0.f, 1.f, 0.138888f, "Global Delay Time", " msec");
         configParam(GLOBAL_DELAY_ATT, -1.f, 1.f, 0.f, "Global Delay Attenuverter");
 
         // Global WetDry
-        configParam(GLOBAL_WETDRY, 0.f, 100.0f, 50.f, "Wet/Dry", "% Wet");
-        configParam(GLOBAL_WETDRY_ATT, -10.f, 10.f, 0.f, "Wet/Dry Attenuverter");
+        configParam(GLOBAL_WETDRY, 0.f, 100.0f, 50.f, "Dry/Wet", "% Wet");
+        configParam(GLOBAL_WETDRY_ATT, -10.f, 10.f, 0.f, "Dry/Wet Attenuverter");
 
     
         // Per-tap Delay Offsets
@@ -213,7 +215,7 @@ struct TriDelay : Module {
         configInput(GLOBAL_DELAY_IN, "Global Delay CV");
         configInput(GLOBAL_PAN_IN, "Global Pan CV");
         configInput(GLOBAL_FEEDBACK_IN, "Global Feedback CV");
-        configInput(GLOBAL_WETDRY_IN, "Wet/Dry CV");
+        configInput(GLOBAL_WETDRY_IN, "Dry/Wet CV");
         configInput(CLEAR_BUFFER_IN, "Clear Buffer");
         configInput(HOLD_IN, "Hold");
 
@@ -273,6 +275,19 @@ struct TriDelay : Module {
         else if (isConnectedL && isConnectedR) { // Both channels connected
             inputL = inputs[AUDIO_INPUT_L].getVoltage();
             inputR = inputs[AUDIO_INPUT_R].getVoltage();
+        }
+
+        //Read the Buffer switch value and update bufferSize
+        float bufferSetting = std::roundf(params[DELAY_SELECT].getValue());
+        if ( bufferSetting == 0.0f ){
+            delayLength = 36.0f;
+            bufferSize = static_cast<size_t>( delayLength / 1000 * sampleRate );
+        } else if ( bufferSetting == 1.0f ){
+            delayLength = 360.f;
+            bufferSize = static_cast<size_t>( delayLength / 1000 * sampleRate );
+        } else {
+            delayLength = 3600.f;
+            bufferSize = static_cast<size_t>( delayLength / 1000 * sampleRate );
         }
     
         paramQuantities[GLOBAL_DELAY]->displayMultiplier = static_cast<int> (delayLength);
@@ -631,7 +646,11 @@ struct TriDelayWidget : ModuleWidget {
         addInput(createInputCentered<ThemedPJ301MPort>(Vec(70, 345), module, TriDelay::AUDIO_INPUT_R));
         addOutput(createOutputCentered<ThemedPJ301MPort>(Vec(160, 345), module, TriDelay::AUDIO_OUTPUT_L));
         addOutput(createOutputCentered<ThemedPJ301MPort>(Vec(200, 345), module, TriDelay::AUDIO_OUTPUT_R));        
-        
+
+        addParam(createParamCentered<CKSSThreeHorizontal>(Vec(box.size.x/2.f, 345), module, TriDelay::DELAY_SELECT));
+
+
+
         // Create and add the Envelopes Display
         EnvDisplay* envDisplay = createWidget<EnvDisplay>(Vec(15,50)); // Positioning
         envDisplay->box.size = Vec(195, 40); // Size of the display widget
