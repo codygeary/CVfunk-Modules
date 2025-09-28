@@ -40,6 +40,7 @@ void init(Plugin* p) {
     p->addModel(modelHub);
     p->addModel(modelCVfunkBlank);
     p->addModel(modelCVfunkBlank4HP);
+    p->addModel(modelRat);
 
     
     // Any other plugin initialization may go here.
