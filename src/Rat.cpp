@@ -264,6 +264,7 @@ struct RatWidget : ModuleWidget {
         addParam(createParamCentered<TL1105>(Vec( box.size.x/2.f, lockPos  ), module, Rat::LOCK_BUTTON));
         addChild(createLightCentered<SmallLight<RedLight>>(Vec( box.size.x/2.f, lockPos  ), module, Rat::LOCK_BUTTON_LIGHT));
         addOutput(createOutputCentered<ThemedPJ301MPort>(Vec( box.size.x/2.f, 317  ), module, Rat::OSCII_OUTPUT));
+
     }
 
     void draw(const DrawArgs& args) override {

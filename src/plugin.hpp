@@ -41,3 +41,4 @@ extern Model* modelHub;
 extern Model* modelCVfunkBlank;
 extern Model* modelCVfunkBlank4HP;
 extern Model* modelRat;
+extern Model* modelCount;
