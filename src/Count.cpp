@@ -191,7 +191,7 @@ struct inputTextField : rack::ui::TextField {
 
     inputTextField(Count* mod) : module(mod) {
         multiline = false;
-        placeholder = "Enter sequence";
+        placeholder = "Enter Max Count";
     }
 
     static std::string sanitizeSequence(const std::string& input) {
@@ -203,7 +203,6 @@ struct inputTextField : rack::ui::TextField {
                 out += "0";
             }
         }
-        if (out.empty()) out = "1";
         return out;
     }
 
