@@ -60,6 +60,10 @@ struct JunkDNA : Module {
     float xOutputVal = -1.f;
     bool triggered = false;
     bool prevOutputs[12] = {false};
+
+    float lightStates[NUM_LIGHTS] = {}; // track lights, initially all 0
+    int lastSequenceIndex = -1; // store last step processed
+
     
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
@@ -241,6 +245,9 @@ struct JunkDNA : Module {
         if (sequenceIndex>geneSize){sequenceIndex = 0;} //Handle boundary conditions of sequenceIndex
         if (sequenceIndex<0){sequenceIndex = geneSize;}
 
+        bool indexChanged = (sequenceIndex != lastSequenceIndex);
+        lastSequenceIndex = sequenceIndex;
+
         if (initializing) {
             initializing = false;
             regenerateGene();
@@ -253,112 +260,118 @@ struct JunkDNA : Module {
         
         int currentNT = gene[sequenceIndex];
 
-        // Set all outputs/lights to 0 first
-        for (int i = 0; i < NUM_OUTS; i++)
-            outputs[i].setVoltage(0.f);
-        for (int i = 0; i < NUM_LIGHTS; i++)
-            lights[i].value = 0.f;
 
-        //Check if the step advancing pulse is active    
-        bool pulseActive = outputPulse.process(args.sampleTime);
+        if (indexChanged || gateOutput) {
 
-        //Deal with special case of N output that is always pulsed.
-        if (pulseActive){
-            outputs[N_OUT].setVoltage(10.f);
-            lights[N_LIGHT].value = 1.f;
-        }
-        
-        if (gateOutput) {pulseActive = true;} //gateOutput overrides the pulse-length
+            // Set all outputs/lights to 0 first
+            for (int i = 0; i < NUM_OUTS; i++)
+                outputs[i].setVoltage(0.f);
+            for (int i = 0; i < NUM_LIGHTS; i++)
+                lightStates[i] = 0.f;
     
-        float high = pulseActive ? 10.f : 0.f;
-       
-        // Now set specific outputs/lights for each NT
-        switch (currentNT) {
-            case 0: // A
-                if (pulseActive) {
-                    outputs[A_OUT].setVoltage(high);
-                    outputs[R_OUT].setVoltage(high);
-                    outputs[W_OUT].setVoltage(high);
-                    outputs[H_OUT].setVoltage(high);
-                    outputs[D_OUT].setVoltage(high);
-                    outputs[V_OUT].setVoltage(high);
-                }
-                lights[A_LIGHT].value = 1.f;
-                lights[R_LIGHT].value = 1.f;
-                lights[W_LIGHT].value = 1.f;
-                lights[H_LIGHT].value = 1.f;
-                lights[D_LIGHT].value = 1.f;
-                lights[V_LIGHT].value = 1.f;
-                outputs[DNA_OUT].setVoltage(aOutputVal);
-                break;
+            //Check if the step advancing pulse is active    
+            bool pulseActive = outputPulse.process(args.sampleTime);
     
-            case 1: // T/U
-                if (pulseActive) {
-                    outputs[T_OUT].setVoltage(high);
-                    outputs[Y_OUT].setVoltage(high);
-                    outputs[W_OUT].setVoltage(high);
-                    outputs[H_OUT].setVoltage(high);
-                    outputs[D_OUT].setVoltage(high);
-                    outputs[B_OUT].setVoltage(high);
-                }
-                lights[T_LIGHT].value = 1.f;
-                lights[Y_LIGHT].value = 1.f;
-                lights[W_LIGHT].value = 1.f;
-                lights[H_LIGHT].value = 1.f;
-                lights[D_LIGHT].value = 1.f;
-                lights[B_LIGHT].value = 1.f;
-                outputs[DNA_OUT].setVoltage(tOutputVal);
-                break;
-
-            case 2: // C
-                if (pulseActive) {
-                    outputs[C_OUT].setVoltage(high);
-                    outputs[Y_OUT].setVoltage(high);
-                    outputs[S_OUT].setVoltage(high);
-                    outputs[H_OUT].setVoltage(high);
-                    outputs[V_OUT].setVoltage(high);
-                    outputs[B_OUT].setVoltage(high);
-                }
-                lights[C_LIGHT].value = 1.f;
-                lights[Y_LIGHT].value = 1.f;
-                lights[S_LIGHT].value = 1.f;
-                lights[H_LIGHT].value = 1.f;
-                lights[V_LIGHT].value = 1.f;
-                lights[B_LIGHT].value = 1.f;
-                outputs[DNA_OUT].setVoltage(cOutputVal);
-                break;
-    
-            case 3: // G
-                if (pulseActive) {
-                    outputs[G_OUT].setVoltage(high);
-                    outputs[R_OUT].setVoltage(high);
-                    outputs[S_OUT].setVoltage(high);
-                    outputs[D_OUT].setVoltage(high);
-                    outputs[V_OUT].setVoltage(high);
-                    outputs[B_OUT].setVoltage(high);
-                }
-                lights[G_LIGHT].value = 1.f;
-                lights[R_LIGHT].value = 1.f;
-                lights[S_LIGHT].value = 1.f;
-                lights[D_LIGHT].value = 1.f;
-                lights[V_LIGHT].value = 1.f;
-                lights[B_LIGHT].value = 1.f;
-                outputs[DNA_OUT].setVoltage(gOutputVal);                
-                break;
-            case 4: // X strand break, no lights
-                outputs[N_OUT].setVoltage(0.f);
-                lights[N_LIGHT].value = 0.f;
-                outputs[DNA_OUT].setVoltage(xOutputVal);                
-                break;
-                
-        }
- 
-        outputs[POLY_OUT].setChannels(12);
-        for (int chan=0; chan<12; chan++){
-            outputs[POLY_OUT].setVoltage(outputs[A_OUT + chan].getVoltage(), chan);
-        }
+            //Deal with special case of N output that is always pulsed.
+            if (pulseActive){
+                outputs[N_OUT].setVoltage(10.f);
+                lightStates[N_LIGHT] = 1.f;
+            }
             
-        updateDisplays();        
+            if (gateOutput) {pulseActive = true;} //gateOutput overrides the pulse-length
+        
+            float high = pulseActive ? 10.f : 0.f;
+     
+    
+           
+            // Now set specific outputs/lights for each NT
+            switch (currentNT) {
+                case 0: // A
+                    if (pulseActive) {
+                        outputs[A_OUT].setVoltage(high);
+                        outputs[R_OUT].setVoltage(high);
+                        outputs[W_OUT].setVoltage(high);
+                        outputs[H_OUT].setVoltage(high);
+                        outputs[D_OUT].setVoltage(high);
+                        outputs[V_OUT].setVoltage(high);
+                    }
+                    lightStates[A_LIGHT] = 1.f;
+                    lightStates[R_LIGHT] = 1.f;
+                    lightStates[W_LIGHT] = 1.f;
+                    lightStates[H_LIGHT] = 1.f;
+                    lightStates[D_LIGHT] = 1.f;
+                    lightStates[V_LIGHT] = 1.f;
+                    outputs[DNA_OUT].setVoltage(aOutputVal);
+                    break;
+        
+                case 1: // T/U
+                    if (pulseActive) {
+                        outputs[T_OUT].setVoltage(high);
+                        outputs[Y_OUT].setVoltage(high);
+                        outputs[W_OUT].setVoltage(high);
+                        outputs[H_OUT].setVoltage(high);
+                        outputs[D_OUT].setVoltage(high);
+                        outputs[B_OUT].setVoltage(high);
+                    }
+                    lightStates[T_LIGHT] = 1.f;
+                    lightStates[Y_LIGHT] = 1.f;
+                    lightStates[W_LIGHT] = 1.f;
+                    lightStates[H_LIGHT] = 1.f;
+                    lightStates[D_LIGHT] = 1.f;
+                    lightStates[B_LIGHT] = 1.f;
+                    outputs[DNA_OUT].setVoltage(tOutputVal);
+                    break;
+    
+                case 2: // C
+                    if (pulseActive) {
+                        outputs[C_OUT].setVoltage(high);
+                        outputs[Y_OUT].setVoltage(high);
+                        outputs[S_OUT].setVoltage(high);
+                        outputs[H_OUT].setVoltage(high);
+                        outputs[V_OUT].setVoltage(high);
+                        outputs[B_OUT].setVoltage(high);
+                    }
+                    lightStates[C_LIGHT] = 1.f;
+                    lightStates[Y_LIGHT] = 1.f;
+                    lightStates[S_LIGHT] = 1.f;
+                    lightStates[H_LIGHT] = 1.f;
+                    lightStates[V_LIGHT] = 1.f;
+                    lightStates[B_LIGHT] = 1.f;
+                    outputs[DNA_OUT].setVoltage(cOutputVal);
+                    break;
+        
+                case 3: // G
+                    if (pulseActive) {
+                        outputs[G_OUT].setVoltage(high);
+                        outputs[R_OUT].setVoltage(high);
+                        outputs[S_OUT].setVoltage(high);
+                        outputs[D_OUT].setVoltage(high);
+                        outputs[V_OUT].setVoltage(high);
+                        outputs[B_OUT].setVoltage(high);
+                    }
+                    lightStates[G_LIGHT] = 1.f;
+                    lightStates[R_LIGHT] = 1.f;
+                    lightStates[S_LIGHT] = 1.f;
+                    lightStates[D_LIGHT] = 1.f;
+                    lightStates[V_LIGHT] = 1.f;
+                    lightStates[B_LIGHT] = 1.f;
+                    outputs[DNA_OUT].setVoltage(gOutputVal);                
+                    break;
+                case 4: // X strand break, no lights
+                    outputs[N_OUT].setVoltage(0.f);
+                    lightStates[N_LIGHT] = 0.f;
+                    outputs[DNA_OUT].setVoltage(xOutputVal);                
+                    break;
+                    
+            }
+     
+            outputs[POLY_OUT].setChannels(12);
+            for (int chan=0; chan<12; chan++){
+                outputs[POLY_OUT].setVoltage(outputs[A_OUT + chan].getVoltage(), chan);
+            }
+                
+            updateDisplays();  
+        }      
     }
 
     void updateDisplays() {
@@ -616,6 +629,16 @@ struct JunkDNAWidget : ModuleWidget {
 
     }
 
+    void draw(const DrawArgs& args) override {
+        ModuleWidget::draw(args);
+        JunkDNA* module = dynamic_cast<JunkDNA*>(this->module);
+        if (!module) return;
+    
+        for (int i = 0; i < JunkDNA::NUM_LIGHTS; i++) {
+            module->lights[i].setBrightness(module->lightStates[i]);
+        }
+    }
+
     // Generic Quantity for any float member 
     struct FloatMemberQuantity : Quantity {
         JunkDNA* module;
@@ -701,8 +724,6 @@ struct JunkDNAWidget : ModuleWidget {
         xSlider->box.size.x = 200.f;
         menu->addChild(xSlider);
 
-
-    
         menu->addChild(new MenuSeparator());
         menu->addChild(createMenuLabel("IUPAC nucleotide codes"));
     
@@ -730,8 +751,6 @@ struct JunkDNAWidget : ModuleWidget {
             menu->addChild(createMenuItem(label));
         }
     }
-
-
 };
 
 Model* modelJunkDNA = createModel<JunkDNA, JunkDNAWidget>("JunkDNA");
