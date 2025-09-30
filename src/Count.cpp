@@ -20,6 +20,10 @@ using namespace rack;
 // Accepted chars (num only)
 static const std::string VALID_CHARS = "1234567890";
 
+// Hard limit: 14-digit maximum (all 9s)
+static const long long MAX_LIMIT = 99999999999999LL; // 14 digits
+static const long long MAX_COUNT_LIMIT = 99999999999999LL; // 14 digits of 9
+
 struct Count : Module {
     enum ParamIds {
         UP_BUTTON, DOWN_BUTTON, RESET_BUTTON,
@@ -43,10 +47,10 @@ struct Count : Module {
 
     dsp::SchmittTrigger upTrigger, downTrigger, resetTrigger, upButtonTrigger, downButtonTrigger, resetButtonTrigger;
 
-    int maxCount = 16;
+    long long maxCount = 16;
     bool phaseMode = false;
     int resetPoint = 0;
-    int currentNumber = 0;
+    long long currentNumber = 0;
 
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
@@ -58,17 +62,18 @@ struct Count : Module {
     }
 
     void dataFromJson(json_t* rootJ) override {
-
         json_t* maxCountJ = json_object_get(rootJ, "maxCount");
-        if (maxCountJ)
+        if (maxCountJ) {
             maxCount = json_integer_value(maxCountJ);
+            if (maxCount < 1) maxCount = 1;
+            if (maxCount > MAX_LIMIT) maxCount = MAX_LIMIT;
             inputText = std::to_string(maxCount);
             previnputText = inputText;
+        }
 
         json_t* currentNumberJ = json_object_get(rootJ, "currentNumber");
         if (currentNumberJ)
             currentNumber = json_integer_value(currentNumberJ);
-
     }
 
     Count() {
@@ -87,108 +92,97 @@ struct Count : Module {
         configInput(RESET_INPUT, "Reset");
 
         configOutput(COUNT_OUTPUT, "Outputs Gate at Loop Point or Start/End, or Phase.");
-
     }
 
     void process(const ProcessArgs& args) override {
 
+        
         // --- Parse maxCount safely ---
         if (inputText != previnputText) {
             if (inputText.empty()) {
-                maxCount = 1; // fallback for blank input
+                maxCount = 1; // fallback
             } else {
                 try {
-                    maxCount = std::stoi(inputText);
-                    if (maxCount < 1) maxCount = 1; // enforce minimum
+                    std::string trimmed = inputText;  
+                    long long parsed = std::stoll(trimmed);
+        
+                    if (parsed < 1) parsed = 1;
+                    if (parsed > MAX_COUNT_LIMIT) parsed = MAX_COUNT_LIMIT;
+        
+                    maxCount = parsed;
+        
+                    // keep text box in sync if clamped
+                    std::string corrected = std::to_string(maxCount);
+                    if (corrected != inputText) {
+                        inputText = corrected;
+                    }
                 } catch (...) {
-                    maxCount = 1; // fallback for invalid text
+                    maxCount = 1;
                 }
             }
             previnputText = inputText;
         }
+  
+        if (maxCount > MAX_COUNT_LIMIT) maxCount = MAX_COUNT_LIMIT;
 
-        // --- Up events (input or button) ---
+        
+        // --- Up events ---
         if (upTrigger.process(inputs[UP_INPUT].getVoltage()) ||
             upButtonTrigger.process(params[UP_BUTTON].getValue())) {
             currentNumber++;
-             // --- Looping / Limit behavior ---
             if (currentNumber > maxCount) {
                 switch ((int)params[LOOP_SWITCH].getValue()) {
-                    case 0: // Stop
-                        currentNumber = maxCount;
-                        break;
-                    case 1: // Infinite
-                        // let it run past maxCount
-                        break;
-                    case 2: // Loop
-                        currentNumber = 1;
-                        break;
+                    case 0: currentNumber = maxCount; break; // Stop
+                    case 1: break;                         // Infinite
+                    case 2: currentNumber = 1; break;      // Loop
                 }
             }
         }
 
-        // --- Down events (input or button) ---
+        // --- Down events ---
         if (downTrigger.process(inputs[DOWN_INPUT].getVoltage()) ||
             downButtonTrigger.process(params[DOWN_BUTTON].getValue())) {
             currentNumber--;
-
             if (currentNumber < 1) {
                 switch ((int)params[LOOP_SWITCH].getValue()) {
-                    case 0: // Stop
-                        currentNumber = 0;
-                        break;
-                    case 1: // Infinite
-                        // let it run negative
-                        break;
-                    case 2: // Loop
-                        currentNumber = maxCount;
-                        break;
+                    case 0: currentNumber = 0; break;       // Stop
+                    case 1: break;                          // Infinite
+                    case 2: currentNumber = maxCount; break;// Loop
                 }
             }
         }
 
-        // --- Reset Input and Button ---
+        // --- Reset events ---
         if (resetTrigger.process(inputs[RESET_INPUT].getVoltage() - 0.1f) ||
             resetButtonTrigger.process(params[RESET_BUTTON].getValue())) {
-
             switch ((int)params[RESET_POINT_SWITCH].getValue()) {
-                case 0: // Reset to 0
-                    currentNumber = 0;
-                    break;
-                case 1: // Reset to center
-                    currentNumber = maxCount / 2;
-                    break;
-                case 2: // Reset to end
-                    currentNumber = maxCount;
-                    break;
+                case 0: currentNumber = 0; break;                  // Reset to 0
+                case 1: currentNumber = maxCount / 2; break;       // Reset to center
+                case 2: currentNumber = maxCount; break;           // Reset to end
             }
         }
-
 
         // --- Output behavior ---
         float out = 0.f;
         int loopMode = (int)params[LOOP_SWITCH].getValue(); // 0=Stop,1=Infinite,2=Loop
         int phaseMode = (int)params[PHASE_SWITCH].getValue();
 
-        if (phaseMode == 0) { // Phase mode
+        if (phaseMode == 0) { // Phase
             if (maxCount > 0) {
-                int phaseNum = currentNumber;
-
-                if (loopMode == 1) { // Infinite mode
-                    // wrap currentNumber into range 0..maxCount
-                    phaseNum = ((phaseNum % (maxCount )) + (maxCount )) % (maxCount );
+                long long phaseNum = currentNumber;
+                if (loopMode == 1) {
+                    // wrap into range 0..maxCount
+                    phaseNum = ((phaseNum % maxCount) + maxCount) % maxCount;
                 }
-
                 out = 10.f * (float)phaseNum / (float)maxCount;
             }
-        } else { // Gate mode
+        } else { // Gate
             if (currentNumber == 0 || currentNumber == maxCount)
                 out = 10.f;
         }
 
         outputs[COUNT_OUTPUT].setVoltage(out);
     }
-
 };
 
 struct inputTextField : rack::ui::TextField {
@@ -203,42 +197,59 @@ struct inputTextField : rack::ui::TextField {
     static std::string sanitizeSequence(const std::string& input) {
         std::string out;
         for (char c : input) {
-            if (VALID_CHARS.find(c) != std::string::npos) {  //ignore any non-numbers in the text box
+            if (VALID_CHARS.find(c) != std::string::npos) {
                 out += c;
             } else {
                 out += "0";
             }
-        // ensure at least one char
-        if (out.empty()) out = "0";           
         }
+        if (out.empty()) out = "1";
         return out;
     }
 
-    void updateText(const std::string& newText) {
-        if (settingText)
-            return; // prevent recursion
+    void updateText(const std::string& newText, int desiredCursor = -1, int desiredSelection = -1) {
+        if (settingText) return;
         settingText = true;
-
-        text = newText;
-        cursor = (int)text.size();  // put cursor at the end safely
+    
+        std::string safe = sanitizeSequence(newText);
+        text = safe;
+    
+        // Clamp cursor and selection
+        if (desiredCursor < 0) desiredCursor = (int)safe.size();
+        if (desiredSelection < 0) desiredSelection = desiredCursor;
+    
+        cursor = std::min(desiredCursor, (int)safe.size());
+        selection = std::min(desiredSelection, (int)safe.size());
+    
+        // Ensure cursor <= selection
+        if (cursor > selection) cursor = selection;
+    
         if (module)
-            module->inputText = newText;
-
+            module->inputText = safe;
+    
         settingText = false;
     }
-
+    
     void processSanitize() {
-        if (!module)
-            return;
-
-        std::string sanitized = sanitizeSequence(text);
-        if (sanitized != text) {
-            updateText(sanitized);
+        if (!module) return;
+    
+        int oldCursor = cursor;
+        int oldSelection = selection;
+        std::string oldText = text;
+    
+        std::string safe = sanitizeSequence(oldText);
+    
+        if (safe != oldText) {
+            // Count valid characters up to old cursor and selection
+            int newCursor = std::min(oldCursor, (int)safe.size());
+            int newSelection = std::min(oldSelection, (int)safe.size());
+    
+            updateText(safe, newCursor, newSelection);
         } else {
-            // text unchanged, still update module
-            module->inputText = sanitized;
+            module->inputText = safe;
         }
     }
+
 
     void onSelectKey(const SelectKeyEvent& e) override {
         rack::ui::TextField::onSelectKey(e);
@@ -249,8 +260,8 @@ struct inputTextField : rack::ui::TextField {
         rack::ui::TextField::onButton(e);
         processSanitize();
     }
-
 };
+
 
 struct CountWidget : ModuleWidget {
     inputTextField* input = nullptr;
@@ -288,8 +299,8 @@ struct CountWidget : ModuleWidget {
 
         // --- Max Count text entry widget ---
         input = new inputTextField(module);
-        input->box.pos = Vec(box.size.x/2.0f-35, 325);
-        input->box.size = (Vec(box.size.x-80.f, 20.f));
+        input->box.pos = Vec(box.size.x/2.0f-55, 325);
+        input->box.size = (Vec(box.size.x-40.f, 20.f));
         if (module)
             input->text = module->inputText;
         addChild(input);
