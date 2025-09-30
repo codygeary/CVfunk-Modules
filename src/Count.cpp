@@ -49,9 +49,11 @@ struct Count : Module {
 
     long long maxCount = 16;     // number of steps, >= 1
     bool phaseMode = false;
+    bool prevPhaseMode = false;
     int resetPoint = 0;
     long long currentNumber = 1; // start at 1 by default (one-based)
     bool zeroBased = false;
+    bool increasing = true; //keep track of direction
 
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
@@ -91,8 +93,8 @@ struct Count : Module {
         configParam(DOWN_BUTTON, 0.f, 1.f, 0.f, "Down Button");
         configParam(RESET_BUTTON, 0.f, 1.f, 0.f, "Reset Button");
 
-        configSwitch(LOOP_SWITCH, 0.0, 2.0, 2.0, "Loop Logic", {"Stop", "Infinite", "Loop"});
-        configSwitch(PHASE_SWITCH, 0.0, 1.0, 1.0, "Gate / Phase Mode", {"Phase", "Gate"});
+        configSwitch(LOOP_SWITCH, 0.0, 2.0, 2.0, "Loop Logic", {"Stop", "Unbounded", "Loop"});
+        configSwitch(PHASE_SWITCH, 0.0, 1.0, 1.0, "Gate / Stepped-Phase Mode", {"Stepped-Phase", "Gate"});
         configSwitch(RESET_POINT_SWITCH, 0.0, 2.0, 0.0, "Reset Point", {"0", "Center", "End"});
 
         configInput(UP_INPUT, "Up");
@@ -160,6 +162,7 @@ struct Count : Module {
                         break;
                 }
             }
+            increasing = true;
         }
 
         // --- Down events ---
@@ -179,6 +182,7 @@ struct Count : Module {
                         break;
                 }
             }
+            increasing = false;
         }
 
         // --- Reset events ---
@@ -220,13 +224,31 @@ struct Count : Module {
                 out = 10.f * (float)phaseNum / (float)divisor;
             }
         } else { // Gate mode
-            if (zeroBased) {
-                if (currentNumber == 0)
-                    out = 10.f;
-            } else {
-                if (currentNumber == maxCount)
-                    out = 10.f;
+            if (loopMode > 0){ //not stop mode
+                if (zeroBased) {
+                    if (currentNumber == 0) out = 10.f;
+                } else {
+                    if (currentNumber == maxCount) out = 10.f;
+                }
+            } else { //stop mode
+                int baseLine = zeroBased ? 0 : 1;
+                int topLine = zeroBased ? maxCount-1 : maxCount;
+                if (!increasing && currentNumber == baseLine) out = 10.f;
+                if (increasing && currentNumber == topLine) out = 10.f;           
             }
+        }
+
+        // --- Update tooltip dynamically if phase mode changed ---
+        if (phaseModeInt != prevPhaseMode) {
+            if (phaseModeInt == 0) {
+                // Stepped phase mode
+                configOutput(COUNT_OUTPUT, "Stepped phase output (0–10V across range)");
+            }
+            else {
+                // Gate mode
+                configOutput(COUNT_OUTPUT, "Gate output at loop/end points");
+            }
+            prevPhaseMode = phaseModeInt;
         }
 
         outputs[COUNT_OUTPUT].setVoltage(out);
