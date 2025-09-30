@@ -42,21 +42,23 @@ struct Count : Module {
         NUM_LIGHTS
     };
 
-    std::string inputText = "1";
-    std::string previnputText = "1";
+    std::string inputText = "16";
+    std::string previnputText = "16";
 
     dsp::SchmittTrigger upTrigger, downTrigger, resetTrigger, upButtonTrigger, downButtonTrigger, resetButtonTrigger;
 
-    long long maxCount = 16;
+    long long maxCount = 16;     // number of steps, >= 1
     bool phaseMode = false;
     int resetPoint = 0;
-    long long currentNumber = 0;
+    long long currentNumber = 1; // start at 1 by default (one-based)
+    bool zeroBased = false;
 
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
 
         json_object_set_new(rootJ, "maxCount", json_integer(maxCount));
         json_object_set_new(rootJ, "currentNumber", json_integer(currentNumber));
+        json_object_set_new(rootJ, "zeroBased", json_boolean(zeroBased));
 
         return rootJ;
     }
@@ -74,6 +76,12 @@ struct Count : Module {
         json_t* currentNumberJ = json_object_get(rootJ, "currentNumber");
         if (currentNumberJ)
             currentNumber = json_integer_value(currentNumberJ);
+
+        json_t* zeroBasedJ = json_object_get(rootJ, "zeroBased");
+        if (zeroBasedJ) {
+            zeroBased = json_is_true(zeroBasedJ);
+        }
+
     }
 
     Count() {
@@ -96,21 +104,21 @@ struct Count : Module {
 
     void process(const ProcessArgs& args) override {
 
-        
-        // --- Parse maxCount safely ---
+        // --- Parse maxCount safely when text changed ---
         if (inputText != previnputText) {
             if (inputText.empty()) {
                 maxCount = 1; // fallback
             } else {
                 try {
-                    std::string trimmed = inputText;  
+                    std::string trimmed = inputText;
                     long long parsed = std::stoll(trimmed);
-        
+
+                    // We require at least 1 step (maxCount >= 1)
                     if (parsed < 1) parsed = 1;
                     if (parsed > MAX_COUNT_LIMIT) parsed = MAX_COUNT_LIMIT;
-        
+
                     maxCount = parsed;
-        
+
                     // keep text box in sync if clamped
                     std::string corrected = std::to_string(maxCount);
                     if (corrected != inputText) {
@@ -122,19 +130,34 @@ struct Count : Module {
             }
             previnputText = inputText;
         }
-  
+
         if (maxCount > MAX_COUNT_LIMIT) maxCount = MAX_COUNT_LIMIT;
 
-        
+        // Precompute useful bounds from zeroBased and maxCount
+        // stepCount = number of steps (>=1)
+        long long stepCount = maxCount;
+        long long lowerBound = zeroBased ? 0LL : 1LL;
+        long long upperBound = zeroBased ? (stepCount - 1LL) : stepCount;
+
+        // Ensure currentNumber stays in a reasonable range (clamp if necessary)
+        if (currentNumber < lowerBound) currentNumber = lowerBound;
+        if (currentNumber > upperBound) currentNumber = upperBound;
+
         // --- Up events ---
         if (upTrigger.process(inputs[UP_INPUT].getVoltage()) ||
             upButtonTrigger.process(params[UP_BUTTON].getValue())) {
             currentNumber++;
-            if (currentNumber > maxCount) {
+            long long ub = upperBound;
+            if (currentNumber > ub) {
                 switch ((int)params[LOOP_SWITCH].getValue()) {
-                    case 0: currentNumber = maxCount; break; // Stop
-                    case 1: break;                         // Infinite
-                    case 2: currentNumber = 1; break;      // Loop
+                    case 0: // Stop: clamp to upperBound
+                        currentNumber = ub;
+                        break;
+                    case 1: // Infinite: do nothing (allow grow)
+                        break;
+                    case 2: // Loop: wrap to lowerBound
+                        currentNumber = lowerBound;
+                        break;
                 }
             }
         }
@@ -143,11 +166,17 @@ struct Count : Module {
         if (downTrigger.process(inputs[DOWN_INPUT].getVoltage()) ||
             downButtonTrigger.process(params[DOWN_BUTTON].getValue())) {
             currentNumber--;
-            if (currentNumber < 1) {
+            long long lb = lowerBound;
+            if (currentNumber < lb) {
                 switch ((int)params[LOOP_SWITCH].getValue()) {
-                    case 0: currentNumber = 0; break;       // Stop
-                    case 1: break;                          // Infinite
-                    case 2: currentNumber = maxCount; break;// Loop
+                    case 0: // Stop: clamp to lowerBound
+                        currentNumber = lb;
+                        break;
+                    case 1: // Infinite: do nothing
+                        break;
+                    case 2: // Loop: wrap to upperBound
+                        currentNumber = upperBound;
+                        break;
                 }
             }
         }
@@ -156,29 +185,48 @@ struct Count : Module {
         if (resetTrigger.process(inputs[RESET_INPUT].getVoltage() - 0.1f) ||
             resetButtonTrigger.process(params[RESET_BUTTON].getValue())) {
             switch ((int)params[RESET_POINT_SWITCH].getValue()) {
-                case 0: currentNumber = 0; break;                  // Reset to 0
-                case 1: currentNumber = maxCount / 2; break;       // Reset to center
-                case 2: currentNumber = maxCount; break;           // Reset to end
+                case 0: // Reset to lowerBound (0 or 1)
+                    currentNumber = lowerBound;
+                    break;
+                case 1: { // Reset to center: midpoint between lowerBound and upperBound
+                    long long mid = (lowerBound + upperBound) / 2LL;
+                    currentNumber = mid;
+                } break;
+                case 2: // Reset to end (upper bound)
+                    currentNumber = upperBound;
+                    break;
             }
         }
 
         // --- Output behavior ---
         float out = 0.f;
         int loopMode = (int)params[LOOP_SWITCH].getValue(); // 0=Stop,1=Infinite,2=Loop
-        int phaseMode = (int)params[PHASE_SWITCH].getValue();
+        int phaseModeInt = (int)params[PHASE_SWITCH].getValue(); // 0=Phase, 1=Gate
 
-        if (phaseMode == 0) { // Phase
-            if (maxCount > 0) {
+        if (phaseModeInt == 0) { // Phase mode
+            if (stepCount > 0) {
+                // For wrapping in phase mode, modulo by stepCount (the number of steps)
                 long long phaseNum = currentNumber;
                 if (loopMode == 1) {
-                    // wrap into range 0..maxCount
-                    phaseNum = ((phaseNum % maxCount) + maxCount) % maxCount;
+                    phaseNum = ((phaseNum % stepCount) + stepCount) % stepCount;
                 }
-                out = 10.f * (float)phaseNum / (float)maxCount;
+
+                // Choose divisor so the last step maps to 10V:
+                // - one-based: divisor = stepCount (1..stepCount -> 10*stepCount/stepCount = 10V)
+                // - zero-based: divisor = max(1, stepCount - 1) so 0..(stepCount-1) maps and top -> 10V
+                long long divisor = zeroBased ? std::max(1LL, stepCount - 1LL) : stepCount;
+
+                // Convert to voltage
+                out = 10.f * (float)phaseNum / (float)divisor;
             }
-        } else { // Gate
-            if (currentNumber == 0 || currentNumber == maxCount)
-                out = 10.f;
+        } else { // Gate mode
+            if (zeroBased) {
+                if (currentNumber == 0)
+                    out = 10.f;
+            } else {
+                if (currentNumber == maxCount)
+                    out = 10.f;
+            }
         }
 
         outputs[COUNT_OUTPUT].setVoltage(out);
@@ -200,7 +248,8 @@ struct inputTextField : rack::ui::TextField {
             if (VALID_CHARS.find(c) != std::string::npos) {
                 out += c;
             } else {
-                out += "0";
+                // non-digit -> replace with '0' to keep caret positions easier for the user
+                out += '0';
             }
         }
         return out;
@@ -209,46 +258,45 @@ struct inputTextField : rack::ui::TextField {
     void updateText(const std::string& newText, int desiredCursor = -1, int desiredSelection = -1) {
         if (settingText) return;
         settingText = true;
-    
+
         std::string safe = sanitizeSequence(newText);
         text = safe;
-    
+
         // Clamp cursor and selection
         if (desiredCursor < 0) desiredCursor = (int)safe.size();
         if (desiredSelection < 0) desiredSelection = desiredCursor;
-    
+
         cursor = std::min(desiredCursor, (int)safe.size());
         selection = std::min(desiredSelection, (int)safe.size());
-    
+
         // Ensure cursor <= selection
         if (cursor > selection) cursor = selection;
-    
+
         if (module)
             module->inputText = safe;
-    
+
         settingText = false;
     }
-    
+
     void processSanitize() {
         if (!module) return;
-    
+
         int oldCursor = cursor;
         int oldSelection = selection;
         std::string oldText = text;
-    
+
         std::string safe = sanitizeSequence(oldText);
-    
+
         if (safe != oldText) {
             // Count valid characters up to old cursor and selection
             int newCursor = std::min(oldCursor, (int)safe.size());
             int newSelection = std::min(oldSelection, (int)safe.size());
-    
+
             updateText(safe, newCursor, newSelection);
         } else {
             module->inputText = safe;
         }
     }
-
 
     void onSelectKey(const SelectKeyEvent& e) override {
         rack::ui::TextField::onSelectKey(e);
@@ -311,7 +359,7 @@ struct CountWidget : ModuleWidget {
         Count* module = dynamic_cast<Count*>(this->module);
         if (!module) return;
 
-          // --- keep inputTextField in sync with maxCount ---
+        // --- keep inputTextField in sync with maxCount ---
         if (input && input->text != module->inputText) {
             input->updateText(module->inputText);
         }
@@ -326,7 +374,7 @@ struct CountWidget : ModuleWidget {
         // Estimate font size: scale so the digits fill the box width
         float fontSize = availableWidth / (digits * 0.6f);
 
-        // Clamp so it doesn�t get too huge or too small
+        // Clamp so it doesn’t get too huge or too small
         fontSize = clamp(fontSize, 8.f, 120.f);
 
         countDisplay->text = numStr;
@@ -343,5 +391,40 @@ struct CountWidget : ModuleWidget {
         display->setFontSize(120.f);
         return display;
     }
+
+    void appendContextMenu(Menu* menu) override {
+        ModuleWidget::appendContextMenu(menu);
+
+        // Use a different name to avoid shadowing
+        Count* countModule = dynamic_cast<Count*>(this->module);
+        if (!countModule) return;
+
+        // Separator for visual grouping in the context menu
+        menu->addChild(new MenuSeparator());
+
+        // Zero-based mode menu item (toggle)
+        struct ZeroBasedItem : MenuItem {
+            Count* module;
+            void onAction(const event::Action& e) override {
+                module->zeroBased = !module->zeroBased;
+                // after toggling, clamp currentNumber into new range
+                long long stepCount = module->maxCount;
+                long long lowerBound = module->zeroBased ? 0LL : 1LL;
+                long long upperBound = module->zeroBased ? (stepCount - 1LL) : stepCount;
+                if (module->currentNumber < lowerBound) module->currentNumber = lowerBound;
+                if (module->currentNumber > upperBound) module->currentNumber = upperBound;
+            }
+            void step() override {
+                rightText = module->zeroBased ? "✔" : "";
+                MenuItem::step();
+            }
+        };
+
+        ZeroBasedItem* zeroItem = new ZeroBasedItem();
+        zeroItem->text = "Zero-based counting (start at 0)";
+        zeroItem->module = countModule;
+        menu->addChild(zeroItem);
+    }
+
 };
 Model* modelCount = createModel<Count, CountWidget>("Count");
