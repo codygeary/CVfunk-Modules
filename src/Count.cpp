@@ -27,7 +27,7 @@ static const long long MAX_COUNT_LIMIT = 99999999999999LL; // 14 digits of 9
 struct Count : Module {
     enum ParamIds {
         UP_BUTTON, DOWN_BUTTON, RESET_BUTTON,
-        LOOP_SWITCH, PHASE_SWITCH, RESET_POINT_SWITCH,
+        LOOP_SWITCH, RESET_POINT_SWITCH,
         NUM_PARAMS
     };
     enum InputIds {
@@ -36,6 +36,7 @@ struct Count : Module {
     };
     enum OutputIds {
         COUNT_OUTPUT,
+        PHASE_OUTPUT,
         NUM_OUTS
     };
     enum LightIds {
@@ -94,14 +95,15 @@ struct Count : Module {
         configParam(RESET_BUTTON, 0.f, 1.f, 0.f, "Reset Button");
 
         configSwitch(LOOP_SWITCH, 0.0, 2.0, 2.0, "Loop Logic", {"Stop", "Unbounded", "Loop"});
-        configSwitch(PHASE_SWITCH, 0.0, 1.0, 1.0, "Gate / Stepped-Phase Mode", {"Stepped-Phase", "Gate"});
         configSwitch(RESET_POINT_SWITCH, 0.0, 2.0, 0.0, "Reset Point", {"0", "Center", "End"});
 
         configInput(UP_INPUT, "Up");
         configInput(DOWN_INPUT, "Down");
         configInput(RESET_INPUT, "Reset");
 
-        configOutput(COUNT_OUTPUT, "Outputs Gate at Loop Point or Start/End, or Phase.");
+        configOutput(COUNT_OUTPUT, "High Gate at Loop Point or upon reaching Start/End");
+        configOutput(PHASE_OUTPUT, "Stepped-Phase 0-10V");
+
     }
 
     void process(const ProcessArgs& args) override {
@@ -204,54 +206,41 @@ struct Count : Module {
 
         // --- Output behavior ---
         float out = 0.f;
+        float phase = 0.f;
         int loopMode = (int)params[LOOP_SWITCH].getValue(); // 0=Stop,1=Infinite,2=Loop
-        int phaseModeInt = (int)params[PHASE_SWITCH].getValue(); // 0=Phase, 1=Gate
 
-        if (phaseModeInt == 0) { // Phase mode
-            if (stepCount > 0) {
-                // For wrapping in phase mode, modulo by stepCount (the number of steps)
-                long long phaseNum = currentNumber;
-                if (loopMode == 1) {
-                    phaseNum = ((phaseNum % stepCount) + stepCount) % stepCount;
-                }
-
-                // Choose divisor so the last step maps to 10V:
-                // - one-based: divisor = stepCount (1..stepCount -> 10*stepCount/stepCount = 10V)
-                // - zero-based: divisor = max(1, stepCount - 1) so 0..(stepCount-1) maps and top -> 10V
-                long long divisor = zeroBased ? std::max(1LL, stepCount - 1LL) : stepCount;
-
-                // Convert to voltage
-                out = 10.f * (float)phaseNum / (float)divisor;
+        if (stepCount > 0) {
+            // For wrapping in phase mode, modulo by stepCount (the number of steps)
+            long long phaseNum = currentNumber;
+            if (loopMode == 1) {
+                phaseNum = ((phaseNum % stepCount) + stepCount) % stepCount;
             }
-        } else { // Gate mode
-            if (loopMode > 0){ //not stop mode
-                if (zeroBased) {
-                    if (currentNumber == 0) out = 10.f;
-                } else {
-                    if (currentNumber == maxCount) out = 10.f;
-                }
-            } else { //stop mode
-                int baseLine = zeroBased ? 0 : 1;
-                int topLine = zeroBased ? maxCount-1 : maxCount;
-                if (!increasing && currentNumber == baseLine) out = 10.f;
-                if (increasing && currentNumber == topLine) out = 10.f;           
-            }
+
+            // Choose divisor so the last step maps to 10V:
+            // - one-based: divisor = stepCount (1..stepCount -> 10*stepCount/stepCount = 10V)
+            // - zero-based: divisor = max(1, stepCount - 1) so 0..(stepCount-1) maps and top -> 10V
+            long long divisor = zeroBased ? std::max(1LL, stepCount - 1LL) : stepCount;
+
+            // Convert to voltage
+            phase = 10.f * (float)phaseNum / (float)divisor;
         }
 
-        // --- Update tooltip dynamically if phase mode changed ---
-        if (phaseModeInt != prevPhaseMode) {
-            if (phaseModeInt == 0) {
-                // Stepped phase mode
-                configOutput(COUNT_OUTPUT, "Stepped phase output (0–10V across range)");
+        if (loopMode > 0){ //not stop mode
+            if (zeroBased) {
+                if (currentNumber == 0) out = 10.f;
+            } else {
+                if (currentNumber == maxCount) out = 10.f;
             }
-            else {
-                // Gate mode
-                configOutput(COUNT_OUTPUT, "Gate output at loop/end points");
-            }
-            prevPhaseMode = phaseModeInt;
+        } else { //stop mode
+            int baseLine = zeroBased ? 0 : 1;
+            int topLine = zeroBased ? maxCount-1 : maxCount;
+            if (!increasing && currentNumber == baseLine) out = 10.f;
+            if (increasing && currentNumber == topLine) out = 10.f;           
         }
 
         outputs[COUNT_OUTPUT].setVoltage(out);
+        outputs[PHASE_OUTPUT].setVoltage(phase);
+
     }
 };
 
@@ -362,7 +351,8 @@ struct CountWidget : ModuleWidget {
         addInput(createInputCentered<ThemedPJ301MPort>(Vec(box.size.x/2,    245), module, Count::RESET_INPUT));
 
         addParam(createParamCentered<CKSSThree>(Vec(box.size.x/2.f-43, 170), module, Count::LOOP_SWITCH));
-        addParam(createParamCentered<CKSS>(Vec(box.size.x/2.f+43, 170), module, Count::PHASE_SWITCH));
+
+        addOutput(createOutputCentered<ThemedPJ301MPort>(Vec(box.size.x/2 +43, 170), module, Count::PHASE_OUTPUT));
 
         addParam(createParamCentered<CKSSThreeHorizontal>(Vec(box.size.x/2.f, 293), module, Count::RESET_POINT_SWITCH));
 
