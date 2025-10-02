@@ -143,10 +143,6 @@ struct Count : Module {
         long long lowerBound = zeroBased ? 0LL : 1LL;
         long long upperBound = zeroBased ? (stepCount - 1LL) : stepCount;
 
-        // Ensure currentNumber stays in a reasonable range (clamp if necessary)
-        if (currentNumber < lowerBound) currentNumber = lowerBound;
-        if (currentNumber > upperBound) currentNumber = upperBound;
-
         // --- Up events ---
         if (upTrigger.process(inputs[UP_INPUT].getVoltage()) ||
             upButtonTrigger.process(params[UP_BUTTON].getValue())) {
