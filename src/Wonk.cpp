@@ -97,6 +97,9 @@ struct Wonk : Module {
     bool syncActive = false;
     dsp::PulseGenerator syncPulse;
 
+    bool unipolarMode = false;
+
+
     // JSON Save/Load
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
@@ -115,6 +118,8 @@ struct Wonk : Module {
             json_array_append_new(lfoPhaseArrayJ, json_real(lfoPhase[i]));
         }
         json_object_set_new(rootJ, "lfoPhase", lfoPhaseArrayJ);
+  
+        json_object_set_new(rootJ, "unipolarMode", json_boolean(unipolarMode));
     
         return rootJ;
     }
@@ -145,6 +150,12 @@ struct Wonk : Module {
                     lfoPhase[i] = (float)json_real_value(val);
             }
         }
+
+        json_t* unipolarModeJ = json_object_get(rootJ, "unipolarMode");
+        if (unipolarModeJ) {
+            unipolarMode = json_is_true(unipolarModeJ);
+        }
+
     }
 
     Wonk() {
@@ -385,11 +396,14 @@ struct Wonk : Module {
             float interpolated = lagrange4(y0, y1, y2, y3, t); // Smooth interpolation 
         
             wonkMod[i] = interpolated * (modulationDepth * 0.2f); // modDepth can be up to 5V, normalize to 1 here
+
+            float outputVal = unipolarMode ? wonkMod[i] + modulationDepth : wonkMod[i];
             
             if (outputs[POLY_OUTPUT].isConnected()) {
-                outputs[POLY_OUTPUT].setVoltage(wonkMod[i], i);
-            }                
-            outputs[_1_OUTPUT + i].setVoltage(wonkMod[i]);
+                outputs[POLY_OUTPUT].setVoltage(outputVal, i);
+            }
+            
+            outputs[_1_OUTPUT + i].setVoltage(outputVal);
 
         }//LFO layers
              
@@ -413,52 +427,60 @@ struct WonkWidget : ModuleWidget {
 
     struct WonkDisplay : TransparentWidget {
         Wonk* module = nullptr;
-        int index;        // Index from 0 to 5 for each rectangle
+        int index;        // Index from 0 to 15 for each rectangle
     
         void drawLayer(const DrawArgs& args, int layer) override {
-    
             if (layer == 1) { // Self-illuminating layer
-
                 float fake[6] = {-4.f, 3.f, -1.f, 5.f, 2.f, 4.f};
-                float value = fake[index]; //fake data
+                float value = fake[index]; // fake data
+
+                bool unipolar = module && module->unipolarMode;
+
                 if (module) {
-                    value = module->wonkMod[index];
+                    value = unipolar ? module->wonkMod[index] + module->modulationDepth : module->wonkMod[index];
                 }
-   
-                // Clamp the value to -5V to +5V range
-                value = clamp( value, -5.0f, 5.0f );
-    
-                // Determine the color based on the sign of the value
+        
                 NVGcolor color;
-                if ( value >= 0.0f ) {
-                    color = nvgRGBAf(1.0f, 0.4f, 0.0f, 1.0f); // Red for positive values
+                if (unipolar) {
+                    color = nvgRGB(208, 140, 89); // gold
                 } else {
-                    color = nvgRGBAf(0.0f, 0.4f, 1.0f, 1.0f); // Blue for negative values
+                    color = (value >= 0.0f)
+                        ? nvgRGBAf(1.0f, 0.4f, 0.0f, 1.0f)   // orange for positive
+                        : nvgRGBAf(0.0f, 0.4f, 1.0f, 1.0f);  // blue for negative
                 }
-    
-                // Calculate the center X position and width scaling factor
-                float centerX = box.size.x / 2.0f;
-                float widthScale = centerX / 5.0f; // 5V corresponds to half the widget's width
-    
-                // Calculate the rectangle width based on the value
-                float rectWidth = std::fabs(value) * widthScale;
-    
-                // Determine the X position of the rectangle
+        
+                float rectWidth;
                 float xPos;
-                if (value >= 0.0f) {
-                    xPos = centerX; // Positive values extend rightwards
+        
+                if (unipolar) {
+                    // Map 0–10V across full width
+                    float widthScale = box.size.x / 10.f;
+                    rectWidth = value * widthScale;
+                    xPos = 0.f; // start at left edge
                 } else {
-                    xPos = centerX - rectWidth; // Negative values extend leftwards
+                    // Map -5–+5V across split center
+                    float centerX = box.size.x / 2.0f;
+                    float widthScale = centerX / 5.0f;
+                    rectWidth = std::fabs(value) * widthScale;
+        
+                    if (value >= 0.0f)
+                        xPos = centerX;            // rightwards
+                    else
+                        xPos = centerX - rectWidth; // leftwards
                 }
-    
-                // Draw the rectangle with a subtle glow for backlighting
+        
+                // Draw the rectangle
                 nvgBeginPath(args.vg);
-                nvgRect(args.vg, xPos, 0.0f, rectWidth, box.size.y*0.9f);
+                nvgRect(args.vg, xPos, 0.0f, rectWidth, box.size.y * 0.9f);
                 nvgFillColor(args.vg, color);
                 nvgFill(args.vg);
             }
-        }    
+        }
+   
     };
+
+
+
     
     WonkWidget(Wonk* module) {
         setModule(module);
@@ -527,6 +549,34 @@ struct WonkWidget : ModuleWidget {
         }
             
     } 
+
+    void appendContextMenu(Menu* menu) override {
+        ModuleWidget::appendContextMenu(menu);
+    
+        Wonk* wonkModule = dynamic_cast<Wonk*>(module);
+        assert(wonkModule);
+
+        // Separator for visual grouping in the context menu
+        menu->addChild(new MenuSeparator());
+
+        // Unipolar mode menu item (toggle)
+        struct UnipolarItem : MenuItem {
+            Wonk* module;
+            void onAction(const event::Action& e) override {
+                module->unipolarMode = !module->unipolarMode;
+            }
+            void step() override {
+                rightText = module->unipolarMode ? "✔" : "";
+                MenuItem::step();
+            }
+        };
+        
+        UnipolarItem* unipolarItem = new UnipolarItem();
+        unipolarItem->text = "Unipolar mode (0-10V)";
+        unipolarItem->module = wonkModule;
+        menu->addChild(unipolarItem);        
+        
+    } 
     
     void draw(const DrawArgs& args) override {
         ModuleWidget::draw(args);
@@ -538,6 +588,12 @@ struct WonkWidget : ModuleWidget {
         } else {
             module->lights[Wonk::RESET_LIGHT].setBrightness(0.f);
         }
+        
+        if (module->unipolarMode){ 
+            module->paramQuantities[Wonk::MOD_DEPTH]->displayMultiplier = 2.f;
+            } else {
+            module->paramQuantities[Wonk::MOD_DEPTH]->displayMultiplier = 1.f;
+        }        
     }   
 };
 

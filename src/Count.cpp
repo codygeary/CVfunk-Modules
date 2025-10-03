@@ -415,12 +415,6 @@ struct CountWidget : ModuleWidget {
             Count* module;
             void onAction(const event::Action& e) override {
                 module->zeroBased = !module->zeroBased;
-                // after toggling, clamp currentNumber into new range
-                long long stepCount = module->maxCount;
-                long long lowerBound = module->zeroBased ? 0LL : 1LL;
-                long long upperBound = module->zeroBased ? (stepCount - 1LL) : stepCount;
-                if (module->currentNumber < lowerBound) module->currentNumber = lowerBound;
-                if (module->currentNumber > upperBound) module->currentNumber = upperBound;
             }
             void step() override {
                 rightText = module->zeroBased ? "✔" : "";
