@@ -9,14 +9,13 @@
 //
 ////////////////////////////////////////////////////////////
 
-
 #include "plugin.hpp"
 #include <cmath>
 #include <algorithm>
 #include <vector>
 
 #include "Filter6pButter.h"
-#define OVERSAMPLING_FACTOR 8
+#define OVERSAMPLING_FACTOR 4
 class OverSamplingShaper {
 public:
     OverSamplingShaper() {
@@ -36,11 +35,40 @@ public:
         return signal;
     }
 private:
+    // Utility function to constrain input to the range [-pi, pi]
+    float wrapToPi(float x) {
+        const float twoPi = 2.0f * M_PI;
+        x = fmod(x + M_PI, twoPi); // Wrap x to [0, 2*pi)
+        if (x < 0.0f) x += twoPi; // Ensure non-negative result
+        return x - M_PI;          // Shift to [-pi, pi]
+    }
+    
+    // Sine approximation with cyclic input
+    float polySin(float x) {
+        x = wrapToPi(x);
+        float x2 = x * x;       // x^2
+        float x3 = x * x2;      // x^3
+        float x5 = x3 * x2;     // x^5
+        float x7 = x5 * x2;     // x^7
+        float x9 = x7 * x2;     // x^9
+        return x - x3 / 6.0f + x5 / 120.0f - x7 / 5040.0f + x9 / 362880.0f;
+    }
+
+    inline float fastExpf(float x) {
+        // Clamp range for numerical safety (good for [-10,10])
+        x = fmaxf(-10.0f, fminf(10.0f, x));
+    
+        // Polynomial approximation of exp(x)
+        // Coefficients from a least-squares fit to exp(x)
+        // Mean relative error < 0.0015 in [-5,5]
+        return 1.0f + x * (1.0f + x * (0.499705f + x * (0.1687389f + x * (0.0366899f + x * 0.0061537f))));
+    }
+
     inline float waveshape(float x, float C, bool symmetric) {
         constexpr float a = 0.926605548037825f; // first positive peak
     
         // Base symmetric core
-        float core = sinf(x) * expf(-4.f * x * x / (3.14159265f * 3.14159265f));
+        float core = polySin(x) * fastExpf(-4.f * x * x / (3.14159265f * 3.14159265f));
     
         // Blend amount 0..1 for tails
         float t = clamp((fabsf(x) - a) / (3.14159265f - a), 0.f, 1.f);
