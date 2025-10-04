@@ -58,7 +58,7 @@ struct Clpy : Module {
         LIGHTS_LEN
     };
 
-    bool divergent = false;
+    bool symmetric = false;
     static constexpr float fourDivPiSqrd = 4.0f / (3.14159265f * 3.14159265f);
 
     // Initialize Butterworth filter for oversampling
@@ -69,15 +69,15 @@ struct Clpy : Module {
 
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
-        json_object_set_new(rootJ, "divergent", json_boolean(divergent));
+        json_object_set_new(rootJ, "symmetric", json_boolean(symmetric));
         json_object_set_new(rootJ, "isSupersamplingEnabled", json_boolean(isSupersamplingEnabled));
         return rootJ;
     }
     
     void dataFromJson(json_t* rootJ) override {
-        json_t* divJ = json_object_get(rootJ, "divergent");
+        json_t* divJ = json_object_get(rootJ, "symmetric");
         if (divJ)
-            divergent = json_boolean_value(divJ);
+            symmetric = json_boolean_value(divJ);
 
         json_t* isSupersamplingEnabledJ = json_object_get(rootJ, "isSupersamplingEnabled");
         if (isSupersamplingEnabledJ)
@@ -113,7 +113,7 @@ struct Clpy : Module {
         float tail = C;
 
         // tail (signed)
-        if (divergent) tail = (x >= 0.0f) ? C : -C;
+        if (symmetric) tail = (x >= 0.0f) ? C : -C;
         
         // Smooth blend between core and tail
         return core * (1.f - t) + tail * t;
@@ -238,19 +238,19 @@ struct ClpyWidget : ModuleWidget {
     
         menu->addChild(new MenuSeparator());
     
-        struct DivergentItem : MenuItem {
+        struct SymmetricItem : MenuItem {
             Clpy* module;
             void onAction(const event::Action& e) override {
-                module->divergent = !module->divergent;
+                module->symmetric = !module->symmetric;
             }
             void step() override {
-                text = module->divergent ? "Clipping Destination:   Convergent   ✔Divergent"
-                                         : "Clipping Destination:  ✔Convergent    Divergent";
+                text = module->symmetric ? "Clipping Mode:   Convergent   ✔Symmetric"
+                                         : "Clipping Mode:  ✔Convergent    Symmetric";
                 MenuItem::step();
             }
         };
     
-        auto* divItem = new DivergentItem();
+        auto* divItem = new SymmetricItem();
         divItem->module = clpyModule;
         menu->addChild(divItem);
 
