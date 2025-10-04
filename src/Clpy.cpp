@@ -1,3 +1,15 @@
+////////////////////////////////////////////////////////////
+//
+//   Clpy
+//
+//   written by Cody Geary
+//   Copyright 2025, MIT License
+//
+//   A wave-shaper that folds and clips to a target CV
+//
+////////////////////////////////////////////////////////////
+
+
 #include "plugin.hpp"
 #include <cmath>
 #include <algorithm>
@@ -11,29 +23,44 @@ public:
         interpolatingFilter.setCutoffFreq(1.f / (OVERSAMPLING_FACTOR * 4));
         decimatingFilter.setCutoffFreq(1.f / (OVERSAMPLING_FACTOR * 4));
     }
-    float process(float input) {
+    float process(float input, float clipValue, bool symmetric, bool oversamplingEnabled) {
+        if (!oversamplingEnabled) return processShape(input, clipValue, symmetric);
+
         float signal;
         for (int i = 0; i < OVERSAMPLING_FACTOR; ++i) {
             signal = (i == 0) ? input * OVERSAMPLING_FACTOR : 0.f;
             signal = interpolatingFilter.process(signal);
-            signal = processShape(signal);
+            signal = processShape(signal, clipValue, symmetric);
             signal = decimatingFilter.process(signal);
         }
         return signal;
     }
 private:
-    virtual float processShape(float) = 0;
+    inline float waveshape(float x, float C, bool symmetric) {
+        constexpr float a = 0.926605548037825f; // first positive peak
+    
+        // Base symmetric core
+        float core = sinf(x) * expf(-4.f * x * x / (3.14159265f * 3.14159265f));
+    
+        // Blend amount 0..1 for tails
+        float t = clamp((fabsf(x) - a) / (3.14159265f - a), 0.f, 1.f);
+        t = t * t * (3.f - 2.f * t);  // smoothstep
+ 
+        float tail = C;
+
+        // tail (signed)
+        if (symmetric) tail = (x >= 0.0f) ? C : -C;
+        
+        // Smooth blend between core and tail
+        return core * (1.f - t) + tail * t;
+    }
+
+    float processShape(float input, float clipValue, bool symmetric) {
+        return 5.f * waveshape(input * 0.2f, clipValue, symmetric);
+    }
+
     Filter6PButter interpolatingFilter;
     Filter6PButter decimatingFilter;
-};
-
-// Define the OverSamplingShaper derived class
-class SimpleShaper : public OverSamplingShaper {
-private:
-    float processShape(float input) override {
-        // No additional shaping; just pass through
-        return input;
-    }
 };
 
 struct Clpy : Module {
@@ -62,8 +89,8 @@ struct Clpy : Module {
     static constexpr float fourDivPiSqrd = 4.0f / (3.14159265f * 3.14159265f);
 
     // Initialize Butterworth filter for oversampling
-    SimpleShaper shaperL[16];  // Instance of the oversampling and shaping processor
-    SimpleShaper shaperR[16];  // Instance of the oversampling and shaping processor
+    OverSamplingShaper shaperL[16];  // Instance of the oversampling and shaping processor
+    OverSamplingShaper shaperR[16];  // Instance of the oversampling and shaping processor
     Filter6PButter butterworthFilter;  // Butterworth filter instance
     bool isSupersamplingEnabled = false;  // Enable supersampling is off by default
 
@@ -98,25 +125,6 @@ struct Clpy : Module {
         configInput(INR_INPUT, "In R");
         configOutput(OUTL_OUTPUT, "Out L");
         configOutput(OUTR_OUTPUT, "Out R");
-    }
-
-    inline float waveshape(float x, float C) {
-        constexpr float a = 0.926605548037825f; // first positive peak
-    
-        // Base symmetric core
-        float core = sinf(x) * expf(-4.f * x * x / (3.14159265f * 3.14159265f));
-    
-        // Blend amount 0..1 for tails
-        float t = clamp((fabsf(x) - a) / (3.14159265f - a), 0.f, 1.f);
-        t = t * t * (3.f - 2.f * t);  // smoothstep
- 
-        float tail = C;
-
-        // tail (signed)
-        if (symmetric) tail = (x >= 0.0f) ? C : -C;
-        
-        // Smooth blend between core and tail
-        return core * (1.f - t) + tail * t;
     }
 
     void process(const ProcessArgs& args) override {
@@ -182,13 +190,8 @@ struct Clpy : Module {
             if (clipRChannels == 0 && clipLChannels > 0) clipR = clipL;
     
             // Apply waveshaper
-            float outL = 5.f * waveshape(inL * 0.2f, clipL);
-            float outR = 5.f * waveshape(inR * 0.2f, clipR);
-  
-            if (isSupersamplingEnabled) {
-                outL = shaperL[c].process(outL);
-                outR = shaperR[c].process(outR);
-            }
+            float outL = shaperL[c].process(inL, clipL, symmetric, isSupersamplingEnabled);
+            float outR = shaperR[c].process(inR, clipR, symmetric, isSupersamplingEnabled);
     
             // Output
             outputs[OUTL_OUTPUT].setVoltage(clamp(outL*1.77f, -10.f, 10.f), c);
