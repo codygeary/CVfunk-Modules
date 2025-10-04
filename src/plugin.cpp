@@ -42,6 +42,7 @@ void init(Plugin* p) {
     p->addModel(modelCVfunkBlank4HP);
     p->addModel(modelRat);
     p->addModel(modelCount);
+    p->addModel(modelClpy);
 
     
     // Any other plugin initialization may go here.

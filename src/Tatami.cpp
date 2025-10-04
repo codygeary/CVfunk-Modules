@@ -185,8 +185,6 @@ struct Tatami : Module {
     float inputR[16] = {0.0f};
     float envPeakL[16] = {0.0f};
     float envPeakR[16] = {0.0f};
-//     float envelopeL[16] = {0.0f};
-//     float envelopeR[16] = {0.0f};
     float filteredEnvelopeL[16] = {0.0f};
     float filteredEnvelopeR[16] = {0.0f};
     float lastOutputL = 0.0f;

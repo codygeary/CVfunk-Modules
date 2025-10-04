@@ -1,7 +1,7 @@
 {
   "slug": "CVfunk",
   "name": "CV funk Modules",
-  "version": "2.0.28",
+  "version": "2.0.29",
   "license": "MIT",
   "brand": "CV funk",
   "author": "Cody Geary",
@@ -241,7 +241,7 @@
       "description": "Compose sequences of trigger bursts. Program a sequence of up to seven clock multiplier stages. Customizable trigger patterns.",
       "tags": [
         "Sequencer",
-        "Clock modulator"        
+        "Clock modulator"
       ]
     },
     {
@@ -299,7 +299,7 @@
       "tags": [
         "Blank"
       ]
-    },         
+    },
     {
       "slug": "CVfunkBlank4HP",
       "name": "CV funk Blank 4HP",
@@ -307,7 +307,7 @@
       "tags": [
         "Blank"
       ]
-    },         
+    },
     {
       "slug": "Rat",
       "name": "Rat",
@@ -316,7 +316,7 @@
         "Utility",
         "Polyphonic"
       ]
-    } ,         
+    },
     {
       "slug": "Count",
       "name": "Count",
@@ -324,6 +324,15 @@
       "tags": [
         "Utility"
       ]
-    } 
+    },
+    {
+      "slug": "Clpy",
+      "name": "Clpy",
+      "description": "Stereo polyphonic waveshaper folds your waves and clips them to a target CV value or audio input.",
+      "tags": [
+        "Waveshaper",
+        "Polyphonic"
+      ]
+    }
   ]
 }
