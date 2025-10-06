@@ -16,79 +16,77 @@
 
 #include "Filter6pButter.h"
 #define OVERSAMPLING_FACTOR 4
+
 class OverSamplingShaper {
 public:
     OverSamplingShaper() {
+        // Configure 6-pole filters for oversampling / decimation
         interpolatingFilter.setCutoffFreq(1.f / (OVERSAMPLING_FACTOR * 4));
         decimatingFilter.setCutoffFreq(1.f / (OVERSAMPLING_FACTOR * 4));
     }
+
     float process(float input, float clipValue, bool symmetric, bool oversamplingEnabled) {
-        if (!oversamplingEnabled) return processShape(input, clipValue, symmetric);
-
-        float signal;
-        for (int i = 0; i < OVERSAMPLING_FACTOR; ++i) {
-            signal = (i == 0) ? input * OVERSAMPLING_FACTOR : 0.f;
-            signal = interpolatingFilter.process(signal);
-            signal = processShape(signal, clipValue, symmetric);
-            signal = decimatingFilter.process(signal);
+        if (!oversamplingEnabled) {
+            lastClipValue = clipValue;
+            return processShape(input, clipValue, symmetric);
         }
-        return signal;
+
+        // Linear interpolation of clip CV over the oversampled block
+        float clipStep = (clipValue - lastClipValue) / OVERSAMPLING_FACTOR;
+        float currentClip = lastClipValue;
+
+        // Upsample into a temporary buffer
+        float buffer[OVERSAMPLING_FACTOR];
+        for (int i = 0; i < OVERSAMPLING_FACTOR; ++i) {
+            float oversampledInput = (i == 0) ? input * OVERSAMPLING_FACTOR : 0.f;
+            oversampledInput = interpolatingFilter.process(oversampledInput);
+
+            currentClip += clipStep;
+            buffer[i] = processShape(oversampledInput, currentClip, symmetric);
+        }
+
+        // Decimate the buffer back to single output sample
+        float out = 0.f;
+        for (int i = 0; i < OVERSAMPLING_FACTOR; ++i) {
+            out = decimatingFilter.process(buffer[i]);
+        }
+
+        lastClipValue = clipValue;
+        return out;
     }
+
 private:
-    // Utility function to constrain input to the range [-pi, pi]
-    float wrapToPi(float x) {
-        const float twoPi = 2.0f * M_PI;
-        x = fmod(x + M_PI, twoPi); // Wrap x to [0, 2*pi)
-        if (x < 0.0f) x += twoPi; // Ensure non-negative result
-        return x - M_PI;          // Shift to [-pi, pi]
-    }
-    
-    // Sine approximation with cyclic input
-    float polySin(float x) {
-        x = wrapToPi(x);
-        float x2 = x * x;       // x^2
-        float x3 = x * x2;      // x^3
-        float x5 = x3 * x2;     // x^5
-        float x7 = x5 * x2;     // x^7
-        float x9 = x7 * x2;     // x^9
-        return x - x3 / 6.0f + x5 / 120.0f - x7 / 5040.0f + x9 / 362880.0f;
-    }
-
-    inline float fastExpf(float x) {
-        // Clamp range for numerical safety (good for [-10,10])
-        x = fmaxf(-10.0f, fminf(10.0f, x));
-    
-        // Polynomial approximation of exp(x)
-        // Coefficients from a least-squares fit to exp(x)
-        // Mean relative error < 0.0015 in [-5,5]
-        return 1.0f + x * (1.0f + x * (0.499705f + x * (0.1687389f + x * (0.0366899f + x * 0.0061537f))));
-    }
-
-    inline float waveshape(float x, float C, bool symmetric) {
-        constexpr float a = 0.926605548037825f; // first positive peak
-    
-        // Base symmetric core
-        float core = polySin(x) * fastExpf(-4.f * x * x / (3.14159265f * 3.14159265f));
-    
-        // Blend amount 0..1 for tails
-        float t = clamp((fabsf(x) - a) / (3.14159265f - a), 0.f, 1.f);
-        t = t * t * (3.f - 2.f * t);  // smoothstep
- 
-        float tail = C;
-
-        // tail (signed)
-        if (symmetric) tail = (x >= 0.0f) ? C : -C;
-        
-        // Smooth blend between core and tail
-        return core * (1.f - t) + tail * t;
-    }
-
     float processShape(float input, float clipValue, bool symmetric) {
         return 5.f * waveshape(input * 0.2f, clipValue, symmetric);
     }
 
+    inline float waveshape(float x, float C, bool symmetric) {
+        constexpr float a = 0.926605548037825f;
+        float core = polySin(x) * fastExpf(-4.f * x * x / (3.14159265f * 3.14159265f));
+        float t = clamp((fabsf(x) - a) / (3.14159265f - a), 0.f, 1.f);
+        t = t * t * (3.f - 2.f * t);
+        float tail = symmetric ? ((x >= 0.0f) ? C : -C) : C;
+        return core * (1.f - t) + tail * t;
+    }
+
+    float polySin(float x) {
+        const float twoPi = 2.f * M_PI;
+        x = fmod(x + M_PI, twoPi);
+        if (x < 0.f) x += twoPi;
+        x -= M_PI;
+
+        float x2 = x*x, x3 = x*x2, x5 = x3*x2, x7 = x5*x2, x9 = x7*x2;
+        return x - x3/6.f + x5/120.f - x7/5040.f + x9/362880.f;
+    }
+
+    inline float fastExpf(float x) {
+        x = fmaxf(-10.f, fminf(10.f, x));
+        return 1.f + x*(1.f + x*(0.499705f + x*(0.1687389f + x*(0.0366899f + x*0.0061537f))));
+    }
+
     Filter6PButter interpolatingFilter;
     Filter6PButter decimatingFilter;
+    float lastClipValue = 0.f; // Clip CV memory for interpolation
 };
 
 struct Clpy : Module {
@@ -137,7 +135,6 @@ struct Clpy : Module {
         json_t* isSupersamplingEnabledJ = json_object_get(rootJ, "isSupersamplingEnabled");
         if (isSupersamplingEnabledJ)
             isSupersamplingEnabled = json_boolean_value(isSupersamplingEnabledJ);
-
     }
     
     Clpy() {
@@ -217,7 +214,7 @@ struct Clpy : Module {
             if (clipLChannels == 0 && clipRChannels > 0) clipL = clipR;
             if (clipRChannels == 0 && clipLChannels > 0) clipR = clipL;
     
-            // Apply waveshaper
+            // Apply waveshaper with optional supersampling
             float outL = shaperL[c].process(inL, clipL, symmetric, isSupersamplingEnabled);
             float outR = shaperR[c].process(inR, clipR, symmetric, isSupersamplingEnabled);
     
