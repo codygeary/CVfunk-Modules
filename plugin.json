@@ -1,7 +1,7 @@
 {
   "slug": "CVfunk",
   "name": "CV funk Modules",
-  "version": "2.0.30",
+  "version": "2.0.31",
   "license": "MIT",
   "brand": "CV funk",
   "author": "Cody Geary",
@@ -332,6 +332,15 @@
       "tags": [
         "Waveshaper",
         "Polyphonic"
+      ]
+    },
+    {
+      "slug": "Tuner",
+      "name": "Tuner",
+      "description": "Tuner and zero-centered waveform display.",
+      "tags": [
+        "Tuner",
+        "Utility"
       ]
     }
   ]

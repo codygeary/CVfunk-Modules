@@ -43,6 +43,7 @@ void init(Plugin* p) {
     p->addModel(modelRat);
     p->addModel(modelCount);
     p->addModel(modelClpy);
+    p->addModel(modelTuner);
 
     
     // Any other plugin initialization may go here.

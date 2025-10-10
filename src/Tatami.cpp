@@ -613,7 +613,7 @@ struct TatamiWidget : ModuleWidget {
                 heightScale = centerY / 5; // Calculate based on current center Y
 
                 drawWaveform(args, module->waveBuffers[1], nvgRGBAf(0.3, 0.3, 0.3, 0.8));
-                drawWaveform(args, module->waveBuffers[0], nvgRGBAf(0, 0.4, 1, 0.8));
+                drawWaveform(args, module->waveBuffers[0], nvgRGBAf(0, 0.7, 1, 0.9));
             }
 
             TransparentWidget::drawLayer(args, layer);
