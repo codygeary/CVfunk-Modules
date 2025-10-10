@@ -57,8 +57,8 @@ struct FrequencyTracker {
     int acSampleIndex = 0;
     
     float sampleRate = 44100.f;
-    float lastFreq = 440.f;
-    float smoothedFreq = 440.f;
+    float lastFreq = 261.63;
+    float smoothedFreq = 261.63;
     const float SMOOTH_FACTOR = 0.999f;  // Direct multiplication factor (cheaper than exp)
     
     // How many lags to compute per process() call
@@ -196,7 +196,7 @@ struct FrequencyTracker {
         float adaptiveThreshold = 0.55f + 0.1f * (globalMaxVal - 0.8f);
         adaptiveThreshold = std::min(0.9f, std::max(0.45f, adaptiveThreshold));
         
-        // Find first strong local peak with reduced branching
+        // Find first strong local peak
         int candidateLag = 0;
         for (int lag = 2; lag < half - 1; ++lag) {
             bool isLocalMax = (ac[lag] > ac[lag - 1]) & (ac[lag] >= ac[lag + 1]);
@@ -207,14 +207,17 @@ struct FrequencyTracker {
             }
         }
         
-        // Choose best lag - branchless where possible
         int bestLag = (candidateLag >= 2) ? candidateLag : std::max(2, globalMaxLag);
-        
-        // Check if signal is too weak
-        if (ac[bestLag] < 0.2f) {
+    
+        // --- SIMPLE SIGNAL QUALITY CHECK ---
+        if (ac[bestLag] < 0.1f) {
+            // Really bad: probably noise
+            return -1.f;
+        } else if (ac[bestLag] < 0.25f) {
+            // Slightly weak: keep previous to avoid jitter
             return lastFreq;
         }
-        
+    
         // Parabolic refinement
         if (bestLag > 1 && bestLag < half - 1) {
             float y0 = ac[bestLag - 1];
@@ -233,12 +236,11 @@ struct FrequencyTracker {
         
         if (!std::isfinite(freq) || freq < 20.f || freq > 20000.f)
             return -1.f; // Out-of-range        
-
+    
         return freq;
     }
+
 };
-
-
 
 struct Tuner : Module {
 

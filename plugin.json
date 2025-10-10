@@ -251,6 +251,7 @@
       "tags": [
         "Voltage-controlled amplifier",
         "Mixer",
+        "Dual",
         "Polyphonic"
       ]
     },
@@ -289,6 +290,7 @@
       "tags": [
         "Voltage-controlled amplifier",
         "Utility",
+        "Dual",
         "Polyphonic"
       ]
     },
@@ -320,7 +322,7 @@
     {
       "slug": "Count",
       "name": "Count",
-      "description": "Counts up. Counts Down.",
+      "description": "Counts up. Counts down. Auto-adapting display can handle very large numbers.",
       "tags": [
         "Utility"
       ]
@@ -337,9 +339,10 @@
     {
       "slug": "Tuner",
       "name": "Tuner",
-      "description": "Tuner and zero-centered waveform display.",
+      "description": "Dual autocorrelation tuner and zero-centered waveform display.",
       "tags": [
         "Tuner",
+        "Dual",        
         "Utility"
       ]
     }
