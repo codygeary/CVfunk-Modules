@@ -64,7 +64,7 @@ struct FrequencyTracker {
     // How many lags to compute per process() call
     static constexpr int LAGS_PER_CYCLE = 16;
     // Process AC computation every N cycles (1 = every cycle, 2 = every other, etc.)
-    static constexpr int PROCESS_DIVIDER = 8;
+    int processDivider = 8;
     int processCycleCounter = 0;
     
     // Fast approximations
@@ -91,6 +91,10 @@ struct FrequencyTracker {
 
     void setSampleRate(float sr) { sampleRate = sr; }
 
+    void setProcessDivider(int divider) {
+        processDivider = std::max(1, divider);  // safety clamp
+    }
+
     float process(float in) {
         // Fill write buffer
         writeBuffer[writeIndex++] = in;
@@ -107,7 +111,7 @@ struct FrequencyTracker {
         
         // Do incremental autocorrelation work (with cycle skipping)
         if (bufferReady) {
-            if (++processCycleCounter >= PROCESS_DIVIDER) {
+            if (++processCycleCounter >= processDivider) {
                 processCycleCounter = 0;
                 processAutocorrelationChunk();
             }
@@ -117,7 +121,7 @@ struct FrequencyTracker {
         smoothedFreq = SMOOTH_FACTOR * smoothedFreq + (1.f - SMOOTH_FACTOR) * lastFreq;
         return smoothedFreq;
     }
-
+    
     void processAutocorrelationChunk() {
         int N = BUFFER_SIZE;
         acHalf = N / 2;
@@ -283,6 +287,28 @@ struct Tuner : Module {
 
     float offset[2]= {0.f};
     float gain[2] = {1.0f};
+
+    int updateSpeed = 8;
+
+    json_t* dataToJson() override {
+        json_t* rootJ = json_object();
+
+        json_object_set_new(rootJ, "updateSpeed", json_integer(updateSpeed));
+
+        return rootJ;
+    }
+
+    void dataFromJson(json_t* rootJ) override {
+        json_t* updateSpeedJ = json_object_get(rootJ, "updateSpeed");
+        if (updateSpeedJ) {
+            updateSpeed = json_integer_value(updateSpeedJ);
+            updateSpeed = clamp(updateSpeed, 1, 16);
+            for (int i = 0; i < 2; i++)
+                freqTracker[i].setProcessDivider(updateSpeed);
+        }
+    }
+
+
 
     Tuner() {
         config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
@@ -541,6 +567,51 @@ struct TunerWidget : ModuleWidget {
         return display;
     }
 
+    void appendContextMenu(Menu* menu) override {
+        ModuleWidget::appendContextMenu(menu);
+
+        Tuner* tunerModule = dynamic_cast<Tuner*>(this->module);
+        if (!tunerModule) return;
+
+        menu->addChild(new MenuSeparator());
+
+        // Title
+        menu->addChild(createMenuLabel("Autocorrelation update speed"));
+
+        // Menu item base struct
+        struct UpdateSpeedItem : MenuItem {
+            Tuner* module;
+            int speed;
+            void onAction(const event::Action& e) override {
+                module->updateSpeed = speed;
+                for (int i = 0; i < 2; i++)
+                    module->freqTracker[i].setProcessDivider(speed);
+            }
+            void step() override {
+                rightText = (module->updateSpeed == speed) ? "✔" : "";
+                MenuItem::step();
+            }
+        };
+        
+        // Extended options (more granular control)
+        const std::vector<std::pair<const char*, int>> options = {
+            {"Ultra light (slow updates, lowest CPU)", 16},
+            {"Light (CPU friendly)", 8},
+            {"Medium (balanced)", 4},
+            {"Fast (high precision)", 2},
+            {"Ultra fast (maximum precision, heavy CPU)", 1},
+        };
+        
+        for (auto& opt : options) {
+            auto* item = new UpdateSpeedItem();
+            item->text = opt.first;
+            item->speed = opt.second;
+            item->module = tunerModule;
+            menu->addChild(item);
+        }
+        
+    }
+
     void draw(const DrawArgs& args) override {
         ModuleWidget::draw(args);
         Tuner* module = dynamic_cast<Tuner*>(this->module);
@@ -555,7 +626,7 @@ struct TunerWidget : ModuleWidget {
             int octave = (noteNum / 12) - 1;
             module->currentNote[0] = string::f("%s%d", names[noteIdx], octave);
             float cents = (midi - noteNum) * 100.f;
-            module->centsDeviation[0] = string::f("%+0.1f%%", cents);
+            module->centsDeviation[0] = string::f("%+0.1f", cents);
         } else {
             module->currentNote[0] = "(0)";
             module->centsDeviation[0] = "(0)";
@@ -574,7 +645,7 @@ struct TunerWidget : ModuleWidget {
             int octave = (noteNum / 12) - 1;
             module->currentNote[1] = string::f("%s%d", names[noteIdx], octave);
             float cents = (midi - noteNum) * 100.f;
-            module->centsDeviation[1] = string::f("%+0.1f%%", cents);
+            module->centsDeviation[1] = string::f("%+0.1f", cents);
         } else {
             module->currentNote[1] = "(o)";
             module->centsDeviation[1] = "(o)";

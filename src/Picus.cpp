@@ -433,6 +433,16 @@ struct Picus : Module {
             firstPulseReceived = false;
             patternIndex = 0;
             EndPulse.trigger(0.001f);
+
+            if (lastPlayMode == 2.0f){   
+                if (playMode>0.f){
+                    lastPlayMode = playMode;
+                    paramQuantities[ON_SWITCH]->setDisplayValue(playMode);
+                } else {
+                    playMode = lastPlayMode;
+                    paramQuantities[ON_SWITCH]->setDisplayValue(playMode);
+                }
+            }
         }
 
         // Handle Pattern Buttons
