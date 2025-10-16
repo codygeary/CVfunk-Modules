@@ -139,7 +139,7 @@ struct Clpy : Module {
     
     Clpy() {
         config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
-        configParam(GAIN_PARAM, 1.f, 10.f, 1.f, "Gain");
+        configParam(GAIN_PARAM, 0.f, 10.f, 1.f, "Gain");
         configParam(CLIP_PARAM, -5.f, 5.f, 0.f, "Clip");
         configParam(GAIN_ATT_PARAM, -1.f, 1.f, 0.f, "Gain Attenuverter");
         configParam(CLIP_ATT_PARAM, -1.f, 1.f, 0.f, "Clip Attenuverter");
@@ -180,7 +180,7 @@ struct Clpy : Module {
             // Apply attenuverter
             gainCV *= gainAtt;
     
-            float gain = clamp(params[GAIN_PARAM].getValue() + gainCV, 1.f, 10.f);
+            float gain = clamp(params[GAIN_PARAM].getValue() + gainCV, 0.f, 10.f);
     
             inL *= gain*0.5f;
             inR *= gain*0.5f;
