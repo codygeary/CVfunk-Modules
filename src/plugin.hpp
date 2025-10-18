@@ -44,6 +44,7 @@ extern Model* modelRat;
 extern Model* modelCount;
 extern Model* modelClpy;
 extern Model* modelTuner;
+extern Model* modelAlloy;
 
 
 

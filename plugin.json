@@ -1,7 +1,7 @@
 {
   "slug": "CVfunk",
   "name": "CV funk Modules",
-  "version": "2.0.31",
+  "version": "2.0.32",
   "license": "MIT",
   "brand": "CV funk",
   "author": "Cody Geary",
@@ -344,6 +344,18 @@
         "Tuner",
         "Dual",        
         "Utility"
+      ]
+    },
+    {
+      "slug": "Alloy",
+      "name": "Alloy",
+      "description": "A metallic sound generator that uses Karplus–Strong fractional delay networks to produce shimmering, percussive tones.",
+      "tags": [
+        "Drum",
+        "Physical modeling",
+        "Polyphonic",
+        "Effect",
+        "Oscillator"
       ]
     }
   ]
