@@ -105,7 +105,7 @@ struct AlloyNode {
 
     float processSample(float input) {
         int bufSize = (int)buf.size();
-        if (bufSize < 8) return 0.f;
+        if (bufSize < 4) return 0.f;
 
         // Delay & read position
         float delaySamples = delaySec * sampleRate;
@@ -172,7 +172,7 @@ struct AlloyNode {
 //////////////////////////
 struct Alloy : Module {
     enum ParamIds {
-        TENSION_PARAM, TENSION_ATT,
+        TEMPER_PARAM, TEMPER_ATT,
         RESONANCE_PARAM, RESONANCE_ATT,
         NOISE_PARAM, NOISE_ATT,
         SHAPE_PARAM, SHAPE_ATT,
@@ -184,7 +184,7 @@ struct Alloy : Module {
     };
     enum InputIds {
         AUDIO_INPUT,
-        TENSION_IN,
+        TEMPER_IN,
         RESONANCE_IN,
         NOISE_IN,
         SHAPE_IN,
@@ -230,7 +230,7 @@ struct Alloy : Module {
     // --Efficiency--
     int skipCounter = 0;
     int processSkips = 200;
-    float tension[16] = {0.f};
+    float temper[16] = {0.f};
     float resonance[16] = {0.5f};
     float shape[16] = {0.f};
     float noise[16] = {0.f};
@@ -267,22 +267,22 @@ struct Alloy : Module {
 
         configParam(STRIKE_BUTTON, 0.f, 1.f, 0.f, "Strike");
 
-        configParam(TENSION_PARAM, 0.f, 1.f, 0.5f, "Tension");
-        configParam(RESONANCE_PARAM, 0.f, 0.9999f, 0.88f, "Resonance");
+        configParam(TEMPER_PARAM, 0.f, 1.f, 0.0f, "Temper");
+        configParam(RESONANCE_PARAM, 0.f, 1.0f, 0.88f, "Resonance");
         configParam(NOISE_PARAM, 0.f, 1.0f, 0.012f, "Noise");
         configParam(PITCH_PARAM, -4.f, 4.f, 0.f, "Pitch (V/oct)"); // 0V = C4
         configParam(SHAPE_PARAM, -1.f, 1.f, 0.0f, "Shape");
         configParam(IMPULSE_PARAM, 0.f, 1.f, 0.25f, "Impulse Length");
         configParam(OVERDRIVE_PARAM, 0.f, 1.f, 0.0f, "Overdrive Distortion");
 
-        configParam(TENSION_ATT, -1.f, 1.f, 0.0f, "Tension");
+        configParam(TEMPER_ATT, -1.f, 1.f, 0.0f, "Temper");
         configParam(RESONANCE_ATT, -1.f, 1.f, 0.0f, "Resonance");
         configParam(NOISE_ATT,-1.f, 1.f, 0.0f, "Noise");
         configParam(SHAPE_ATT, -1.f, 1.f, 0.0f, "Shape");
         configParam(IMPULSE_ATT, -1.f, 1.f, 0.0f, "Impulse Length");
         configParam(OVERDRIVE_ATT, -1.f, 1.f, 0.0f, "Overdrive Distortion");
 
-        configInput(TENSION_IN,   "Tension");
+        configInput(TEMPER_IN,   "Tension");
         configInput(RESONANCE_IN, "Resonance");
         configInput(NOISE_IN,     "Noise");
         configInput(SHAPE_IN,     "Shape");
@@ -327,7 +327,7 @@ struct Alloy : Module {
         if (timbreShape < 0.f) {
             float chaos = timbreShape * timbreShape;
             float minJitter = 0.00f;
-            float maxJitter = 0.4f * chaos;
+            float maxJitter = 1.0f * chaos;
             float jitterRange = maxJitter - minJitter;
 
             for (int i = 0; i < nodeCount; ++i) {
@@ -338,7 +338,7 @@ struct Alloy : Module {
             }
         } else {
             float shape = timbreShape * timbreShape;
-            float maxSpread = 0.05f * shape;
+            float maxSpread = 0.25f * shape;
             float spreadStep = (nodeCount > 1) ? (2.f * maxSpread) / (nodeCount - 1) : 0.f;
 
             for (int i = 0; i < nodeCount; ++i) {
@@ -426,7 +426,7 @@ struct Alloy : Module {
             }
         }
         float att = params[attParamId].getValue(); // -1..1
-        return paramValue + att * in;
+        return paramValue + att * in * 0.1f;
     }
 
     void process(const ProcessArgs& args) override {
@@ -448,12 +448,12 @@ struct Alloy : Module {
         if (skipCounter > processSkips) {
             // Precompute values for each channel using getParamValue()
             for (int c = 0; c < channels; ++c) {
-                tension[c]   = clamp(pow(getParamValue(c, TENSION_IN, TENSION_ATT, params[TENSION_PARAM].getValue()), 2.f) * 0.15f, 0.f, 0.15f);
+                temper[c]   = clamp(pow(getParamValue(c, TEMPER_IN, TEMPER_ATT, params[TEMPER_PARAM].getValue()), 2.f) * 0.15f, 0.f, 0.15f);
                 resonance[c] = clamp(pow(getParamValue(c, RESONANCE_IN, RESONANCE_ATT, params[RESONANCE_PARAM].getValue()), 0.1f), 0.f, 1.0f);
-                shape[c]     = clamp(getParamValue(c, SHAPE_IN, SHAPE_ATT, params[SHAPE_PARAM].getValue()), -1.f, 1.f);
-                noise[c]     = clamp(getParamValue(c, NOISE_IN, NOISE_ATT, params[NOISE_PARAM].getValue()), 0.f, 1.f);
-                impulse[c]   = clamp(2.f * getParamValue(c, IMPULSE_IN, IMPULSE_ATT, params[IMPULSE_PARAM].getValue()), 0.01f, 2.f);
-                overdrive[c] = clamp(2.0f + 20.f * getParamValue(c, OVERDRIVE_IN, OVERDRIVE_ATT, params[OVERDRIVE_PARAM].getValue()), 2.0f, 22.0f);
+                shape[c]     = clamp(pow(getParamValue(c, SHAPE_IN, SHAPE_ATT, params[SHAPE_PARAM].getValue()),2.0f), -1.f, 1.f);
+                noise[c]     = clamp(pow(getParamValue(c, NOISE_IN, NOISE_ATT, params[NOISE_PARAM].getValue()),2.0f), 0.f, 1.f);
+                impulse[c]   = clamp(2.0f*pow( getParamValue(c, IMPULSE_IN, IMPULSE_ATT, params[IMPULSE_PARAM].getValue()),2.0f), 0.01f, 2.f);
+                overdrive[c] = clamp(2.0f + 20.f * pow(getParamValue(c, OVERDRIVE_IN, OVERDRIVE_ATT, params[OVERDRIVE_PARAM].getValue()),2.0f), 2.0f, 22.0f);
 
                 float pitchV = params[PITCH_PARAM].getValue();
                 if (inputs[PITCH_IN].isConnected())
@@ -490,9 +490,9 @@ struct Alloy : Module {
             float exciteSample = 0.f;
             if (exciteEnv[c] > 0.f) {
                 exciteTime[c] += 1.f / sampleRate;
-                float burstLength = impulse[c] * (inputs[PITCH_IN].isConnected()
-                    ? clamp(vOctToDelaySec(0.f + inputs[PITCH_IN].getPolyVoltage(c)), 0.0002f, 0.25f)
-                    : clamp(vOctToDelaySec(0.f), 0.0002f, 0.25f));
+                float burstLength = 30.f * impulse[c] * (inputs[PITCH_IN].isConnected()
+                    ? clamp(vOctToDelaySec(0.f + inputs[PITCH_IN].getPolyVoltage(c)), 0.0002f, 10.f)
+                    : clamp(vOctToDelaySec(0.f), 0.0002f, 10.f));
                 burstLength = fmax(0.0005f, burstLength);
                 if (exciteTime[c] < burstLength) {
                     float t = exciteTime[c] / burstLength;
@@ -520,9 +520,9 @@ struct Alloy : Module {
                 float nodeExcite = exciteSample * (0.5f + 0.5f * ((float)i * invNodeCount));
                 int left = (i - 1 + nodeCount) % nodeCount;
                 int right = (i + 1) % nodeCount;
-                float tensionTerm = tension[c] * (nodes[c][left].lastOut + nodes[c][right].lastOut - 2.f * nodes[c][i].lastOut);
+                float temperTerm = temper[c] * (nodes[c][left].lastOut + nodes[c][right].lastOut - 2.f * nodes[c][i].lastOut);
                 float sizzle = noise[c] * randf() * simmerLevel;
-                float nodeInput = nodeExcite + tensionTerm + sizzle + externalAudio;
+                float nodeInput = nodeExcite + temperTerm + sizzle + externalAudio;
                 nodes[c][i].resonance = resonance[c];
                 nodeOutputs[i] = nodes[c][i].processSample(nodeInput);
             }
@@ -586,9 +586,9 @@ struct AlloyWidget : ModuleWidget {
         addParam(createParamCentered<Trimpot>(knobStartPos.plus(Vec(center - offset, 1*knobSpacingY)), module, Alloy::SHAPE_ATT));
         addInput(createInputCentered<ThemedPJ301MPort>(knobStartPos.plus(Vec(center - 2*offset, 1*knobSpacingY )), module, Alloy::SHAPE_IN));
 
-        addParam(createParamCentered<RoundBlackKnob>(knobStartPos.plus(Vec(center , 2*knobSpacingY)), module, Alloy::TENSION_PARAM));
-        addParam(createParamCentered<Trimpot>(knobStartPos.plus(Vec(center-offset, 2*knobSpacingY)), module, Alloy::TENSION_ATT));
-        addInput(createInputCentered<ThemedPJ301MPort>(knobStartPos.plus(Vec(center - 2*offset, 2*knobSpacingY )), module, Alloy::TENSION_IN));
+        addParam(createParamCentered<RoundBlackKnob>(knobStartPos.plus(Vec(center , 2*knobSpacingY)), module, Alloy::TEMPER_PARAM));
+        addParam(createParamCentered<Trimpot>(knobStartPos.plus(Vec(center-offset, 2*knobSpacingY)), module, Alloy::TEMPER_ATT));
+        addInput(createInputCentered<ThemedPJ301MPort>(knobStartPos.plus(Vec(center - 2*offset, 2*knobSpacingY )), module, Alloy::TEMPER_IN));
 
         addParam(createParamCentered<RoundBlackKnob>(knobStartPos.plus(Vec(center, 3*knobSpacingY)), module, Alloy::RESONANCE_PARAM));
         addParam(createParamCentered<Trimpot>(knobStartPos.plus(Vec(center-offset, 3*knobSpacingY)), module, Alloy::RESONANCE_ATT));
@@ -636,7 +636,7 @@ struct AlloyWidget : ModuleWidget {
 
             Menu* createChildMenu() override {
                 Menu* subMenu = new Menu;
-                std::vector<int> counts = {8, 12, 16};
+                std::vector<int> counts = {4, 8, 12, 16};
 
                 for (int count : counts) {
                     struct NodeCountItem : MenuItem {
