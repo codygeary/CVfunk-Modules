@@ -327,7 +327,7 @@ struct Alloy : Module {
         if (timbreShape < 0.f) {
             float chaos = timbreShape * timbreShape;
             float minJitter = 0.00f;
-            float maxJitter = 1.0f * chaos;
+            float maxJitter = 0.6f * chaos;
             float jitterRange = maxJitter - minJitter;
 
             for (int i = 0; i < nodeCount; ++i) {
@@ -338,7 +338,7 @@ struct Alloy : Module {
             }
         } else {
             float shape = timbreShape * timbreShape;
-            float maxSpread = 0.25f * shape;
+            float maxSpread = 0.20f * shape;
             float spreadStep = (nodeCount > 1) ? (2.f * maxSpread) / (nodeCount - 1) : 0.f;
 
             for (int i = 0; i < nodeCount; ++i) {
@@ -450,7 +450,8 @@ struct Alloy : Module {
             for (int c = 0; c < channels; ++c) {
                 temper[c]   = clamp(pow(getParamValue(c, TEMPER_IN, TEMPER_ATT, params[TEMPER_PARAM].getValue()), 2.f) * 0.15f, 0.f, 0.15f);
                 resonance[c] = clamp(pow(getParamValue(c, RESONANCE_IN, RESONANCE_ATT, params[RESONANCE_PARAM].getValue()), 0.1f), 0.f, 1.0f);
-                shape[c]     = clamp(getParamValue(c, SHAPE_IN, SHAPE_ATT, params[SHAPE_PARAM].getValue()), -1.f, 1.f);
+                float v = getParamValue(c, SHAPE_IN, SHAPE_ATT, params[SHAPE_PARAM].getValue());
+                shape[c] = clamp((v >= 0.f ? powf(v, 2.0f) : -powf(-v, 2.0f)), -1.f, 1.f);
                 noise[c]     = clamp(pow(getParamValue(c, NOISE_IN, NOISE_ATT, params[NOISE_PARAM].getValue()),2.0f), 0.f, 1.f);
                 impulse[c]   = clamp(2.0f*pow( getParamValue(c, IMPULSE_IN, IMPULSE_ATT, params[IMPULSE_PARAM].getValue()),2.0f), 0.01f, 2.f);
                 overdrive[c] = clamp(2.0f + 20.f * pow(getParamValue(c, OVERDRIVE_IN, OVERDRIVE_ATT, params[OVERDRIVE_PARAM].getValue()),2.0f), 2.0f, 22.0f);
