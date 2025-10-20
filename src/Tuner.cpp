@@ -290,18 +290,31 @@ struct Tuner : Module {
 
     int updateSpeed = 8;
 
+    bool displayMode = false;
+    
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
-
+    
+        // Save updateSpeed
         json_object_set_new(rootJ, "updateSpeed", json_integer(updateSpeed));
-
+    
+        // Save displayMode
+        json_object_set_new(rootJ, "displayMode", json_boolean(displayMode));
+    
         return rootJ;
     }
-
+    
     void dataFromJson(json_t* rootJ) override {
-        json_t* updateSpeedJ = json_object_get(rootJ, "updateSpeed");
-        if (updateSpeedJ) {
-            updateSpeed = json_integer_value(updateSpeedJ);
+        // Load displayMode
+        json_t* displayModeJ = json_object_get(rootJ, "displayMode");
+        if (displayModeJ) {
+            displayMode = json_boolean_value(displayModeJ);
+        }
+    
+        // Load updateSpeed with clamping & tracker update
+        json_t* speedJ = json_object_get(rootJ, "updateSpeed");
+        if (speedJ) {
+            updateSpeed = json_integer_value(speedJ);
             updateSpeed = clamp(updateSpeed, 1, 16);
             for (int i = 0; i < 2; i++)
                 freqTracker[i].setProcessDivider(updateSpeed);
@@ -439,6 +452,27 @@ struct TunerWidget : ModuleWidget {
     
         void drawLayer(const DrawArgs& args, int layer) override {
             if (!module || layer != 1) return;
+
+            Tuner* tuner = dynamic_cast<Tuner*>(module);
+            if (!tuner)
+                return;
+
+            if (tuner->displayMode) {
+                nvgBeginPath(args.vg);
+                nvgRect(args.vg, 0.f, box.size.y/2.f - 20.f, box.size.x, 40.f); 
+                nvgFillColor(args.vg, nvgRGB(0x21, 0x21, 0x21));  // #212121
+                nvgFill(args.vg);
+                nvgClosePath(args.vg);
+
+                nvgBeginPath(args.vg);
+                nvgRect(args.vg, 0.f, box.size.y/2.f - 20.f+165.f, box.size.x, 40.f); 
+                nvgFillColor(args.vg, nvgRGB(0x21, 0x21, 0x21));  // #212121
+                nvgFill(args.vg);
+                nvgClosePath(args.vg);
+        
+                // Stop before drawing scope
+                return;
+            }
     
             float centerY = box.size.y / 2.f;
             float scale = centerY / 5.f;
@@ -609,6 +643,29 @@ struct TunerWidget : ModuleWidget {
             item->module = tunerModule;
             menu->addChild(item);
         }
+
+        menu->addChild(new MenuSeparator());
+
+        struct DisplayModeItem : MenuItem {
+            Tuner* tunerModule;
+        
+            void onAction(const event::Action& e) override {
+                // Toggle the displayMode variable in the module
+                tunerModule->displayMode = !tunerModule->displayMode;
+            }
+        
+            void step() override {
+                rightText = tunerModule->displayMode ? "✔" : ""; // Show checkmark if true
+                MenuItem::step();
+            }
+        };
+        
+        // Create the Display Mode menu item
+        DisplayModeItem* displayModeItem = new DisplayModeItem();
+        displayModeItem->text = "Large Hz display (disable waveform)"; // Set menu item text
+        displayModeItem->tunerModule = tunerModule;                     // Pass the module pointer
+        menu->addChild(displayModeItem);                                 // Add to context menu
+
         
     }
 
@@ -616,7 +673,7 @@ struct TunerWidget : ModuleWidget {
         ModuleWidget::draw(args);
         Tuner* module = dynamic_cast<Tuner*>(this->module);
         if (!module) return;
-
+    
         // Compute note/cents for display only
         if (module->currentHz[0] > 0.0001f) {
             static const char* names[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
@@ -631,12 +688,17 @@ struct TunerWidget : ModuleWidget {
             module->currentNote[0] = "(0)";
             module->centsDeviation[0] = "(0)";
         }
-
+    
         noteDisp->text = module->currentNote[0];
         centsDisp->text = module->centsDeviation[0];
-        freqDisp->text = (module->currentHz[0] > 0.f) ? string::f("%.1f Hz", module->currentHz[0]) : "-=-";
-        
-        // Compute note/cents for display only
+    
+        // Precision based on display mode
+        if (module->displayMode)
+            freqDisp->text = (module->currentHz[0] > 0.f) ? string::f("%.2f Hz", module->currentHz[0]) : "-=-";
+        else
+            freqDisp->text = (module->currentHz[0] > 0.f) ? string::f("%.1f Hz", module->currentHz[0]) : "-=-";
+    
+        // Compute note/cents for display only (second channel)
         if (module->currentHz[1] > 0.0001f) {
             static const char* names[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
             float midi = 69.f + 12.f * log2f(module->currentHz[1] / 440.f);
@@ -650,11 +712,31 @@ struct TunerWidget : ModuleWidget {
             module->currentNote[1] = "(o)";
             module->centsDeviation[1] = "(o)";
         }
-
+    
         noteDisp2->text = module->currentNote[1];
         centsDisp2->text = module->centsDeviation[1];
-        freqDisp2->text = (module->currentHz[1] > 0.f) ? string::f("%.1f Hz", module->currentHz[1]) : "-=-";
-                
+    
+        if (module->displayMode)
+            freqDisp2->text = (module->currentHz[1] > 0.f) ? string::f("%.2f Hz", module->currentHz[1]) : "-=-";
+        else
+            freqDisp2->text = (module->currentHz[1] > 0.f) ? string::f("%.1f Hz", module->currentHz[1]) : "-=-";
+    
+        // --- Apply display mode visual change (fixed) ---
+        const float baseFreqY1 = 120.f;
+        const float baseFreqY2 = 120.f + 165.f;
+    
+        if (module->displayMode) {
+            freqDisp->setFontSize(36.f);
+            freqDisp->box.pos.y = baseFreqY1 - 40.f;
+    
+            freqDisp2->setFontSize(36.f);
+            freqDisp2->box.pos.y = baseFreqY2 - 40.f;
+        } else {
+            freqDisp->setFontSize(18.f);
+            freqDisp->box.pos.y = baseFreqY1;
+            freqDisp2->setFontSize(18.f);
+            freqDisp2->box.pos.y = baseFreqY2;
+        }
     }
 };
 
