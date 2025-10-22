@@ -203,14 +203,13 @@ struct FrequencyTracker {
         // Find first strong local peak
         int candidateLag = 0;
         for (int lag = 2; lag < half - 1; ++lag) {
-            bool isLocalMax = (ac[lag] > ac[lag - 1]) & (ac[lag] >= ac[lag + 1]);
+            bool isLocalMax = (ac[lag] > ac[lag - 1]) && (ac[lag] >= ac[lag + 1]);
             bool isStrong = ac[lag] >= adaptiveThreshold;
-            if (isLocalMax & isStrong) {
+            if (isLocalMax && isStrong) {
                 candidateLag = lag;
                 break;
             }
-        }
-        
+        }        
         int bestLag = (candidateLag >= 2) ? candidateLag : std::max(2, globalMaxLag);
     
         // --- SIMPLE SIGNAL QUALITY CHECK ---
@@ -270,23 +269,23 @@ struct Tuner : Module {
     CircularBuffer<float, 1024> waveBuffer[2];
 
     float sampleRate = 48000.f;
-    float increment_factor[2] = {0.f};
+    float increment_factor[2] = {0.f, 0.f};
 
-    float currentHz[2] = {0.f};
-    float currentVOct[2] = {0.f};
-    std::string currentNote[2] = {"---"};
-    std::string centsDeviation[2] = {"---"};
+    float currentHz[2] = {0.f, 0.f};
+    float currentVOct[2] = {0.f, 0.f};
+    std::string currentNote[2] = {"---", "---"};
+    std::string centsDeviation[2] = {"---", "---"};
 
-    int counter[2] = {0}; //CPU reduction counter
-    int prevSampleIndex[2] = {0};
+    int counter[2] = {0, 0}; //CPU reduction counter
+    int prevSampleIndex[2] = {0, 0};
     
     // --- Oscilloscope Engine ---
-    float prevIn[2] = {0.f};
+    float prevIn[2] = {0.f, 0.f};
     bool capturing[2] = {false, false};
-    float captureProgress[2] = {0.f}; // [0..1) over display window
+    float captureProgress[2] = {0.f, 0.f}; // [0..1) over display window
 
-    float offset[2]= {0.f};
-    float gain[2] = {1.0f};
+    float offset[2] = {0.f, 0.f};
+    float gain[2] = {1.0f, 1.0f};
 
     int updateSpeed = 8;
 
@@ -449,6 +448,7 @@ struct Tuner : Module {
 struct TunerWidget : ModuleWidget {
     struct WaveDisplay : TransparentWidget {
         Tuner* module = nullptr;
+        unsigned buf_idx = 0;
     
         void drawLayer(const DrawArgs& args, int layer) override {
             if (!module || layer != 1) return;
@@ -464,12 +464,6 @@ struct TunerWidget : ModuleWidget {
                 nvgFill(args.vg);
                 nvgClosePath(args.vg);
 
-                nvgBeginPath(args.vg);
-                nvgRect(args.vg, 0.f, box.size.y/2.f - 20.f+165.f, box.size.x, 40.f); 
-                nvgFillColor(args.vg, nvgRGB(0x21, 0x21, 0x21));  // #212121
-                nvgFill(args.vg);
-                nvgClosePath(args.vg);
-        
                 // Stop before drawing scope
                 return;
             }
@@ -481,27 +475,8 @@ struct TunerWidget : ModuleWidget {
             nvgBeginPath(args.vg);
             for (size_t i = 0; i < 1024; i++) {
                 float x = (float)i / 1023.f * box.size.x;
-                float y = centerY - module->waveBuffer[0][i] * scale;
+                float y = centerY - module->waveBuffer[buf_idx][i] * scale;
                 if (module->currentHz[0]<0.0f) y = centerY;
-                if (i == 0)
-                    nvgMoveTo(args.vg, x, y);
-                else
-                    nvgLineTo(args.vg, x, y);
-            }
-    
-            nvgStrokeColor(args.vg, nvgRGBAf(0.0, 0.7, 1.0, 0.9));
-            nvgStrokeWidth(args.vg, 1.2);
-            nvgStroke(args.vg);
-
-
-            //2nd display offset
-            float dispOffset = 165.f;
-            // --- Draw the 2nd waveform ---
-            nvgBeginPath(args.vg);
-            for (size_t i = 0; i < 1024; i++) {
-                float x = (float)i / 1023.f * box.size.x;
-                float y = centerY - module->waveBuffer[1][i] * scale + dispOffset;
-                if (module->currentHz[1]<0.0f) y = centerY + dispOffset;
                 if (i == 0)
                     nvgMoveTo(args.vg, x, y);
                 else
@@ -541,6 +516,7 @@ struct TunerWidget : ModuleWidget {
         // WaveDisplay 
         waveDisp = new WaveDisplay();
         waveDisp->module = module;
+        waveDisp->buf_idx = 0;
         waveDisp->box.pos = mm2px(Vec(8, 13));
         waveDisp->box.size = mm2px(Vec(29.939*2, 32.608));
         addChild(waveDisp);
@@ -567,7 +543,8 @@ struct TunerWidget : ModuleWidget {
         // WaveDisplay 
         waveDisp2 = new WaveDisplay();
         waveDisp2->module = module;
-        waveDisp2->box.pos = mm2px(Vec(8, 13 + 25.4*dispOffset));
+        waveDisp2->buf_idx = 1;
+        waveDisp2->box.pos = mm2px(Vec(8, 13 + 25.4f/75.f*dispOffset));
         waveDisp2->box.size = mm2px(Vec(29.939*2, 32.608));
         addChild(waveDisp2);
 
