@@ -79,6 +79,7 @@ struct Weave : Module {
     enum OutputId {
         TRIG_OUTPUT,
         POLY_OUTPUT,
+        OUTPUT_1, OUTPUT_2, OUTPUT_3, OUTPUT_4, OUTPUT_5, OUTPUT_6, OUTPUT_ROOT,
         OUTPUTS_LEN
     };
     enum LightId {
@@ -116,6 +117,11 @@ struct Weave : Module {
     int processSkips = 100;
     bool prevNoteConnected = false;
     int weaveSetting = 0;
+
+    //Context Option
+    bool quantizeShift = false;
+    bool inputTracksOctaves = false;
+    float inputOctaveOffset = 0.f; 
 
     const std::array<std::array<std::string, 16>, 12> Chord_Chart = {{
         // Maj       min        7        Maj7       min7      6        min6       9         Maj9     min9      add9      sus2      sus4       pow       aug        dim
@@ -186,36 +192,45 @@ struct Weave : Module {
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
     
-        // Save octaveState
+        // Existing state
         json_object_set_new(rootJ, "octaveState", json_integer(octaveState));
-    
-        // Save currentPermute array
         json_t* permuteJ = json_array();
-        for (int i = 0; i < 6; i++) {
+        for (int i = 0; i < 6; i++)
             json_array_append_new(permuteJ, json_integer(currentPermute[i]));
-        }
         json_object_set_new(rootJ, "currentPermute", permuteJ);
+    
+        // Existing flags
+        json_object_set_new(rootJ, "quantizeShift", json_boolean(quantizeShift));
+    
+        // --- NEW: input octave tracking flag ---
+        json_object_set_new(rootJ, "inputTracksOctaves", json_boolean(inputTracksOctaves));
     
         return rootJ;
     }
     
     void dataFromJson(json_t* rootJ) override {
-        // Load octaveState
+        // Existing loads
         json_t* octaveStateJ = json_object_get(rootJ, "octaveState");
-        if (octaveStateJ) {
+        if (octaveStateJ)
             octaveState = json_integer_value(octaveStateJ);
-        }
     
-        // Load currentPermute array
         json_t* permuteJ = json_object_get(rootJ, "currentPermute");
         if (permuteJ) {
             for (int i = 0; i < 6; i++) {
                 json_t* valJ = json_array_get(permuteJ, i);
-                if (valJ) {
+                if (valJ)
                     currentPermute[i] = json_integer_value(valJ);
-                }
             }
         }
+    
+        json_t* quantizeShiftJ = json_object_get(rootJ, "quantizeShift");
+        if (quantizeShiftJ)
+            quantizeShift = json_boolean_value(quantizeShiftJ);
+    
+        // --- NEW: input octave tracking flag ---
+        json_t* inputTracksOctavesJ = json_object_get(rootJ, "inputTracksOctaves");
+        if (inputTracksOctavesJ)
+            inputTracksOctaves = json_boolean_value(inputTracksOctavesJ);
     }
 
     Weave() {
@@ -237,6 +252,13 @@ struct Weave : Module {
         configParam(OCTAVE_DOWN_BUTTON, 0.f, 1.f, 0.f, "Octave Down");
         configParam(OCTAVE_UP_BUTTON, 0.f, 1.f, 0.f, "Octave Up");
 
+        configOutput(OUTPUT_1, "Note 1");
+        configOutput(OUTPUT_2, "Note 2");
+        configOutput(OUTPUT_3, "Note 3");
+        configOutput(OUTPUT_4, "Note 4");
+        configOutput(OUTPUT_5, "Note 5");
+        configOutput(OUTPUT_6, "Note 6");
+        configOutput(OUTPUT_ROOT, "Root Note");
     }
 
     void process(const ProcessArgs& args) override {
@@ -280,12 +302,25 @@ struct Weave : Module {
                 inputNotPoly = true;
 
                 // Read the voltage from NOTE_INPUT and quantize it to determine which note to activate
+
                 float noteVoltage = inputs[NOTE_INPUT].getVoltage();
                 int quantizedNote = static_cast<int>(std::roundf(noteVoltage * 12.0f));
-                while (quantizedNote < 0)
-                    quantizedNote += 12;
-                while (quantizedNote > 11)
-                    quantizedNote -= 12;
+                int octaveOffset = 0;
+                
+                if (inputTracksOctaves) {
+                    // Preserve the octave information
+                    octaveOffset = static_cast<int>(std::floor(noteVoltage));
+                    // Make sure we wrap the note index properly to 0–11 range
+                    quantizedNote = ((quantizedNote % 12) + 12) % 12;
+                    inputOctaveOffset = static_cast<float>(octaveOffset);
+                } else {
+                    // Classic behavior – wrap to single octave
+                    while (quantizedNote < 0)
+                        quantizedNote += 12;
+                    while (quantizedNote > 11)
+                        quantizedNote -= 12;
+                    inputOctaveOffset = 0.f;
+                }
 
                 // Update the playingNotes array
                 for (int i = 0; i < 12; i++) {
@@ -514,11 +549,43 @@ struct Weave : Module {
 
         // Outputs
         extOffset = params[SHIFT_KNOB_PARAM].getValue();
-        if (inputs[SHIFT_INPUT].isConnected()){ extOffset += inputs[SHIFT_INPUT].getVoltage(); }
+        if (inputs[SHIFT_INPUT].isConnected()) { extOffset += inputs[SHIFT_INPUT].getVoltage(); }
+        
+        extOffset += inputOctaveOffset;
+
+        // --- Quantize shift to semitones if enabled ---
+        if (quantizeShift) {  extOffset = std::roundf(extOffset * 12.0f) / 12.0f; }
+        
         for (int c = 0; c < 6; c++) {
             float outputNote = clamp(finalNotes[c] + extOffset, -10.f, 10.f);
             outputs[POLY_OUTPUT].setVoltage(outputNote, currentPermute[c]);
-        }    
+
+            // Also send the same notes to the individual mono outputs
+            if (outputs[OUTPUT_1].isConnected()) outputs[OUTPUT_1].setVoltage(finalNotes[0] + extOffset);
+            if (outputs[OUTPUT_2].isConnected()) outputs[OUTPUT_2].setVoltage(finalNotes[1] + extOffset);
+            if (outputs[OUTPUT_3].isConnected()) outputs[OUTPUT_3].setVoltage(finalNotes[2] + extOffset);
+            if (outputs[OUTPUT_4].isConnected()) outputs[OUTPUT_4].setVoltage(finalNotes[3] + extOffset);
+            if (outputs[OUTPUT_5].isConnected()) outputs[OUTPUT_5].setVoltage(finalNotes[4] + extOffset);
+            if (outputs[OUTPUT_6].isConnected()) outputs[OUTPUT_6].setVoltage(finalNotes[5] + extOffset);
+        }  
+        
+        // --- Root Output Logic ---
+        // Find the lowest note voltage among the 6 notes
+        float lowestNote = 10.f;
+        for (int i = 0; i < 6; i++) {
+            if (finalNotes[i] < lowestNote)
+                lowestNote = finalNotes[i];
+        }
+        
+        // Compute the octave based on the lowest note (integer octave range)
+        int lowestOctave = static_cast<int>(std::floor(lowestNote)); 
+        
+        // Root is noteValue (0–11) scaled to volts + that octave
+        float rootVoltage = (noteValue / 12.0f) + lowestOctave + extOffset;
+        
+        // Clamp for safety
+        outputs[OUTPUT_ROOT].setVoltage(clamp(rootVoltage, -10.f, 10.f));
+          
     }//end process
 
     // Helper function to convert a fingering (e.g., "X21202") to semitone shifts
@@ -608,7 +675,7 @@ struct WeaveWidget : ModuleWidget {
         void setModule(Weave* mod) {
             module = mod;
             if (!module) {return; }
-            float disp_offset_a = 3.7f;
+            float disp_offset_a = 3.7f-5.f;
             float disp_offset_b = 2.5f;
    
             std::vector<Vec> noteAbsPositions = {
@@ -721,55 +788,112 @@ struct WeaveWidget : ModuleWidget {
         addChild(createWidget<ThemedScrew>(Vec(0, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
         addChild(createWidget<ThemedScrew>(Vec(box.size.x - 1 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 
-        addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(45.0, 42.00)), module, Weave::WEAVE_KNOB_PARAM));
-        addParam(createParamCentered<Trimpot>(mm2px(Vec(55.0, 42.00)), module, Weave::WEAVE_ATT_PARAM));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(65.0, 42.00)), module, Weave::WEAVE_INPUT));        
-        addParam(createParamCentered<RoundHugeBlackKnob>(mm2px(Vec(23.299, 62.14)), module, Weave::CHORD_KNOB_PARAM));
-        addLightsAroundKnob(module, mm2px(23.299), mm2px(62.14), Weave::CHORD_1_LIGHT, 17, 32.f);
+
+        float left = -4.f;
+        float leftW = -9.f;
+        addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(45.0+leftW, 42.0f)), module, Weave::WEAVE_KNOB_PARAM));
+        addParam(createParamCentered<Trimpot>(mm2px(Vec(55.0+leftW, 42.00)), module, Weave::WEAVE_ATT_PARAM));
+        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(65.0+leftW-1.f, 42.00)), module, Weave::WEAVE_INPUT));        
+        addParam(createParamCentered<RoundHugeBlackKnob>(mm2px(Vec(23.299+left, 62.14)), module, Weave::CHORD_KNOB_PARAM));
+        addLightsAroundKnob(module, mm2px(23.299+left), mm2px(62.14), Weave::CHORD_1_LIGHT, 17, 32.f);
+        
         addInput(createInputCentered<PJ301MPort>(mm2px(Vec(8.872, 13.656)), module, Weave::TRIG_INPUT));
         addParam(createParamCentered<TL1105>(mm2px(Vec(8.872, 6.656)), module, Weave::TRIG_BUTTON));
         addInput(createInputCentered<PJ301MPort>(mm2px(Vec(8.872, 32.024)), module, Weave::RESET_INPUT));
         addParam(createParamCentered<TL1105>(mm2px(Vec(8.872, 25.024)), module, Weave::RESET_BUTTON));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(9.193, 112.123)), module, Weave::NOTE_INPUT));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(23.561, 112.123)), module, Weave::CHORD_INPUT));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(37.95, 112.123)), module, Weave::SHIFT_INPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(51.642, 112.31)), module, Weave::TRIG_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(62.642, 112.31)), module, Weave::POLY_OUTPUT));
-        addParam(createParamCentered<Trimpot>(mm2px(Vec(56, 73)), module, Weave::SHIFT_KNOB_PARAM));
+        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(9.193+7, 112.123)), module, Weave::NOTE_INPUT));
+        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(23.561+7, 112.123)), module, Weave::CHORD_INPUT));
+        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(37.95+7, 112.123)), module, Weave::SHIFT_INPUT));
+        addParam(createParamCentered<Trimpot>(mm2px(Vec(56-7, 73)), module, Weave::SHIFT_KNOB_PARAM));
+
+        float right = 4.5f;
+        float spacing = 11.0f;
+        for (int out=0; out<7; out++){
+            if (out==6) spacing +=.5f;
+            addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(62.642+right, 16.0f+out*spacing)), module, Weave::OUTPUT_1+out));
+        }
+
+        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(62.642+right, 16.0f+7*12-1)), module, Weave::TRIG_OUTPUT));
+        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(62.642+right, 16.0f+8*12)), module, Weave::POLY_OUTPUT));
+        
 
         //Octave Buttons
-        addParam(createParamCentered<TL1105>(mm2px(Vec(9.64f, 85.4f  )), module, Weave::OCTAVE_DOWN_BUTTON));
-        addParam(createParamCentered<TL1105>(mm2px(Vec(61.292f, 85.4f)), module, Weave::OCTAVE_UP_BUTTON));
-        addChild(createLightCentered<LargeLight<RedLight>>(mm2px(Vec(9.64f, 85.4f)), module, Weave::OCTAVE_DOWN_LIGHT));
-        addChild(createLightCentered<LargeLight<RedLight>>(mm2px(Vec(61.292f, 85.4f)), module, Weave::OCTAVE_UP_LIGHT));
+        addParam(createParamCentered<TL1105>(mm2px(Vec(9.64f+left+4.f, 85.4f  )), module, Weave::OCTAVE_DOWN_BUTTON));
+        addParam(createParamCentered<TL1105>(mm2px(Vec(61.292f+left-4.f, 85.4f)), module, Weave::OCTAVE_UP_BUTTON));
+        addChild(createLightCentered<LargeLight<RedLight>>(mm2px(Vec(9.64f+left+4.f, 85.f)), module, Weave::OCTAVE_DOWN_LIGHT));
+        addChild(createLightCentered<LargeLight<RedLight>>(mm2px(Vec(61.292f+left-4.f, 85.f)), module, Weave::OCTAVE_UP_LIGHT));
 
         ////////////
         // ADD DISPLAY WIDGETS
         // Note Displays Initialization
         std::vector<std::string> baseText = {"C1", "C2", "C3", "C4", "C5", "C6"};
         for (int i = 0; i < 6; i++) {
-            noteDisplays[i] = createDigitalDisplay(mm2px(Vec(15.06f, 11.084f + (float)i * 3.363f)), baseText[i], 10.f);
+            noteDisplays[i] = createDigitalDisplay(mm2px(Vec(15.06f-4.f, 11.084f + (float)i * 3.363f)), baseText[i], 10.f);
             addChild(noteDisplays[i]);
         }
 
         // Chord Display
-        chordDisplay = createDigitalDisplay(mm2px(Vec(47.667f,55.419f)), "Oct", 14.f);
+        chordDisplay = createDigitalDisplay(mm2px(Vec(47.667f-6.f,55.419f)), "Oct", 14.f);
         addChild(chordDisplay);
 
         // Create and add the Weave Display
-        WeaveDisplay* weaveDisplay = createWidget<WeaveDisplay>(mm2px(Vec(28.f, 13.5))); // Positioning
+        WeaveDisplay* weaveDisplay = createWidget<WeaveDisplay>(mm2px(Vec(28.f-4.f, 13.5))); // Positioning
         weaveDisplay->box.size = Vec(115.f, 63.f); // Size of the display widget
         weaveDisplay->module = module;
         addChild(weaveDisplay);                       
 
         if (module) {          
             // Quantizer display
-            KeyboardDisplay* keyboardDisplay = createWidget<KeyboardDisplay>(mm2px(Vec(10.7f, 87.5f)));
+            KeyboardDisplay* keyboardDisplay = createWidget<KeyboardDisplay>(mm2px(Vec(10.7f-5.f, 87.5f)));
             keyboardDisplay->box.size = mm2px(Vec(50.501f, 16.168f));
             keyboardDisplay->setModule(module);
             addChild(keyboardDisplay);            
         }
     }
+
+    void appendContextMenu(Menu* menu) override {
+        ModuleWidget::appendContextMenu(menu);
+    
+        Weave* module = dynamic_cast<Weave*>(this->module);
+        if (!module)
+            return;
+    
+        menu->addChild(new MenuSeparator());
+    
+        // --- Existing Quantize Shift Toggle ---
+        struct QuantizeShiftItem : MenuItem {
+            Weave* module;
+            void onAction(const event::Action& e) override {
+                module->quantizeShift = !module->quantizeShift;
+            }
+            void step() override {
+                rightText = module->quantizeShift ? "✔" : "";
+                MenuItem::step();
+            }
+        };
+        auto* quantItem = new QuantizeShiftItem();
+        quantItem->text = "Quantize Shift to semitones";
+        quantItem->module = module;
+        menu->addChild(quantItem);
+    
+        // --- NEW: Input Octave Tracking Toggle ---
+        struct InputOctaveTrackingItem : MenuItem {
+            Weave* module;
+            void onAction(const event::Action& e) override {
+                module->inputTracksOctaves = !module->inputTracksOctaves;
+            }
+            void step() override {
+                rightText = module->inputTracksOctaves ? "✔" : "";
+                MenuItem::step();
+            }
+        };
+        auto* octaveItem = new InputOctaveTrackingItem();
+        octaveItem->text = "Allow input to track multiple octaves";
+        octaveItem->module = module;
+        menu->addChild(octaveItem);
+    }
+
+
     
     void addLightsAroundKnob(Module* module, float knobX, float knobY, int firstLightId, int numLights, float radius) {
         const float startAngle = M_PI*0.7f; // Start angle in radians (8 o'clock on the clock face)

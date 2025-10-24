@@ -680,7 +680,6 @@ struct HammerWidget : ModuleWidget {
             addParam(createParamCentered<TL1105>(mm2px(Vec(y1u + xoffset, y)), module, Hammer::Y1U_BUTTON + i * 4));
             addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(outputX, y)), module, Hammer::CLOCK_OUTPUT_1 + i));
             addChild(createLightCentered<SmallLight<YellowLight>>(mm2px(Vec(outputX-4, y-4)), module, Hammer::CLOCK_LIGHT_1 + i));
-
         }
 
         addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(9, 32.4)), module, Hammer::CLOCK_OUTPUT)); //Main Clock
@@ -723,72 +722,132 @@ struct HammerWidget : ModuleWidget {
 
     void appendContextMenu(Menu* menu) override {
         ModuleWidget::appendContextMenu(menu);
-
-        // Cast the module to Hammer and check if the cast is successful
-        Hammer* syncroModule = dynamic_cast<Hammer*>(module);
-        if (!syncroModule) return;
-
-        // Separator for visual grouping in the context menu
+    
+        Hammer* hammerModule = dynamic_cast<Hammer*>(module);
+        if (!hammerModule) return;
+    
+        // -------- Phasor & Clock CV menu items --------
         menu->addChild(new MenuSeparator());
-
-        // Phasor Mode enabled/disabled menu item
+    
         struct PhasorEnabledItem : MenuItem {
-            Hammer* syncroModule;
-            void onAction(const event::Action& e) override {
-                syncroModule->phasorMode = !syncroModule->phasorMode;
+            Hammer* hammerModule;
+            void onAction(const event::Action&) override {
+                hammerModule->phasorMode = !hammerModule->phasorMode;
             }
             void step() override {
-                rightText = syncroModule->phasorMode ? "✔" : "";
+                rightText = hammerModule->phasorMode ? "✔" : "";
                 MenuItem::step();
             }
         };
-
         PhasorEnabledItem* phasorItem = new PhasorEnabledItem();
         phasorItem->text = "Phasor Mode";
-        phasorItem->syncroModule = syncroModule;
+        phasorItem->hammerModule = hammerModule;
         menu->addChild(phasorItem);
-
-        // Clock CV as V/oct enabled/disabled menu item
+    
         struct ClockCVAsVoctItem : MenuItem {
-            Hammer* syncroModule;
-            void onAction(const event::Action& e) override {
-                syncroModule->clockCVAsVoct = !syncroModule->clockCVAsVoct;
-                if (syncroModule->clockCVAsVoct) {
-                    syncroModule->clockCVAsBPM = false;
-                }
+            Hammer* hammerModule;
+            void onAction(const event::Action&) override {
+                hammerModule->clockCVAsVoct = !hammerModule->clockCVAsVoct;
+                if (hammerModule->clockCVAsVoct) hammerModule->clockCVAsBPM = false;
             }
             void step() override {
-                rightText = syncroModule->clockCVAsVoct ? "✔" : "";
+                rightText = hammerModule->clockCVAsVoct ? "✔" : "";
                 MenuItem::step();
             }
         };
-
         ClockCVAsVoctItem* clockItem = new ClockCVAsVoctItem();
         clockItem->text = "Clock CV as V/oct";
-        clockItem->syncroModule = syncroModule;
+        clockItem->hammerModule = hammerModule;
         menu->addChild(clockItem);
-
-        // Clock CV is 1V/10BPM enabled/disabled menu item
+    
         struct ClockCVAsBPMItem : MenuItem {
-            Hammer* syncroModule;
-            void onAction(const event::Action& e) override {
-                syncroModule->clockCVAsBPM = !syncroModule->clockCVAsBPM;
-                if (syncroModule->clockCVAsBPM) {
-                    syncroModule->clockCVAsVoct = false;
-                }
+            Hammer* hammerModule;
+            void onAction(const event::Action&) override {
+                hammerModule->clockCVAsBPM = !hammerModule->clockCVAsBPM;
+                if (hammerModule->clockCVAsBPM) hammerModule->clockCVAsVoct = false;
             }
             void step() override {
-                rightText = syncroModule->clockCVAsBPM ? "✔" : "";
+                rightText = hammerModule->clockCVAsBPM ? "✔" : "";
                 MenuItem::step();
             }
         };
-
         ClockCVAsBPMItem* bpmItem = new ClockCVAsBPMItem();
         bpmItem->text = "Clock CV is 1V/10BPM";
-        bpmItem->syncroModule = syncroModule;
+        bpmItem->hammerModule = hammerModule;
         menu->addChild(bpmItem);
-
+    
+        menu->addChild(new MenuSeparator());
+    
+        // ------------ Channel Multiply/Divide -------------
+        menu->addChild(createMenuLabel("Channel Multiply/Divide"));
+    
+        // Quantity that updates the module's multiply/divide and keeps ratio & resyncFlag in sync.
+        struct ChannelFloatQuantity : Quantity {
+            Hammer* module;
+            int idx;            // index into module arrays (1..8)
+            std::string label;
+            float minV, maxV;
+            int precision;
+            ChannelFloatQuantity(Hammer* m, int i, std::string lbl, float mn, float mx, int prec = 0)
+                : module(m), idx(i), label(lbl), minV(mn), maxV(mx), precision(prec) {}
+            void setValue(float v) override {
+                float cv = clamp(v, minV, maxV);
+                // Determine whether label contains "Multiply" or "Divide" to write the right array
+                if (label.rfind("Multiply", 0) == 0) {
+                    module->multiply[idx] = cv;
+                } else {
+                    module->divide[idx] = cv;
+                }
+                // Keep ratio and resync in sync
+                if (module->divide[idx] == 0.0f) module->divide[idx] = 1.0f;
+                module->ratio[idx] = module->multiply[idx] / module->divide[idx];
+                module->resyncFlag[idx] = true;
+            }
+            float getValue() override {
+                if (label.rfind("Multiply", 0) == 0) return module->multiply[idx];
+                return module->divide[idx];
+            }
+            float getDefaultValue() override { return getValue(); }
+            float getMinValue() override { return minV; }
+            float getMaxValue() override { return maxV; }
+            int getDisplayPrecision() override { return precision; }
+            std::string getLabel() override { return label; }
+            std::string getDisplayValueString() override {
+                if (precision == 0) return std::to_string((int)std::round(getValue()));
+                return string::f("%.*f", precision, getValue());
+            }
+        };
+    
+        // Helper to add the two sliders (multiply/divide) for a channel submenu.
+        auto addChannelSliders = [hammerModule](Menu* parent, int channel0based) {
+            // Map 0..7 -> module indexes 1..8
+            int idx = channel0based + 1;
+    
+            // Multiply slider
+            auto* mulSlider = new ui::Slider();
+            mulSlider->quantity = new ChannelFloatQuantity(hammerModule, idx, "Multiply", 0.0f, 99.0f, 0);
+            mulSlider->box.size.x = 200.f;
+            parent->addChild(mulSlider);
+    
+            // Divide slider
+            auto* divSlider = new ui::Slider();
+            divSlider->quantity = new ChannelFloatQuantity(hammerModule, idx, "Divide", 1.0f, 99.0f, 0);
+            divSlider->box.size.x = 200.f;
+            parent->addChild(divSlider);
+        };
+    
+        // Create 8 channel submenus (Channels 1..8)
+        for (int i = 0; i < CHANNELS; i++) {
+            menu->addChild(createSubmenuItem(
+                "Channel " + std::to_string(i + 1),
+                "",
+                [=](Menu* sub) { addChannelSliders(sub, i); }
+            ));
+        }
+    
+        menu->addChild(new MenuSeparator());
     }
+
 
     void draw(const DrawArgs& args) override {
         ModuleWidget::draw(args);
