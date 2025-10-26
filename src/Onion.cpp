@@ -28,6 +28,7 @@ struct Onion : Module {
         NUM_PARAMS
     };
     enum InputIds {
+        DEPTH_INPUT,
         NUM_INPUTS
     };
     enum OutputIds {
@@ -50,6 +51,7 @@ struct Onion : Module {
     int outputLayers = 1;
     float layers[ONION_LAYERS] = {0.0f};
     float depth = 10.f;
+    float depthInput = 0.f;
     float polarity = 1.f;
     float out[ONION_LAYERS] = {0.0f};
     float prevPolarity = 0.f;
@@ -82,7 +84,8 @@ struct Onion : Module {
             configParam(LAYER_1_PARAM + i, -1.f, 1.f, 0.0f, label);
             configOutput(LAYER_1_OUTPUT + i, label);
         }
-    
+
+        configInput(DEPTH_INPUT, "CV Depth");
         configParam(LAYERS_PARAM, 1.f, 16.f, 1.f, "Onion Layers")->snapEnabled=true;
         configParam(DEPTH_PARAM, 0.001f, 10.f, 10.f, "CV Depth");
         configParam(BIPOLAR_PARAM, 0.f, 1.f, 1.f, "Bipolar");
@@ -97,6 +100,8 @@ struct Onion : Module {
     void process(const ProcessArgs& args) override {
     
         depth = params[DEPTH_PARAM].getValue();
+        depthInput = (inputs[DEPTH_INPUT].isConnected()) ? inputs[DEPTH_INPUT].getVoltage() : 0.f;
+        depth = clamp(depth+depthInput, 0.001f, 10.f);
         outputLayers = (int)params[LAYERS_PARAM].getValue();
         polarity = params[BIPOLAR_PARAM].getValue();
                 
@@ -177,7 +182,8 @@ struct OnionWidget : ModuleWidget {
         addChild(createWidget<ThemedScrew>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 
         addParam(createParamCentered<CKSS>(Vec(box.size.x/2.f - 50.f, 49.f), module, Onion::BIPOLAR_PARAM));
-        addParam(createParamCentered<RoundLargeBlackKnob>(Vec(box.size.x/2.f, 45.f), module, Onion::LAYERS_PARAM));
+        addParam(createParamCentered<RoundLargeBlackKnob>(Vec(box.size.x/2.f-15, 45.f), module, Onion::LAYERS_PARAM));
+        addInput(createInputCentered<ThemedPJ301MPort>(Vec(box.size.x/2.f+25,45.f),module, Onion::DEPTH_INPUT));
         addParam(createParamCentered<RoundBlackKnob>(Vec(box.size.x/2.f + 50, 45.f), module, Onion::DEPTH_PARAM));
 
         float xStart = -5.f;
