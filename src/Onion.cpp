@@ -50,7 +50,7 @@ struct Onion : Module {
     int outputLayers = 1;
     float layers[ONION_LAYERS] = {0.0f};
     float depth = 10.f;
-    float polarity = 0.f;
+    float polarity = 1.f;
     float out[ONION_LAYERS] = {0.0f};
     float prevPolarity = 0.f;
  
@@ -79,14 +79,21 @@ struct Onion : Module {
         // Configure sliders and outputs using a loop
         for (int i = 0; i < ONION_LAYERS; i++) {
             std::string label = "Layer " + std::to_string(i + 1);
-            configParam(LAYER_1_PARAM + i, -1.f, 1.f, -1.0f, label);
+            configParam(LAYER_1_PARAM + i, -1.f, 1.f, 0.0f, label);
             configOutput(LAYER_1_OUTPUT + i, label);
         }
     
         configParam(LAYERS_PARAM, 1.f, 16.f, 1.f, "Onion Layers")->snapEnabled=true;
         configParam(DEPTH_PARAM, 0.001f, 10.f, 10.f, "CV Depth");
-        configParam(BIPOLAR_PARAM, 0.f, 1.f, 0.f, "Bipolar");
+        configParam(BIPOLAR_PARAM, 0.f, 1.f, 1.f, "Bipolar");
     }
+
+    void onReset(const ResetEvent& e) override {
+        for (int layer = 0; layer < ONION_LAYERS; layer++) {
+            paramQuantities[LAYER_1_PARAM + layer]->setDisplayValue(0.f);
+        }        
+    }
+        
     void process(const ProcessArgs& args) override {
     
         depth = params[DEPTH_PARAM].getValue();
@@ -96,8 +103,7 @@ struct Onion : Module {
         for (int layer=0; layer<ONION_LAYERS; layer++){
             layers[layer]=params[LAYER_1_PARAM + layer].getValue();
         }
-        
-        
+                
         if (polarity != prevPolarity) { // move sliders to adjusted positions when polarity changes
             if (polarity < 0.5f) { // mono -> bipolar
                 for (int layer = 0; layer < ONION_LAYERS; layer++) {
@@ -207,9 +213,12 @@ struct OnionWidget : ModuleWidget {
             module->lights[Onion::LAYER_1_LIGHT + layer].setBrightness(brightness*brightness);
 
             if (module->polarity < 0.5f){
-                module->paramQuantities[Onion::LAYER_1_PARAM + layer]->displayOffset = depth;                
+                module->paramQuantities[Onion::LAYER_1_PARAM + layer]->displayOffset = depth; 
+                module->paramQuantities[Onion::LAYER_1_PARAM + layer]->defaultValue = -1.0f; 
+                               
             } else {
                 module->paramQuantities[Onion::LAYER_1_PARAM + layer]->displayOffset = 0.0f;                   
+                module->paramQuantities[Onion::LAYER_1_PARAM + layer]->defaultValue = 0.0f; 
             }
             
             module->paramQuantities[Onion::LAYER_1_PARAM + layer]->displayMultiplier = depth;
