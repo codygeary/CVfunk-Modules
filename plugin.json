@@ -204,7 +204,7 @@
     {
       "slug": "TriDelay",
       "name": "Tri Delay",
-      "description": "A three tap delay line.",
+      "description": "A three tap fractional-delay with ranges from ms to a few seconds.",
       "tags": [
         "Delay"
       ]
@@ -232,7 +232,7 @@
       "name": "Junk DNA",
       "description": "Input DNA codes to generate repetative genes, convert DNA sequence to numerous simultaneous gate signals.",
       "tags": [
-        "Sequencer"
+         "Sequencer"     
       ]
     },
     {
@@ -258,7 +258,7 @@
     {
       "slug": "Weave",
       "name": "Weave",
-      "description": "A six note chord quantizer, with the abilty to weave the outputs into different permutations.",
+      "description": "A six note chord quantizer, with the abilty to weave the outputs into different permutations. Individual outputs per channel allow you to split your chords to different voices.",
       "tags": [
         "Quantizer",
         "Polyphonic"
@@ -276,7 +276,7 @@
     {
       "slug": "Hammer",
       "name": "Hammer",
-      "description": "A compact version of the Syncro eight channel clock ratio generator.",
+      "description": "A compact and more-precise version of the Syncro eight-channel clock ratio generator.",
       "tags": [
         "Clock generator",
         "Clock modulator",
@@ -361,7 +361,7 @@
     {
       "slug": "Onion",
       "name": "Onion",
-      "description": "It has layers, for each output. Fixed CV outputs, unipolar or bipolar with adjustable depth.",
+      "description": "A polyphonic fader module with layers.",
       "tags": [
         "Polyphonic",
         "Utility"
