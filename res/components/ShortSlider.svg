@@ -1,0 +1,55 @@
+<svg
+   version="1.0"
+   id="svg163547"
+   x="0px"
+   y="0px"
+   width="19.84258px"
+   height="76.53516px"
+   viewBox="0 0 19.84258 76.53516"
+   enable-background="new 0 0 19.84258 76.53516"
+   xml:space="preserve"
+   sodipodi:docname="CVfunkSlider.svg"
+   inkscape:version="1.2 (dc2aeda, 2022-05-15)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg"><defs
+   id="defs1921" />
+<sodipodi:namedview
+   bordercolor="#777777"
+   borderopacity="1.0"
+   fit-margin-bottom="0"
+   fit-margin-left="2"
+   fit-margin-right="2"
+   fit-margin-top="0"
+   id="base"
+   inkscape:current-layer="layer1"
+   inkscape:cx="-49.497474"
+   inkscape:cy="22.728432"
+   inkscape:document-units="mm"
+   inkscape:pageopacity="0.0"
+   inkscape:pageshadow="2"
+   inkscape:window-height="916"
+   inkscape:window-maximized="0"
+   inkscape:window-width="1512"
+   inkscape:window-x="0"
+   inkscape:window-y="38"
+   inkscape:zoom="1.979899"
+   pagecolor="#ffffff"
+   showgrid="false"
+   inkscape:showpageshadow="2"
+   inkscape:pagecheckerboard="0"
+   inkscape:deskcolor="#d1d1d1">
+	</sodipodi:namedview>
+<g
+   id="layer1"
+   transform="translate(-105.35713,-95.267905)"
+   inkscape:groupmode="layer"
+   inkscape:label="Layer 1">
+	<path
+   id="path159840"
+   inkscape:connector-curvature="0"
+   d="m 119.5304,96.730202 v 58.303748 c 0,0.80761 -0.81836,1.4623 -1.82787,1.4623 h -4.84827 c -1.0095,0 -1.82786,-0.65469 -1.82786,-1.4623 V 96.730202 c 0,-0.807611 0.81836,-1.462302 1.82786,-1.462302 h 4.84827 c 1.00951,8e-6 1.82787,0.654699 1.82787,1.462302 z"
+   style="stroke-width:0.999998" />
+</g>
+</svg>
