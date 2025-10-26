@@ -53,6 +53,25 @@ struct Onion : Module {
     float polarity = 0.f;
     float out[ONION_LAYERS] = {0.0f};
     float prevPolarity = 0.f;
+ 
+    json_t* dataToJson() override {
+        json_t* rootJ = json_object();
+    
+        // Save prevPolarity
+        json_object_set_new(rootJ, "prevPolarity", json_real(prevPolarity));
+    
+        return rootJ;
+    }
+    
+    void dataFromJson(json_t* rootJ) override {
+        if (!rootJ)
+            return;
+    
+        // Load prevPolarity
+        json_t* jp = json_object_get(rootJ, "prevPolarity");
+        if (jp)
+            prevPolarity = json_number_value(jp);
+    }
     
     Onion() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
