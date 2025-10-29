@@ -20,23 +20,19 @@ using namespace rack;
 //////////////////////////
 // Utility
 //////////////////////////
-static inline float randf() {
+inline __attribute__((always_inline)) float randf() {
     return 2.0f * ((float)rand() / (float)RAND_MAX) - 1.0f;
 }
 
-static float lagrangeInterpolate(float y0, float y1, float y2, float y3, float frac) {
-    float x = frac;
-    float x_1 = x - 1.0f;
-    float x_2 = x - 2.0f;
-    float x_3 = x - 3.0f;
-
-    float L0 = (x_1 * x_2 * x_3) * -0.166667f; // -1/6
-    float L1 = (x * x_2 * x_3) * 0.5f;
-    float L2 = (x * x_1 * x_3) * -0.5f;
-    float L3 = (x * x_1 * x_2) * 0.166667f;    // 1/6
-
-    return L0 * y0 + L1 * y1 + L2 * y2 + L3 * y3;
-}
+inline __attribute__((always_inline)) float lagrangeInterpolate(
+        float y0, float y1, float y2, float y3, float t
+    ) {
+        float a = (-t * (t - 1.0f) * (t - 2.0f)) / 6.0f;
+        float b = ((t + 1.0f) * (t - 1.0f) * (t - 2.0f)) / 2.0f;
+        float c = (-(t + 1.0f) * t * (t - 2.0f)) / 2.0f;
+        float d = ((t + 1.0f) * t * (t - 1.0f)) / 6.0f;
+        return a * y0 + b * y1 + c * y2 + d * y3;
+    }
 
 struct SecondOrderHPF {
     float x1 = 0, x2 = 0; // previous two inputs
@@ -78,6 +74,8 @@ struct SecondOrderHPF {
 //////////////////////////
 struct AlloyNode {
     std::vector<float> buf;
+    int bufMask = 0;
+    int bufSize = 0;
     int writeIndex = 0;
     float delaySec = 0.001f;
     float resonance = 0.9f;
@@ -90,48 +88,47 @@ struct AlloyNode {
 
     void init(float sr, float maxDelaySec = 0.02f) {
         sampleRate = sr;
-        int bufSize = std::max(64, (int)ceilf(maxDelaySec * sr + 4));
+        int desiredSize = (int)ceilf(maxDelaySec * sr + 4);
+        // Use power-of-two buffer size for fast modulo (masking)
+        bufSize = 1;
+        while (bufSize < desiredSize) bufSize <<= 1;
+        bufMask = bufSize - 1;
+
         buf.assign(bufSize, 0.f);
         writeIndex = 0;
         lastInput = 0.f;
         lastOut = 0.f;
-        maxDelay = (float)((buf.size() - 4) / sampleRate);
+        maxDelay = ((float)(bufSize - 4)) / sampleRate;
     }
 
-    void setDelay(float ds) {
-        // Only clamp to buffer-safe range, not minimum
+    inline void setDelay(float ds) {
         delaySec = clamp(ds, minDelay, maxDelay);
     }
 
-    float processSample(float input) {
-        int bufSize = (int)buf.size();
-        if (bufSize < 4) return 0.f;
+    inline float processSample(float input) {
+        const float delaySamples = clamp(delaySec * sampleRate, 1.f, (float)bufSize - 4.f);
+        const float readPos = (float)writeIndex - delaySamples;
 
-        // Delay & read position
-        float delaySamples = delaySec * sampleRate;
-        delaySamples = clamp(delaySamples, 1.f, bufSize - 4.f);
-
-        float readPos = (float)writeIndex - delaySamples;
-        while (readPos < 0.f) readPos += bufSize;
-        while (readPos >= bufSize) readPos -= bufSize;
-
-        int i0 = ((int)floorf(readPos) - 1 + bufSize) % bufSize;
+        // Fractional read pointer 
+        int baseIndex = ((int)floorf(readPos)) & bufMask;
         float frac = readPos - floorf(readPos);
-        float y0 = buf[(i0 + 0) % bufSize];
-        float y1 = buf[(i0 + 1) % bufSize];
-        float y2 = buf[(i0 + 2) % bufSize];
-        float y3 = buf[(i0 + 3) % bufSize];
 
+        // 4-point Lagrange interpolation
+        int i0 = (baseIndex - 1) & bufMask;
+        float y0 = buf[i0];
+        float y1 = buf[(i0 + 1) & bufMask];
+        float y2 = buf[(i0 + 2) & bufMask];
+        float y3 = buf[(i0 + 3) & bufMask];
         float out = lagrangeInterpolate(y0, y1, y2, y3, frac);
 
-        // Overdrive
+        // Feedback & resonance
         float w = input + resonance * out;
 
-        // ADAA saturation (inlined)
+        // ADAA saturation - inlined
         float delta = w - lastInput;
         float sat;
-        if (fabs(delta) > 1e-6f) {
-            // Antiderivative calculation
+
+        if (fabsf(delta) > 1e-6f) {
             float w2 = w * w;
             float w4 = w2 * w2;
             float w6 = w4 * w2;
@@ -146,7 +143,6 @@ struct AlloyNode {
 
             sat = (ad_w - ad_l) / delta;
         } else {
-            // polyTanh
             float w2 = w * w;
             float w3 = w2 * w;
             float w5 = w3 * w2;
@@ -154,18 +150,18 @@ struct AlloyNode {
             sat = w - w3 * 0.333333f + w5 * 0.133333f - w7 * 0.0539683f;
         }
 
-        // Single finite check at the end
         if (!std::isfinite(sat)) sat = 0.f;
-        if (!std::isfinite(out)) out = 0.f;
 
+        // Write to circular buffer
         buf[writeIndex] = sat;
-        writeIndex = (writeIndex + 1) % bufSize;
-        lastOut = out;
-        lastInput = w;
+        writeIndex = (writeIndex + 1) & bufMask;
 
+        lastInput = w;
+        lastOut = out;
         return out;
     }
 };
+
 
 //////////////////////////
 // Module
@@ -319,8 +315,10 @@ struct Alloy : Module {
 
     // Convert V/oct to delay in seconds (same formula)
     float vOctToDelaySec(float vOct) {
-        float f = 261.63f * powf(2.f, vOct); // frequency in Hz
-        return 1.f / f;                       // delay in seconds
+        // 261.63 Hz is middle C reference (C4)
+        constexpr float C4 = 261.63f;
+        float f = C4 * exp2f(vOct);
+        return 1.0f / f;
     }
 
     // shapeNodeDelays preserved exactly
@@ -357,46 +355,31 @@ struct Alloy : Module {
 
     float applyADAA(float input, float lastInput) {
         float delta = input - lastInput;
-        if (fabs(delta) > 1e-6f) {
-            float i2 = input * input;
-            float i4 = i2 * i2;
-            float i6 = i4 * i2;
-            float i8 = i4 * i4;
-            float ad_i = i2 * 0.5f - i4 * 0.0833333f + i6 * 0.0222222f - i8 * 0.00674603f;
-
-            float l2 = lastInput * lastInput;
-            float l4 = l2 * l2;
-            float l6 = l4 * l2;
-            float l8 = l4 * l4;
-            float ad_l = l2 * 0.5f - l4 * 0.0833333f + l6 * 0.0222222f - l8 * 0.00674603f;
-
-            return (ad_i - ad_l) / delta;
+        if (fabs(delta) > 1e-6) {
+            return (antiderivative(input) - antiderivative(lastInput)) / delta;
         } else {
             return polyTanh(input);
         }
     }
 
+    float antiderivative(float x) {
+        float x2 = x * x;
+        return x2 * (0.5f - x2 * (1.0f/12.0f - x2 * (1.0f/45.0f - 17.0f/2520.0f * x2)));
+    }
+    
     float polyTanh(float x) {
         float x2 = x * x;
-        float x3 = x2 * x;
-        float x5 = x3 * x2;
-        float x7 = x5 * x2;
-        return x - x3 * 0.333333f + x5 * 0.133333f - x7 * 0.0539683f;
+        return x - x * x2 * (1.0f/3.0f - x2 * (2.0f/15.0f - 17.0f/315.0f * x2));
     }
-
+    
     float polySin(float x) {
         float x2 = x * x;
-        float x3 = x2 * x;
-        float x5 = x3 * x2;
-        float x7 = x5 * x2;
-        return x - x3 * 0.166667f + x5 * 0.00833333f - x7 * 0.000198413f;
+        return x - x * x2 * (1.0f/6.0f - x2 * (1.0f/120.0f - x2 / 5040.0f));
     }
-
+    
     float polyCos(float x) {
         float x2 = x * x;
-        float x4 = x2 * x2;
-        float x6 = x4 * x2;
-        return 1.0f - x2 * 0.5f + x4 * 0.0416667f - x6 * 0.00138889f;
+        return 1.0f - x2 * (0.5f - x2 * (1.0f/24.0f - x2 / 720.0f));
     }
 
     // Detect strike per voice (keeps original behavior for single voice)
@@ -451,13 +434,24 @@ struct Alloy : Module {
         if (skipCounter > processSkips) {
             // Precompute values for each channel using getParamValue()
             for (int c = 0; c < channels; ++c) {
-                temper[c]   = clamp(pow(getParamValue(c, TEMPER_IN, TEMPER_ATT, params[TEMPER_PARAM].getValue()), 2.f) * 0.15f, 0.f, 0.15f);
-                resonance[c] = clamp(pow(getParamValue(c, RESONANCE_IN, RESONANCE_ATT, params[RESONANCE_PARAM].getValue()), 0.1f), 0.f, 1.0f);
+
+                float gv = getParamValue(c, TEMPER_IN, TEMPER_ATT, params[TEMPER_PARAM].getValue());
+                float gvsq = gv * gv;
+                temper[c] = clamp(gvsq * 0.15f, 0.f, 0.15f);
+                
+                float rv = getParamValue(c, RESONANCE_IN, RESONANCE_ATT, params[RESONANCE_PARAM].getValue());
+                resonance[c] = clamp(powf(rv, 0.1f), 0.f, 1.0f); 
+
+                float nv = getParamValue(c, NOISE_IN, NOISE_ATT, params[NOISE_PARAM].getValue());
+                noise[c] = clamp(nv * nv, 0.f, 1.f);
+                float iv = getParamValue(c, IMPULSE_IN, IMPULSE_ATT, params[IMPULSE_PARAM].getValue());
+                impulse[c] = clamp(2.0f * iv * iv, 0.01f, 2.f);
+                float ov = getParamValue(c, OVERDRIVE_IN, OVERDRIVE_ATT, params[OVERDRIVE_PARAM].getValue());
+                float ov2 = ov * ov;
+                overdrive[c] = clamp(2.0f + 20.f * ov2, 2.0f, 22.0f);
+                
                 float v = getParamValue(c, SHAPE_IN, SHAPE_ATT, params[SHAPE_PARAM].getValue());
-                shape[c] = clamp((v >= 0.f ? powf(v, 2.0f) : -powf(-v, 2.0f)), -1.f, 1.f);
-                noise[c]     = clamp(pow(getParamValue(c, NOISE_IN, NOISE_ATT, params[NOISE_PARAM].getValue()),2.0f), 0.f, 1.f);
-                impulse[c]   = clamp(2.0f*pow( getParamValue(c, IMPULSE_IN, IMPULSE_ATT, params[IMPULSE_PARAM].getValue()),2.0f), 0.01f, 2.f);
-                overdrive[c] = clamp(2.0f + 20.f * pow(getParamValue(c, OVERDRIVE_IN, OVERDRIVE_ATT, params[OVERDRIVE_PARAM].getValue()),2.0f), 2.0f, 22.0f);
+                shape[c] = clamp((v >= 0.f ? v * v : - ( -v * -v )), -1.f, 1.f); 
 
                 float pitchV = params[PITCH_PARAM].getValue();
                 if (inputs[PITCH_IN].isConnected())
@@ -466,6 +460,7 @@ struct Alloy : Module {
                     pitchV -= 4.f;  // delay mode transpose
                 float pitchSec = clamp(vOctToDelaySec(pitchV), 0.0002f, 0.5f);
                 shapeNodeDelays(c, pitchSec, shape[c]);
+
             }
             skipCounter = 0;
         }
