@@ -81,6 +81,17 @@ private:
     }
 };
 
+//Branchless replacement for fmod
+inline float fmod_wrap(float x, float y) {
+    return x - y * truncf(x / y);
+}
+inline float wrap01_exact(float x) {
+    return x - floorf(x);
+}
+inline float wrapPhaseDiff(float x) {
+    return x - roundf(x);
+}
+
 struct Ouros : Module {
 
     static inline float linearInterpolation(float a, float b, float fraction) {
@@ -249,12 +260,11 @@ struct Ouros : Module {
      }
 
     void process(const ProcessArgs &args) override {    
-    
         int numChannels = std::max(inputs[RATE_INPUT].getChannels(), 1);
         outputs[L_OUTPUT].setChannels(numChannels);
         outputs[R_OUTPUT].setChannels(numChannels);
         
-        // Check if each input is monophonic
+        // Monophonic input detection
         bool isFMMonophonic = inputs[FM_INPUT].isConnected() && (inputs[FM_INPUT].getChannels() == 1);
         bool isMultiplyMonophonic = inputs[MULTIPLY_INPUT].isConnected() && (inputs[MULTIPLY_INPUT].getChannels() == 1);
         bool isRateMonophonic = inputs[RATE_INPUT].isConnected() && (inputs[RATE_INPUT].getChannels() == 1);
@@ -264,7 +274,7 @@ struct Ouros : Module {
         bool isFeedbackMonophonic = inputs[FEEDBACK_INPUT].isConnected() && (inputs[FEEDBACK_INPUT].getChannels() == 1);
         bool isNodeMonophonic = inputs[NODE_INPUT].isConnected() && (inputs[NODE_INPUT].getChannels() == 1);
     
-        // Get the monophonic input values
+        // Monophonic input values
         float fmMonoValue = isFMMonophonic ? inputs[FM_INPUT].getVoltage(0) : 0.0f;
         float multiplyMonoValue = isMultiplyMonophonic ? inputs[MULTIPLY_INPUT].getVoltage(0) : 0.0f;
         float rateMonoValue = isRateMonophonic ? inputs[RATE_INPUT].getVoltage(0) : 0.0f;
@@ -275,10 +285,9 @@ struct Ouros : Module {
         float nodeMonoValue = isNodeMonophonic ? inputs[NODE_INPUT].getVoltage(0) : 0.0f;
     
         for (int c = 0; c < numChannels; c++) {
-            
             float deltaTime = args.sampleTime; 
-        
-            // Process FM input
+            
+            // --- FM ---
             float fm = 0.0f;
             if (inputs[FM_INPUT].isConnected()) {
                 fm += isFMMonophonic ? fmMonoValue : inputs[FM_INPUT].getVoltage(c);
@@ -286,76 +295,76 @@ struct Ouros : Module {
             }
             fm = clamp(fm, -3.0f, 3.0f);
     
-            // Process Multiply input
+            // --- Multiply ---
             float multiply = params[MULTIPLY_KNOB].getValue();
             if (inputs[MULTIPLY_INPUT].isConnected()) {
                 float multiplyIn = isMultiplyMonophonic ? multiplyMonoValue : inputs[MULTIPLY_INPUT].getVoltage(c);
                 multiplyIn *= params[MULTIPLY_ATT_KNOB].getValue(); 
                 if (multiplyIn < 0.0f) {
-                    if ((multiplyIn + multiply) < 1.0) { 
-                        multiply = 1 - 0.1f * (multiplyIn + multiply);
-                    } else {
-                        multiply += multiplyIn;
-                    }
+                    multiply = ((multiplyIn + multiply) < 1.0f)
+                        ? 1.0f - 0.1f * (multiplyIn + multiply)
+                        : multiply + multiplyIn;
                 } else {
                     multiply += multiplyIn;
                 }
             }    
             multiply = clamp(multiply, 0.000001f, 10.0f);
     
-            // Apply non-linear adjustment to Multiply
+            // Nonlinear adjustment (replace powf)
             float baseMultiple = int(multiply);
             float remainder = multiply - baseMultiple;
-            multiply = (remainder < 0.5f) ? baseMultiple + pow(remainder, 5.f)
-                                          : (baseMultiple + 1) - pow(1.0f - remainder, 5.f);
+            float remPow5 = remainder * remainder * remainder * remainder * remainder;
+            multiply = (remainder < 0.5f)
+                ? baseMultiple + remPow5
+                : (baseMultiple + 1.0f) - ((1.0f - remainder) * (1.0f - remainder) * (1.0f - remainder) * (1.0f - remainder) * (1.0f - remainder));
     
-            // Process Rate input
+            // --- Rate ---
             float rate = params[RATE_KNOB].getValue();
             if (inputs[RATE_INPUT].isConnected()) {
                 rate += isRateMonophonic ? rateMonoValue : inputs[RATE_INPUT].getVoltage(c);
             }    
             rate += fm;
             rate = clamp(rate, -4.0f, 4.0f); 
-            rate = 261.625565 * pow(2.0, rate);
+            rate = 261.625565f * powf(2.0f, rate);
     
             float multi_rate = rate * multiply;
     
-            // Process Rotate input
+            // --- Rotate ---
             float rotate = params[ROTATE_KNOB].getValue();
             if (inputs[ROTATE_INPUT].isConnected()) {
                 rotate += (isRotateMonophonic ? rotateMonoValue : inputs[ROTATE_INPUT].getVoltage(c)) * 36.0f * params[ROTATE_ATT_KNOB].getValue(); 
             }    
     
-            // Process Spread input
+            // --- Spread ---
             float spread = params[SPREAD_KNOB].getValue();
             if (inputs[SPREAD_INPUT].isConnected()) {
                 spread += (isSpreadMonophonic ? spreadMonoValue : inputs[SPREAD_INPUT].getVoltage(c)) * 36.0f * params[SPREAD_ATT_KNOB].getValue(); 
             }    
     
-            // Process Eat/Position input
+            // --- Eat/Position ---
             float eat = params[POSITION_KNOB].getValue();
             if (inputs[POSITION_INPUT].isConnected()) {
                 eat += (isEatMonophonic ? eatMonoValue : inputs[POSITION_INPUT].getVoltage(c)) * 36.0f * params[POSITION_ATT_KNOB].getValue(); 
             }    
     
-            // Process Feedback input
+            // --- Feedback ---
             float feedback = params[FEEDBACK_KNOB].getValue();
             if (inputs[FEEDBACK_INPUT].isConnected()) {
                 feedback += (isFeedbackMonophonic ? feedbackMonoValue : inputs[FEEDBACK_INPUT].getVoltage(c)) * 0.1f * params[FEEDBACK_ATT_KNOB].getValue(); 
             }    
             feedback = clamp(feedback, -1.0f, 1.0f);
     
-            // Process Node input
+            // --- Node ---
             float NodePosition = params[NODE_KNOB].getValue();
             if (inputs[NODE_INPUT].isConnected()) {
                 NodePosition += (isNodeMonophonic ? nodeMonoValue : inputs[NODE_INPUT].getVoltage(c)) * params[NODE_ATT_KNOB].getValue(); 
             }
             
             NodePosition += feedback * oscOutput[c][3];
-            NodePosition = fmod(NodePosition, 5.0f);
+            NodePosition = fmod_wrap(NodePosition, 5.0f);
             NodePosition = clamp(NodePosition, 0.0f, 5.0f);
     
-            // Phase Reset input logic
+            // --- Reset Logic ---
             float PhaseResetInput = 0.0f;
             bool manualResetPressed = params[RESET_BUTTON].getValue() > 0.0f;
     
@@ -366,18 +375,14 @@ struct Ouros : Module {
                 lastConnectedInputVoltage[c] = PhaseResetInput;
             }
     
-            if (PhaseResetInput < 0.0001f) { latch[c] = true; }
+            if (PhaseResetInput < 0.0001f) latch[c] = true;
             PhaseResetInput = clamp(PhaseResetInput, 0.0f, 10.0f);
     
-            // Rising/falling state logic
+            // Rising/falling state
             if (risingState[c]) {
-                if (PhaseResetInput < prevPhaseResetInput[c]) {
-                    risingState[c] = false;
-                }
+                if (PhaseResetInput < prevPhaseResetInput[c]) risingState[c] = false;
             } else {
-                if (PhaseResetInput > prevPhaseResetInput[c]) {
-                    risingState[c] = true;
-                }
+                if (PhaseResetInput > prevPhaseResetInput[c]) risingState[c] = true;
             }
     
             // Handle reset pulse
@@ -385,150 +390,109 @@ struct Ouros : Module {
                 latch[c] = true;
                 risingState[c] = true;
             }
-
-            // Initialize SIMD variables
+    
+            // SIMD setup
             simd::float_4 phases, places;
             simd::float_4 rateVec(rate), multi_rateVec(multi_rate);
             simd::float_4 twoPiVec(2 * M_PI), fiveVec(5.0f);
-            simd::float_4 zeroVec(0.0f), oneVec(1.0f);
-
-            for (int i = 0; i < 4; i++) {
     
-                /////////////////////
-                // NODE positioning logic
-                //
-            
-                float nodeOne = (rotate+spread/2)/360;
-                float nodeTwo = (rotate-spread/2)/360;
-                float nodeThree = eat/360;
-                float currentNode = 0.0;
-                if (i==0){currentNode = nodeOne;}
-                if (i==1){currentNode = nodeTwo;}
-                if (i==3){currentNode = nodeThree;}
+            for (int i = 0; i < 4; i++) {
+                // --- NODE positioning ---
+                float nodeOne = (rotate + spread / 2.0f) / 360.0f;
+                float nodeTwo = (rotate - spread / 2.0f) / 360.0f;
+                float nodeThree = eat / 360.0f;
+                float currentNode = (i == 0) ? nodeOne : (i == 1) ? nodeTwo : (i == 3) ? nodeThree : 0.0f;
     
                 float basePhase = currentNode;  
                 float targetPhase = basePhase; 
-            
+                
                 if (NodePosition < 1.0f) {
-                    // Unison
                     targetPhase = linearInterpolation(basePhase, 0.5f, NodePosition);
                 } else if (NodePosition < 2.0f) {
-                    // Bimodal distribution
-                    float bimodalPhase = fmod(currentNode, 2.0f) / 2.0f;
-                    float dynamicFactor = -1.0f * (NodePosition - 1.0f) * ((currentNode + 1.0f) / 2.0f);
+                    float bimodalPhase = fmod_wrap(currentNode, 2.0f) * 0.5f;
+                    float dynamicFactor = -1.0f * (NodePosition - 1.0f) * ((currentNode + 1.0f) * 0.5f);
                     targetPhase = linearInterpolation(0.5f, bimodalPhase * dynamicFactor, NodePosition - 1.0f);
                 } else if (NodePosition < 3.0f) {
-                    // Trimodal distribution
-                    float bimodalPhase = fmod(currentNode, 2.0f) / 2.0f;
-                    float dynamicFactor = -1.0f * (NodePosition - 1.0f) * ((currentNode + 1.0f) / 2.0f);
-                    float trimodalPhase = fmod(currentNode, 3.0f) / 3.0f;
-    
-                    float blendFactor = NodePosition - 2.0f; // Gradually changes from 0 to 1 as NodePosition goes from 2.0 to 3.0
-                    float adjustedTrimodalPhase = linearInterpolation(bimodalPhase * dynamicFactor, trimodalPhase, blendFactor * 1.0f);
+                    float bimodalPhase = fmod_wrap(currentNode, 2.0f) * 0.5f;
+                    float dynamicFactor = -1.0f * (NodePosition - 1.0f) * ((currentNode + 1.0f) * 0.5f);
+                    float trimodalPhase = fmod_wrap(currentNode, 3.0f) / 3.0f;
+                    float blendFactor = NodePosition - 2.0f;
+                    float adjustedTrimodalPhase = linearInterpolation(bimodalPhase * dynamicFactor, trimodalPhase, blendFactor);
                     targetPhase = adjustedTrimodalPhase;
                 } else if (NodePosition < 4.0f) {
-                    float trimodalPhase = fmod(currentNode, 3.0f) / 3.0f;
-    
-                    // Smoothly map back to Unison
-                    float blendFactor = NodePosition - 3.0f; // Gradually changes from 0 to 1 as NodePosition goes from 3.0 to 4.0
+                    float trimodalPhase = fmod_wrap(currentNode, 3.0f) / 3.0f;
+                    float blendFactor = NodePosition - 3.0f;
                     targetPhase = linearInterpolation(trimodalPhase, 0.5f, blendFactor);
                 } else {
-                    // Map smoothly to the basePhase for 4-5
-                    float blendFactor = NodePosition - 4.0f; // Gradually changes from 0 to 1 as NodePosition goes from 4.0 to 5.0
+                    float blendFactor = NodePosition - 4.0f;
                     targetPhase = linearInterpolation(0.5f, basePhase, blendFactor);
                 }   
                 
                 targetPhase += place[c][i];
-            
-                if (i == 2) {
-                    targetPhase = place[c][i];
-                }
+                if (i == 2) targetPhase = place[c][i];
+                targetPhase = wrap01_exact(targetPhase);
     
-                targetPhase = fmod(targetPhase, 1.0f);
+                float phaseDiff = wrapPhaseDiff(targetPhase - oscPhase[c][i]);
+                oscPhase[c][i] += phaseDiff * 0.05f;
     
-                float phaseDiff = targetPhase - oscPhase[c][i];
-                phaseDiff -= roundf(phaseDiff);  // Ensures phaseDiff is in the range -0.5 to 0.5
-    
-                //Phase returns to the correct spot, rate determined by PhaseGate
-                oscPhase[c][i] += phaseDiff*( 0.05f )  ;
-    
-                if (i==3){
-                        // Update the LFO phase based on the rate
-                        oscPhase[c][i] += multi_rate * deltaTime ;        
-                        place[c][i] += multi_rate * deltaTime;
-                    
-                        if (oscPhase[c][2]==0){
-                            oscPhase[c][3]=0;
-                            place[c][3]=0;
-                        }
+                if (i == 3) {
+                    oscPhase[c][i] += multi_rate * deltaTime;
+                    place[c][i] += multi_rate * deltaTime;
+                    if (oscPhase[c][2] == 0.0f) {
+                        oscPhase[c][3] = 0.0f;
+                        place[c][3] = 0.0f;
+                    }
                 } else {
-                        // Update the LFO phase based on the rate
-                        oscPhase[c][i] += rate * deltaTime ;           
-                        place[c][i] += rate * deltaTime;
+                    oscPhase[c][i] += rate * deltaTime;
+                    place[c][i] += rate * deltaTime;
                 }
     
-                oscPhase[c][i] -= static_cast<int>(oscPhase[c][i]);
+                oscPhase[c][i] = wrap01_exact(oscPhase[c][i]);
+                if (place[c][i] >= 1.0f) place[c][i] -= 1.0f;
     
-                if (place[c][i] >= 1.0f) place[c][i] -= 1.0f; // Wrap 
+                // Reset logic
+                if (risingState[c] && latch[c]) {
+                    for (int j = 0; j < 4; j++) {
+                        oscPhase[c][j] = 0.0f;
+                        place[c][j] = 0.0f;
+                    }
+                    latch[c] = false;
+                    risingState[c] = false;
+                }
     
-                // Reset LFO phase to 0 at the peak of the envelope
-                if ((risingState[c] && latch[c]) ) {
-                    oscPhase[c][0] = 0.0f;
-                    place[c][0] = 0.0f;
-                    oscPhase[c][1] = 0.0f;
-                    place[c][1] = 0.0f;
-                    oscPhase[c][2] = 0.0f;
-                    place[c][2] = 0.0f;
-                    latch[c]= false;
-                    risingState[c]= false;
-                    place[c][3] = 0.0f;
-                    oscPhase[c][3] = 0.0f;
-                } 
- 
-                 // Store phase values in SIMD vectors
                 phases[i] = oscPhase[c][i];
                 places[i] = place[c][i];
-                              
-                prevPhaseResetInput[c]= PhaseResetInput;
+                prevPhaseResetInput[c] = PhaseResetInput;
             }
-
-            // Compute oscillator shape using SIMD
+    
+            // --- Compute waveform ---
             simd::float_4 phaseVector = phases * twoPiVec;
             simd::float_4 sinValues = simd::sin(phaseVector);
             simd::float_4 outputValues = clamp(fiveVec * sinValues, -5.0f, 5.0f);
     
-            // Store results and output the voltages
             for (int i = 0; i < 4; i++) {
                 oscOutput[c][i] = outputValues[i];
-                if (i < 2) {
+                if (i < 2)
                     outputs[L_OUTPUT + i].setVoltage(oscOutput[c][i], c);
-                }
             }
-
-            lastoscPhase[c][2] = oscPhase[c][2];                
-            // Handling for wrapping around 0
+    
+            lastoscPhase[c][2] = oscPhase[c][2];
             for (int i = 0; i < 4; i++) {
-                if (oscPhase[c][i] < lastoscPhase[c][i]) { // This means the phase has wrapped
-                    lastoscPhase[c][i] = oscPhase[c][i]; // Update the last phase
-                }
+                if (oscPhase[c][i] < lastoscPhase[c][i])
+                    lastoscPhase[c][i] = oscPhase[c][i];
             }
-            
         }
- 
-        // --- Cleaner waveform buffer update ---
+    
+        // --- Waveform buffer update (unchanged) ---
         int sampleIndex = static_cast<int>(oscPhase[0][2] * 512);
         sampleIndex = clamp(sampleIndex, 0, 511);
         
-        // Get left/right sample voltages for scope display
         float left  = outputs[L_OUTPUT].getVoltage(0);
         float right = outputs[R_OUTPUT].getVoltage(0);
-        
         waveBuffers[0][sampleIndex] = left;
         waveBuffers[1][sampleIndex] = right;
-        
-        // --- Fill gaps by linear interpolation ---
+    
         if (prevSample + 1 < sampleIndex) {
-            // Normal forward gap
             int gap = sampleIndex - prevSample;
             float prevLeft  = waveBuffers[0][prevSample];
             float prevRight = waveBuffers[1][prevSample];
@@ -537,31 +501,24 @@ struct Ouros : Module {
                 waveBuffers[0][prevSample + i] = prevLeft  + t * (left  - prevLeft);
                 waveBuffers[1][prevSample + i] = prevRight + t * (right - prevRight);
             }
-        }
-        else if (sampleIndex < prevSample) {
-            // Handle wrap-around case
+        } else if (sampleIndex < prevSample) {
             int gapToEnd = 511 - prevSample;
             float prevLeft  = waveBuffers[0][prevSample];
             float prevRight = waveBuffers[1][prevSample];
-        
-            // Fill to end of buffer
             for (int i = 1; i <= gapToEnd; i++) {
                 float t = static_cast<float>(i) / (gapToEnd + 1);
                 waveBuffers[0][prevSample + i] = prevLeft  + t * (left - prevLeft);
                 waveBuffers[1][prevSample + i] = prevRight + t * (right - prevRight);
             }
-        
-            // Now fill from 0 up to sampleIndex
             for (int i = 0; i < sampleIndex; i++) {
                 float t = static_cast<float>(i + 1) / (sampleIndex + 1);
                 waveBuffers[0][i] = prevLeft  + t * (left - prevLeft);
                 waveBuffers[1][i] = prevRight + t * (right - prevRight);
             }
         }
-        
         prevSample = sampleIndex;
-                
-    }//void process
+    }
+
      
 };
 
