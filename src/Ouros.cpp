@@ -48,39 +48,6 @@ public:
     }
 };
 
-#include "Filter6pButter.h"
-#define OVERSAMPLING_FACTOR 8 
-class OverSamplingShaper {
-public:
-    OverSamplingShaper() {
-        interpolatingFilter.setCutoffFreq(1.f / (OVERSAMPLING_FACTOR * 4));
-        decimatingFilter.setCutoffFreq(1.f / (OVERSAMPLING_FACTOR * 4));
-    }
-    float process(float input) {
-        float signal;
-        for (int i = 0; i < OVERSAMPLING_FACTOR; ++i) {
-            signal = (i == 0) ? input * OVERSAMPLING_FACTOR : 0.f;   
-            signal = interpolatingFilter.process(signal);
-            signal = processShape(signal);
-            signal = decimatingFilter.process(signal);
-        }
-        return signal;
-    }
-private:
-    virtual float processShape(float) = 0;
-    Filter6PButter interpolatingFilter;
-    Filter6PButter decimatingFilter;
-};
-
-// Define the OverSamplingShaper derived class
-class SimpleShaper : public OverSamplingShaper {
-private:
-    float processShape(float input) override {
-        // No additional shaping; just pass through
-        return input;
-    }
-};
-
 //Branchless replacement for fmod
 inline __attribute__((always_inline)) float fmod_wrap(float x, float y) { return x - y * truncf(x / y); }
 inline __attribute__((always_inline)) float wrap01_exact(float x) { return x - floorf(x); }
@@ -337,9 +304,10 @@ struct Ouros : Module {
             // --- Feedback ---
             float feedback = params[FEEDBACK_KNOB].getValue();
             if (inputs[FEEDBACK_INPUT].isConnected()) {
-                feedback += (isFeedbackMonophonic ? feedbackMonoValue : clamp(inputs[FEEDBACK_INPUT].getVoltage(c)),-10.f, 10.f) * 0.1f * params[FEEDBACK_ATT_KNOB].getValue(); 
+                feedback += (isFeedbackMonophonic ? feedbackMonoValue : inputs[FEEDBACK_INPUT].getVoltage(c)) * 0.1f * params[FEEDBACK_ATT_KNOB].getValue(); 
+                feedback = clamp(feedback, -1.0f, 1.0f); 
             }    
-    
+   
             // --- Node ---
             float NodePosition = params[NODE_KNOB].getValue();
             if (inputs[NODE_INPUT].isConnected()) {

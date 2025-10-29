@@ -487,34 +487,23 @@ struct TriDelay : Module {
 
     float antiderivative(float x) {
         float x2 = x * x;
-        float x4 = x2 * x2;
-        float x6 = x4 * x2;
-        float x8 = x4 * x4;
-        return x2 / 2.0f - x4 / 12.0f + x6 / 45.0f - 17.0f * x8 / 2520.0f;
+        return x2 * (0.5f - x2 * (1.0f/12.0f - x2 * (1.0f/45.0f - 17.0f/2520.0f * x2)));
     }
-
+    
     float polyTanh(float x) {
-        float x2 = x * x;       // x^2
-        float x3 = x2 * x;      // x^3
-        float x5 = x3 * x2;     // x^5
-        float x7 = x5 * x2;     // x^7
-        return x - x3 / 3.0f + (2.0f * x5) / 15.0f - (17.0f * x7) / 315.0f;
+        float x2 = x * x;
+        return x - x * x2 * (1.0f/3.0f - x2 * (2.0f/15.0f - 17.0f/315.0f * x2));
     }
-
+    
     float polySin(float x) {
-        float x2 = x * x;       // x^2
-        float x3 = x * x2;      // x^3
-        float x5 = x3 * x2;     // x^5
-        float x7 = x5 * x2;     // x^7
-        return x - x3 / 6.0f + x5 / 120.0f - x7 / 5040.0f;
+        float x2 = x * x;
+        return x - x * x2 * (1.0f/6.0f - x2 * (1.0f/120.0f - x2 / 5040.0f));
     }
-
+    
     float polyCos(float x) {
-        float x2 = x * x;       // x^2
-        float x4 = x2 * x2;     // x^4
-        float x6 = x4 * x2;     // x^6
-        return 1.0f - x2 / 2.0f + x4 / 24.0f - x6 / 720.0f;
-    }      
+        float x2 = x * x;
+        return 1.0f - x2 * (0.5f - x2 * (1.0f/24.0f - x2 / 720.0f));
+    }
 };
 
 struct EnvDisplay : TransparentWidget {
