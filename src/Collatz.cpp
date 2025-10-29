@@ -81,8 +81,8 @@ struct Collatz : Module {
 
         configParam(START_NUMBER, 2.f, 1000.f, 5.f, "Starting Number")->snapEnabled=true;
         configParam(BEAT_MODULUS, 1.f, 100.f, 24.f, "Beat Modulus")->snapEnabled=true;
-        configParam(START_NUMBER_ATT, -1.f, 1.f, 0.f, "Starting Number Attenuation");
-        configParam(BEAT_MODULUS_ATT, -1.f, 1.f, 0.f, "Beat Modulus Attenuation");
+        configParam(START_NUMBER_ATT, -1.f, 1.f, 0.f, "Starting Number Attenuverter");
+        configParam(BEAT_MODULUS_ATT, -1.f, 1.f, 0.f, "Beat Modulus Attenuverter");
 
         configParam(RESET_BUTTON_PARAM, 0.f, 1.f, 0.f, "Reset");
         configParam(START_BUTTON_PARAM, 0.f, 1.f, 0.f, "Start");

@@ -83,7 +83,6 @@ struct PentaSequencer : Module {
     float slewedVoltage = 0.0f;
     int knobMapping[5] = {0, 1, 2, 3, 4};
 
-
     bool onTarget = true;
 
     int defaultMapping[5] = {0, 1, 2, 3, 4};
@@ -126,11 +125,13 @@ struct PentaSequencer : Module {
         configParam(KNOB3_PARAM, -5.f, 5.f, 0.f, "III");
         configParam(KNOB4_PARAM, -5.f, 5.f, 0.f, "IV");
         configParam(KNOB5_PARAM, -5.f, 5.f, 0.f, "V");
-        configInput(TRIG_INPUT, "Trigger IN");
-        configInput(SHAPE_INPUT, "Shape IN");
-        configInput(SHIFT_INPUT, "Shift IN");
-        configInput(DIR_INPUT, "Dir IN");
-        configInput(RESET_INPUT, "Reset IN"); 
+        configInput(TRIG_INPUT, "Trigger");
+        configInput(SHAPE_INPUT, "Shape");
+        configInput(SHIFT_INPUT, "Shift");
+        configInput(DIR_INPUT, "Dir");
+        configInput(RESET_INPUT, "Reset"); 
+        configInput(SLEW_INPUT, "Slew"); 
+
         configOutput(A_OUTPUT, "A");
         configOutput(B_OUTPUT, "B");
         configOutput(C_OUTPUT, "C");
@@ -154,7 +155,7 @@ struct PentaSequencer : Module {
 
         // Override and animate slew control if external CV connected
         if (inputs[SLEW_INPUT].isConnected()) {
-            float adjustedSlewInput = (inputs[SLEW_INPUT].getVoltage()+5.0f)/10.0f;
+            float adjustedSlewInput = (inputs[SLEW_INPUT].getVoltage())/10.0f;
             adjustedSlewInput = clamp (adjustedSlewInput, 0.f, 1.f );
             params[SLEW_PARAM].setValue(adjustedSlewInput);
         }

@@ -203,13 +203,14 @@ struct FrequencyTracker {
         // Find first strong local peak
         int candidateLag = 0;
         for (int lag = 2; lag < half - 1; ++lag) {
-            bool isLocalMax = (ac[lag] > ac[lag - 1]) && (ac[lag] >= ac[lag + 1]);
+            bool isLocalMax = (ac[lag] > ac[lag - 1]) & (ac[lag] >= ac[lag + 1]);
             bool isStrong = ac[lag] >= adaptiveThreshold;
-            if (isLocalMax && isStrong) {
+            if (isLocalMax & isStrong) {
                 candidateLag = lag;
                 break;
             }
-        }        
+        }
+        
         int bestLag = (candidateLag >= 2) ? candidateLag : std::max(2, globalMaxLag);
     
         // --- SIMPLE SIGNAL QUALITY CHECK ---
@@ -476,7 +477,8 @@ struct TunerWidget : ModuleWidget {
             for (size_t i = 0; i < 1024; i++) {
                 float x = (float)i / 1023.f * box.size.x;
                 float y = centerY - module->waveBuffer[buf_idx][i] * scale;
-                if (module->currentHz[0]<0.0f) y = centerY;
+                // FIX: Check the correct channel based on buf_idx
+                if (module->currentHz[buf_idx] < 0.0f) y = centerY;
                 if (i == 0)
                     nvgMoveTo(args.vg, x, y);
                 else
@@ -489,7 +491,6 @@ struct TunerWidget : ModuleWidget {
     
         }
     };
-
     DigitalDisplay* noteDisp = nullptr;
     DigitalDisplay* centsDisp = nullptr;
     DigitalDisplay* freqDisp = nullptr;

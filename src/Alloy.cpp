@@ -289,8 +289,11 @@ struct Alloy : Module {
         configInput(IMPULSE_IN,   "Impulse");
         configInput(OVERDRIVE_IN,  "Overdrive");
         configInput(PITCH_IN,  "Pitch (V/Oct)");
-
+        configInput(TRIG_INPUT,  "Strike");
         configInput(AUDIO_INPUT, "Resonator");
+
+        configOutput(AUDIO_OUTPUT_L,  "Audio L");
+        configOutput(AUDIO_OUTPUT_R,  "Audio R");
 
         // Initialize all detune tables
         for (int c = 0; c < MAX_POLY; ++c)
@@ -615,8 +618,13 @@ struct AlloyWidget : ModuleWidget {
         addOutput(createOutputCentered<ThemedPJ301MPort>(knobStartPos.plus(Vec(center+2*offset, 3.5*knobSpacingY)), module, Alloy::AUDIO_OUTPUT_R));
     }
 
+#if defined(METAMODULE)
+    // For MM, use step(), because overriding draw() will allocate a module-sized pixel buffer
+    void step() override {
+#else
     void draw(const DrawArgs& args) override {
         ModuleWidget::draw(args);
+#endif
         Alloy* module = dynamic_cast<Alloy*>(this->module);
         if (!module) return;
             module->lights[Alloy::IMPULSE_LIGHT].setBrightness(module->exciteEnv[0]>0.0f ? 1.0f : 0.f);

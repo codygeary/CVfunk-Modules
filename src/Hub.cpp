@@ -283,8 +283,8 @@ struct HubWidget : ModuleWidget {
             addChild(createLightCentered<TinyLight<WhiteLight>>(Vec(box.size.x/2 + 53 + stepsize, 119-i*stepsize - 34 - stepsize/2), module, Hub::HUB_IB_2+i*2));
         }
 
-		voltDisplay_I = createDigitalDisplay(Vec(box.size.x / 2 - 25, 110), "0.000 V");
-		addChild(voltDisplay_I);
+        voltDisplay_I = createDigitalDisplay(Vec(box.size.x / 2 - 25, 110), "0.000 V");
+        addChild(voltDisplay_I);
 
         // ==== BOTTOM (II) ====
         addInput(createInputCentered<ThemedPJ301MPort>(Vec(box.size.x / 2 - 50, 70 + YOFFSET), module, Hub::MAIN_INPUT_II));
@@ -304,12 +304,17 @@ struct HubWidget : ModuleWidget {
             addChild(createLightCentered<TinyLight<WhiteLight>>(Vec(box.size.x/2 + 53 + stepsize, 119-i*stepsize - 34 - stepsize/2 + YOFFSET), module, Hub::HUB_IIB_2+i*2));
         }
 
-		voltDisplay_II = createDigitalDisplay(Vec(box.size.x / 2 - 25, 110 + YOFFSET), "0.000 V");
-		addChild(voltDisplay_II);
+        voltDisplay_II = createDigitalDisplay(Vec(box.size.x / 2 - 25, 110 + YOFFSET), "0.000 V");
+        addChild(voltDisplay_II);
     }
 
+#if defined(METAMODULE)
+    // For MM, use step(), because overriding draw() will allocate a module-sized pixel buffer
+    void step() override {
+#else
     void draw(const DrawArgs& args) override {
         ModuleWidget::draw(args);
+#endif
         Hub* module = dynamic_cast<Hub*>(this->module);
         if (!module) return;
     

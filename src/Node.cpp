@@ -55,15 +55,16 @@ struct Node : Module {
 
     int cycleCount = 0;
     float alpha = 0.01f;
-    float volTotalL = 0.0f;
-    float volTotalR = 0.0f;
-    float Ch1TotalL = 0.0f;
-    float Ch1TotalR = 0.0f;
-    float Ch2TotalL = 0.0f;
-    float Ch2TotalR = 0.0f;
-    float lastOutputL = 0.0f;
-    float lastOutputR = 0.0f;
+    float volTotalL = 0.0f,   volTotalR = 0.0f;
+    float Ch1TotalL = 0.0f,   Ch1TotalR = 0.0f;
+    float Ch2TotalL = 0.0f,   Ch2TotalR = 0.0f;
+    float lastOutputL = 0.0f, lastOutputR = 0.0f;
     float volume = 0.0f;
+    float Ch1L = 0.0f, Ch1R = 0.0f;
+    float Ch2L = 0.0f, Ch2R = 0.0f;
+    float outL = 0.0f, outR = 0.0f;
+    float meterAccumL = 0.f, meterAccumR = 0.f;
+    int meterSampleCount = 0;
 
     //for tracking the mute state of each channel
     dsp::SchmittTrigger mute1Trigger, mute2Trigger;
@@ -135,7 +136,7 @@ struct Node : Module {
         configParam(MUTE2_PARAM, 0.f, 1.f, 0.f, "Channel II Mute");
         configParam(GAIN1_PARAM, 0.f, 10.f, 1.f, "Gain I (0-10x)");
         configParam(GAIN2_PARAM, 0.f, 10.f, 1.f, "Gain II (0-10x)");
-        configParam(VOL_PARAM, 0.f, 1.f, 0.5f, "Volume");
+        configParam(VOL_PARAM, 0.f, 1.f, 1.0f, "Volume");
         configParam(XFADE_PARAM, -1.f, 1.f, 0.f, "Crossfader (-1=I, 1=II)");
 
         configInput(_1_IN1, "Channel I L");
@@ -247,10 +248,10 @@ struct Node : Module {
     
         // ===== MIX AND OUTPUT =====
         volume = params[VOL_PARAM].getValue();
-        float Ch1L = in1L, Ch2L = in2L;
-        float Ch1R = in1R, Ch2R = in2R;
-        float outL = Ch1L * channel1Amt + Ch2L * channel2Amt;
-        float outR = Ch1R * channel1Amt + Ch2R * channel2Amt;
+        Ch1L = in1L, Ch2L = in2L;
+        Ch1R = in1R, Ch2R = in2R;
+        outL = Ch1L * channel1Amt + Ch2L * channel2Amt;
+        outR = Ch1R * channel1Amt + Ch2R * channel2Amt;
     
         // ===== METERING =====
         float sampleRate = args.sampleRate;
@@ -309,8 +310,6 @@ struct Node : Module {
             outputs[OUT2].setVoltage(clamp(outR * volume * 6.9f, -10.f, 10.f));
         }
     
-        // ===== LIGHTS =====
-        updateLights();
     }
 
 
@@ -335,56 +334,28 @@ struct Node : Module {
         }
     }
 
+
     float antiderivative(float x) {
         float x2 = x * x;
-        float x4 = x2 * x2;
-        float x6 = x4 * x2;
-        float x8 = x4 * x4;
-        return x2 / 2.0f - x4 / 12.0f + x6 / 45.0f - 17.0f * x8 / 2520.0f;
-    }
-
-    float polyTanh(float x) {
-        float x2 = x * x;       // x^2
-        float x3 = x2 * x;      // x^3
-        float x5 = x3 * x2;     // x^5
-        float x7 = x5 * x2;     // x^7
-        return x - x3 / 3.0f + (2.0f * x5) / 15.0f - (17.0f * x7) / 315.0f;
+        return x2 * (0.5f - x2 * (1.0f/12.0f - x2 * (1.0f/45.0f - 17.0f/2520.0f * x2)));
     }
     
-    void updateLights() {
-        if (++cycleCount >= 2000) { //Save CPU by updating lights infrequently
-            
-            updateSegmentedLights(VOL_LIGHT1L, volTotalL*volume, 10.0f, 20); //Main Vol
-            updateSegmentedLights(VOL_LIGHT1R, volTotalR*volume, 10.0f, 20);
-
-            updateSegmentedLights(LIGHT_1_1_L, Ch1TotalL, 10.0f, 10); //Ch1 VU
-            updateSegmentedLights(LIGHT_1_1_R, Ch1TotalR, 10.0f, 10);
-
-            updateSegmentedLights(LIGHT_2_1_L, Ch2TotalL, 10.0f, 10); //Ch2 VU
-            updateSegmentedLights(LIGHT_2_1_R, Ch2TotalR, 10.0f, 10);
-
-            lights[XFADE_LIGHT].setBrightness( clamp((volTotalL+volTotalR)/20.f, 0.f, 1.f)); //Crossfader
-
-            cycleCount = 0;
-        }
+    float polyTanh(float x) {
+        float x2 = x * x;
+        return x - x * x2 * (1.0f/3.0f - x2 * (2.0f/15.0f - 17.0f/315.0f * x2));
+    }
+    
+    float polySin(float x) {
+        float x2 = x * x;
+        return x - x * x2 * (1.0f/6.0f - x2 * (1.0f/120.0f - x2 / 5040.0f));
+    }
+    
+    float polyCos(float x) {
+        float x2 = x * x;
+        return 1.0f - x2 * (0.5f - x2 * (1.0f/24.0f - x2 / 720.0f));
     }
 
-    void updateSegmentedLights(int startLightId, float totalValue, float maxValue, int numLights) {
-        float normalizedValue = totalValue / maxValue;
-        int fullLights = static_cast<int>(normalizedValue * numLights);
-        float fractionalBrightness = (normalizedValue * numLights) - fullLights;
-
-        for (int i = 0; i < numLights; i++) {
-            if (i < fullLights) {
-                lights[startLightId + i].setBrightness(1.0f); // Full brightness for fully covered segments
-            } else if (i == fullLights) {
-                lights[startLightId + i].setBrightness(fractionalBrightness); // Partial brightness for the last partially covered segment
-            } else {
-                float dimming = lights[startLightId + i].getBrightness();
-                lights[startLightId + i].setBrightness(dimming * 0.75f);
-            }
-        }
-    }
+    
 };
 
 struct NodeWidget : ModuleWidget {
@@ -466,14 +437,51 @@ struct NodeWidget : ModuleWidget {
 
     }
 
+#if defined(METAMODULE)
+    // For MM, use step(), because overriding draw() will allocate a module-sized pixel buffer
+    void step() override {
+#else
     void draw(const DrawArgs& args) override {
         ModuleWidget::draw(args);
+#endif
         Node* module = dynamic_cast<Node*>(this->module);
         if (!module) return;
 
             module->lights[Node::MUTE_LIGHT1].setBrightness(module->muteState[0] ? 1.0f : 0.f);
             module->lights[Node::MUTE_LIGHT2].setBrightness(module->muteState[1] ? 1.0f : 0.f);
+            updateLights();
+    }
 
+    void updateLights() {
+        Node* module = dynamic_cast<Node*>(this->module);
+        if (!module) return;
+            
+            updateSegmentedLights(Node::VOL_LIGHT1L, module->volTotalL*module->volume, 10.0f, 20); //Main Vol
+            updateSegmentedLights(Node::VOL_LIGHT1R, module->volTotalR*module->volume, 10.0f, 20);
+            updateSegmentedLights(Node::LIGHT_1_1_L, module->Ch1TotalL, 10.0f, 10); //Ch1 VU
+            updateSegmentedLights(Node::LIGHT_1_1_R, module->Ch1TotalR, 10.0f, 10);
+            updateSegmentedLights(Node::LIGHT_2_1_L, module->Ch2TotalL, 10.0f, 10); //Ch2 VU
+            updateSegmentedLights(Node::LIGHT_2_1_R, module->Ch2TotalR, 10.0f, 10);
+
+            module->lights[Node::XFADE_LIGHT].setBrightness( clamp((module->volTotalL+module->volTotalR)/20.f, 0.f, 1.f)); //Crossfader
+
+    }
+
+    void updateSegmentedLights(int startLightId, float totalValue, float maxValue, int numLights) {
+        float normalizedValue = totalValue / maxValue;
+        int fullLights = static_cast<int>(normalizedValue * numLights);
+        float fractionalBrightness = (normalizedValue * numLights) - fullLights;
+
+        for (int i = 0; i < numLights; i++) {
+            if (i < fullLights) {
+                module->lights[startLightId + i].setBrightness(1.0f); // Full brightness for fully covered segments
+            } else if (i == fullLights) {
+                module->lights[startLightId + i].setBrightness(fractionalBrightness); // Partial brightness for the last partially covered segment
+            } else {
+                float dimming = module->lights[startLightId + i].getBrightness();
+                module->lights[startLightId + i].setBrightness(dimming * 0.75f);
+            }
+        }
     }
 
     void addLightsAroundKnob(Module* module, float knobX, float knobY, int firstLightId, int numLights, float radius) {

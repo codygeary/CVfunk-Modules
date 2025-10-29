@@ -222,9 +222,9 @@ struct HexMod : Module {
         configParam(NODE_KNOB, 0.0f, 3.0f, 0.0f, "Node Distribution"); // 0: Hexagonal, 1: Unison, 2: Bimodal, 3: Trimodal
         configParam(RANGE_KNOB, -10.0f, 10.0f, 5.0f, "Output Range"); //
 
-        configParam(RATE_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Rate Attenuation"); // 
-        configParam(NODE_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Node Attenuation"); // 
-        configParam(RANGE_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Range Attenuation"); // 
+        configParam(RATE_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Rate Attenuverter"); // 
+        configParam(NODE_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Node Attenuverter"); // 
+        configParam(RANGE_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Range Attenuverter"); // 
         configParam(SLOW_BUTTON, 0.f, 1.f, 0.f, "Slow LFO Mode");
 
 
@@ -439,10 +439,7 @@ struct HexMod : Module {
         } else {
             outputs[LFO_OUTPUT_1].setChannels(1);  // Set the number of channels to 1        
         }
-        
    }//process
-    
-
 };
 
 void HexMod::updateLEDs(int channel, float voltage) {
@@ -578,8 +575,13 @@ struct HexModWidget : ModuleWidget {
 
     }
 
+#if defined(METAMODULE)
+    // For MM, use step(), because overriding draw() will allocate a module-sized pixel buffer
+    void step() override {
+#else
     void draw(const DrawArgs& args) override {
         ModuleWidget::draw(args);
+#endif
         HexMod* module = dynamic_cast<HexMod*>(this->module);
         if (!module) return;
         

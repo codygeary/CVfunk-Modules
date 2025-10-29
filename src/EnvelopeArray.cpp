@@ -45,11 +45,6 @@ struct EnvelopeArray : Module {
         TIME1_RANGE_BUTTON,  
         TIME6_RANGE_BUTTON,
         TRIGGER_BUTTON,
-
-        /////////////////////
-        //SECRET_PARAM, //hidden param for tuning variables        
-        /////////////////////
-
         PARAMS_LEN  
     };
     enum InputId {
@@ -150,41 +145,36 @@ struct EnvelopeArray : Module {
         configParam(CURVE_PARAM, -1.f, 1.f, -.75f, "Curve");
         configParam(TIME1_PARAM, 0.0f, 1.0f, 0.4f, "First Width");
         configParam(TIME6_PARAM, 0.0f, 1.0f, 0.75f, "Last Width");
-        configParam(SLANT_ATTEN_PARAM, -1.0f, 1.0f, 0.f, "Slant Attenuvertor");
-        configParam(CURVE_ATTEN_PARAM, -1.0f, 1.0f, 0.f, "Curve Attenuvertor");
-        configParam(TIME1_ATTEN_PARAM, -1.0f, 1.0f, 0.f, "First Width Attenuvertor");
-        configParam(TIME6_ATTEN_PARAM, -1.0f, 1.0f, 0.f, "Last Width Attenuvertor");
+        configParam(SLANT_ATTEN_PARAM, -1.0f, 1.0f, 0.f, "Slant Attenuverter");
+        configParam(CURVE_ATTEN_PARAM, -1.0f, 1.0f, 0.f, "Curve Attenuverter");
+        configParam(TIME1_ATTEN_PARAM, -1.0f, 1.0f, 0.f, "First Width Attenuverter");
+        configParam(TIME6_ATTEN_PARAM, -1.0f, 1.0f, 0.f, "Last Width Attenuverter");
  
         configParam(TIME1_RANGE_BUTTON, 0.0, 1.0, 0.0, "First Width Range" );
         configParam(TIME6_RANGE_BUTTON, 0.0, 1.0, 0.0, "Last Width Range" );
         configParam(TRIGGER_BUTTON, 0.0, 1.0, 0.0, "Manual Trigger" );
-     
-        /////////////////////
-        //configParam(SECRET_PARAM,-5.0, 10.0f, 4.7f, "Mapping to a test knob"); //only used for calibration
-        /////////////////////
-
-        configInput(SLANT_INPUT, "Slant IN");
-        configInput(CURVE_INPUT, "Curve IN");
-        configInput(TIME1_INPUT, "First Width IN");
-        configInput(TIME6_INPUT, "Last Width IN");
-        configInput(_1_INPUT, "IN 1");
-        configInput(_2_INPUT, "IN 2");
-        configInput(_3_INPUT, "IN 3");
-        configInput(_4_INPUT, "IN 4");
-        configInput(_5_INPUT, "IN 5");
-        configInput(_6_INPUT, "IN 6");
-        configOutput(_1_OUTPUT, "OUT 1");
-        configOutput(_2_OUTPUT, "OUT 2");
-        configOutput(_3_OUTPUT, "OUT 3");
-        configOutput(_4_OUTPUT, "OUT 4");
-        configOutput(_5_OUTPUT, "OUT 5");
-        configOutput(_6_OUTPUT, "OUT 6");
-        configOutput(EOF1_OUTPUT, "GATE 1");
-        configOutput(EOF2_OUTPUT, "GATE 2");
-        configOutput(EOF3_OUTPUT, "GATE 3");
-        configOutput(EOF4_OUTPUT, "GATE 4");
-        configOutput(EOF5_OUTPUT, "GATE 5");
-        configOutput(EOF6_OUTPUT, "GATE 6");
+        configInput(SLANT_INPUT, "Slant CV");
+        configInput(CURVE_INPUT, "Curve CV");
+        configInput(TIME1_INPUT, "First Width CV");
+        configInput(TIME6_INPUT, "Last Width CV");
+        configInput(_1_INPUT, "Gate 1");
+        configInput(_2_INPUT, "Gate 2");
+        configInput(_3_INPUT, "Gate 3");
+        configInput(_4_INPUT, "Gate 4");
+        configInput(_5_INPUT, "Gate 5");
+        configInput(_6_INPUT, "Gate 6");
+        configOutput(_1_OUTPUT, "Env. 1");
+        configOutput(_2_OUTPUT, "Env. 2");
+        configOutput(_3_OUTPUT, "Env. 3");
+        configOutput(_4_OUTPUT, "Env. 4");
+        configOutput(_5_OUTPUT, "Env. 5");
+        configOutput(_6_OUTPUT, "Env. 6");
+        configOutput(EOF1_OUTPUT, "EOF Gate 1");
+        configOutput(EOF2_OUTPUT, "EOF Gate 2");
+        configOutput(EOF3_OUTPUT, "EOF Gate 3");
+        configOutput(EOF4_OUTPUT, "EOF Gate 4");
+        configOutput(EOF5_OUTPUT, "EOF Gate 5");
+        configOutput(EOF6_OUTPUT, "EOF Gate 6");
 
         // Default initialization of time ranges to MID
         time1Range = MID;
@@ -380,9 +370,10 @@ struct EnvelopeArray : Module {
                     in_trig[part] = 10.0f; // Assuming 10.0f is the voltage that indicates a trigger
                 }
             
+                bool manualTrigger = triggerButton.process(params[TRIGGER_BUTTON].getValue());
                 // Add manual trigger if this is the first part
-                if (part == 0) {
-                    in_trig[part] += params[TRIGGER_BUTTON].getValue();
+                if (part == 0 && manualTrigger) {
+                    in_trig[part] += 10.f;
                 }
             
                 // Process the trigger input for this part 
@@ -395,7 +386,7 @@ struct EnvelopeArray : Module {
                 }
 
                 // Set gate for the current part
-                if ( Trigger[part].process(in_trig[part]) || (triggerButton.process(params[TRIGGER_BUTTON].getValue() && part ==0) ) ) {
+                if ( Trigger[part].process(in_trig[part]) || (manualTrigger && part ==0) )  {
                     // Open the gate if the current part's trigger is detected
                     // and it is not already outputting, or it can self-trigger
                     if (gate_no_output[part] == 10.0f ) {
@@ -656,8 +647,13 @@ struct EnvelopeArrayWidget : ModuleWidget {
         menu->addChild(polyOutItem);
     }
 
+#if defined(METAMODULE)
+    // For MM, use step(), because overriding draw() will allocate a module-sized pixel buffer
+    void step() override {
+#else
     void draw(const DrawArgs& args) override {
         ModuleWidget::draw(args);
+#endif
         EnvelopeArray* module = dynamic_cast<EnvelopeArray*>(this->module);
         if (!module) return;
 

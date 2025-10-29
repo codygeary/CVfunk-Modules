@@ -446,7 +446,7 @@ struct PreeeeeeeeeeessedDuck : Module {
         configInput(VCA_CV12_INPUT, "Channel 12 VCA CV");
         configInput(VCA_CV13_INPUT, "Channel 13 VCA CV");
         configInput(VCA_CV14_INPUT, "Channel 14 VCA CV");
-        configInput(VCA_CV14_INPUT, "Channel 15 VCA CV");
+        configInput(VCA_CV15_INPUT, "Channel 15 VCA CV");
         configInput(VCA_CV16_INPUT, "Channel 16 VCA CV");
 
         configInput(VCA_SIDECHAIN_INPUT, "Sidechain VCA CV");

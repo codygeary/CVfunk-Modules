@@ -30,24 +30,24 @@ const int WEAVE_PATTERNS=21; //total weave patterns
 
 //WEAVE PATTERNS
 const std::array<std::array<int, 6>, WEAVE_PATTERNS> Weave_Chart = {{
-    
-    {0,1,2,3,4,5}, //default, no weave - 0 
+
+    {0,1,2,3,4,5}, //default, no weave - 0
     {5,0,1,2,3,4}, //6-state: rotate
     {1,2,3,4,5,0}, //rotate rev
-         
+
     {5,4,3,2,1,0}, //2-state - full flip
     {1,0,3,2,5,4}, //          pair flips
     {2,4,0,5,1,3},
     {3,4,5,0,1,2},
     {4,5,3,2,0,1},
-   
+
     {2,0,1,4,5,3}, //3-state
     {2,0,1,5,3,4},
-    
-    {4,5,0,1,2,3}, //4-state  
+
+    {4,5,0,1,2,3}, //4-state
     {3,0,4,1,5,2},
     {3,2,5,4,0,1},
-    
+
     {1,2,5,0,3,4},
     {3,0,1,4,5,2},
     {1,2,4,5,0,3},
@@ -55,16 +55,16 @@ const std::array<std::array<int, 6>, WEAVE_PATTERNS> Weave_Chart = {{
     {3,4,5,2,1,0},
     {3,2,5,4,1,0},
     {4,5,3,0,1,2},
-    {3,4,1,2,5,0}    
+    {3,4,1,2,5,0}
 }};
 
 struct Weave : Module {
     enum ParamId {
         WEAVE_KNOB_PARAM, WEAVE_ATT_PARAM,
         CHORD_KNOB_PARAM,
-        OCTAVE_DOWN_BUTTON, OCTAVE_UP_BUTTON,  
-        TRIG_BUTTON, RESET_BUTTON, 
-        SHIFT_KNOB_PARAM,     
+        OCTAVE_DOWN_BUTTON, OCTAVE_UP_BUTTON,
+        TRIG_BUTTON, RESET_BUTTON,
+        SHIFT_KNOB_PARAM,
         PARAMS_LEN
     };
     enum InputId {
@@ -83,15 +83,15 @@ struct Weave : Module {
         OUTPUTS_LEN
     };
     enum LightId {
-        CHORD_1_LIGHT, CHORD_2_LIGHT, CHORD_3_LIGHT, CHORD_4_LIGHT, CHORD_5_LIGHT, 
-        CHORD_6_LIGHT, CHORD_7_LIGHT, CHORD_8_LIGHT, CHORD_9_LIGHT, CHORD_10_LIGHT, 
-        CHORD_11_LIGHT, CHORD_12_LIGHT, CHORD_13_LIGHT, CHORD_14_LIGHT, CHORD_15_LIGHT, 
+        CHORD_1_LIGHT, CHORD_2_LIGHT, CHORD_3_LIGHT, CHORD_4_LIGHT, CHORD_5_LIGHT,
+        CHORD_6_LIGHT, CHORD_7_LIGHT, CHORD_8_LIGHT, CHORD_9_LIGHT, CHORD_10_LIGHT,
+        CHORD_11_LIGHT, CHORD_12_LIGHT, CHORD_13_LIGHT, CHORD_14_LIGHT, CHORD_15_LIGHT,
         CHORD_16_LIGHT, CHORD_17_LIGHT, OCTAVE_DOWN_LIGHT, OCTAVE_UP_LIGHT,
         LIGHTS_LEN
     };
 
     //For the trigger inputs
-    dsp::SchmittTrigger resetInput, resetButton, trigInput, trigButton, octUpTrigger, octDownTrigger;    
+    dsp::SchmittTrigger resetInput, resetButton, trigInput, trigButton, octUpTrigger, octDownTrigger;
 
     // For the chord and keyboard
     bool playingNotes[12] = {true, false, false, false, false, false, false, false, false, false, false, false};
@@ -121,7 +121,7 @@ struct Weave : Module {
     //Context Option
     bool quantizeShift = false;
     bool inputTracksOctaves = false;
-    float inputOctaveOffset = 0.f; 
+    float inputOctaveOffset = 0.f;
 
     const std::array<std::array<std::string, 16>, 12> Chord_Chart = {{
         // Maj       min        7        Maj7       min7      6        min6       9         Maj9     min9      add9      sus2      sus4       pow       aug        dim
@@ -191,29 +191,29 @@ struct Weave : Module {
 
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
-    
+
         // Existing state
         json_object_set_new(rootJ, "octaveState", json_integer(octaveState));
         json_t* permuteJ = json_array();
         for (int i = 0; i < 6; i++)
             json_array_append_new(permuteJ, json_integer(currentPermute[i]));
         json_object_set_new(rootJ, "currentPermute", permuteJ);
-    
+
         // Existing flags
         json_object_set_new(rootJ, "quantizeShift", json_boolean(quantizeShift));
-    
+
         // --- NEW: input octave tracking flag ---
         json_object_set_new(rootJ, "inputTracksOctaves", json_boolean(inputTracksOctaves));
-    
+
         return rootJ;
     }
-    
+
     void dataFromJson(json_t* rootJ) override {
         // Existing loads
         json_t* octaveStateJ = json_object_get(rootJ, "octaveState");
         if (octaveStateJ)
             octaveState = json_integer_value(octaveStateJ);
-    
+
         json_t* permuteJ = json_object_get(rootJ, "currentPermute");
         if (permuteJ) {
             for (int i = 0; i < 6; i++) {
@@ -222,11 +222,11 @@ struct Weave : Module {
                     currentPermute[i] = json_integer_value(valJ);
             }
         }
-    
+
         json_t* quantizeShiftJ = json_object_get(rootJ, "quantizeShift");
         if (quantizeShiftJ)
             quantizeShift = json_boolean_value(quantizeShiftJ);
-    
+
         // --- NEW: input octave tracking flag ---
         json_t* inputTracksOctavesJ = json_object_get(rootJ, "inputTracksOctaves");
         if (inputTracksOctavesJ)
@@ -285,7 +285,7 @@ struct Weave : Module {
             if (inputs[NOTE_INPUT].isConnected()) {
                 noteInputConnected = true;
             }
-            
+
             processSkipper = 0;
         }
 
@@ -296,7 +296,7 @@ struct Weave : Module {
                 inputChannels = 1; // Safety fallback
             }
             inputChannels = std::min(inputChannels, 16); // VCV Rack limit
-            
+
             if (inputChannels == 1) {
                 // Monophonic V/OCT input - treat as a root note + chord
                 inputNotPoly = true;
@@ -306,7 +306,7 @@ struct Weave : Module {
                 float noteVoltage = inputs[NOTE_INPUT].getVoltage();
                 int quantizedNote = static_cast<int>(std::roundf(noteVoltage * 12.0f));
                 int octaveOffset = 0;
-                
+
                 if (inputTracksOctaves) {
                     // Preserve the octave information
                     octaveOffset = static_cast<int>(std::floor(noteVoltage));
@@ -380,7 +380,7 @@ struct Weave : Module {
             }
         } else {
             inputNotPoly = true;
-            // Otherwise, use the current active note from the playingNotes array                
+            // Otherwise, use the current active note from the playingNotes array
             for (int i = 0; i < 12; i++) {
                 if (playingNotes[i]) {
                     noteValue = i; // Set noteValue to the active note in playingNotes
@@ -401,12 +401,12 @@ struct Weave : Module {
                 // Read the voltage from CHORD_INPUT and quantize it to determine which chord to activate
                 float chordVoltage = inputs[CHORD_INPUT].getVoltage();
                 chordIndex = static_cast<int>(std::roundf(chordVoltage * 12.0f)); // Quantize to determine the active chord (0-15)
-                
+
                 while (chordIndex < 0)
                     chordIndex += 16;
                 while (chordIndex > 15)
                     chordIndex -= 16;
-                
+
                 if (chordIndex != prevChordIndex){
                    noteOrChordPressed = true;
                    prevChordIndex = chordIndex;
@@ -469,7 +469,7 @@ struct Weave : Module {
                     }
                 }
             }
-            
+
             if (chordIndex == -1 && noteValue >= 0) {
                 currentNotes[0]=(noteValue / 12.0f) - 3.f;
                 currentNotes[1]=(noteValue / 12.0f) - 2.f;
@@ -478,7 +478,7 @@ struct Weave : Module {
                 currentNotes[4]=(noteValue / 12.0f) + 1.f;
                 currentNotes[5]=(noteValue / 12.0f) + 2.f;
             }
-            
+
         }
 
         for (int i = 0; i < 6; i++){
@@ -504,22 +504,22 @@ struct Weave : Module {
         if (trigButton.process(params[TRIG_BUTTON].getValue())){
             applyWeave = true;
         }
-        
+
         if (applyWeave){
-            notePulseGen.trigger(0.001f);             
+            notePulseGen.trigger(0.001f);
             for (int i=0; i<6; i++){
-                if (currentPermute[i] >= 0 && currentPermute[i] < 6 && 
+                if (currentPermute[i] >= 0 && currentPermute[i] < 6 &&
                     weaveSetting >= 0 && weaveSetting < WEAVE_PATTERNS) { //additional bounds checks
                     currentPermute[i] = Weave_Chart[weaveSetting][currentPermute[i]];
                 } else {
                     currentPermute[i] = i; // Reset if somehow corrupted
-                }                
-            }                           
+                }
+            }
         }
 
         // Handle button press for Reset
         if (inputs[RESET_INPUT].isConnected()) {
-            if (resetInput.process(inputs[RESET_INPUT].getVoltage() ) ){ 
+            if (resetInput.process(inputs[RESET_INPUT].getVoltage() ) ){
                 for (int i=0; i<6; i++){
                     currentPermute[i] = i;
                 }
@@ -528,19 +528,19 @@ struct Weave : Module {
         if (resetButton.process(params[RESET_BUTTON].getValue())){
             for (int i=0; i<6; i++){
                 currentPermute[i] = i;
-            }        
-        }  
+            }
+        }
 
         //Handle note presses in preview mode while sequencer is paused
         if (noteOrChordPressed){
-            notePulseGen.trigger(0.001f);   // Trigger a 1ms pulse (0.001 seconds)        
+            notePulseGen.trigger(0.001f);   // Trigger a 1ms pulse (0.001 seconds)
         }
-        
+
         if (noteValue != prevNoteValue){
-            notePulseGen.trigger(0.001f);        
+            notePulseGen.trigger(0.001f);
             prevNoteValue = noteValue;
         }
-        
+
         if (notePulseGen.process(deltaTime)) {
             outputs[TRIG_OUTPUT].setVoltage(10.f);  // Output a 10V trigger
         } else {
@@ -550,12 +550,12 @@ struct Weave : Module {
         // Outputs
         extOffset = params[SHIFT_KNOB_PARAM].getValue();
         if (inputs[SHIFT_INPUT].isConnected()) { extOffset += inputs[SHIFT_INPUT].getVoltage(); }
-        
+
         extOffset += inputOctaveOffset;
 
         // --- Quantize shift to semitones if enabled ---
         if (quantizeShift) {  extOffset = std::roundf(extOffset * 12.0f) / 12.0f; }
-        
+
         for (int c = 0; c < 6; c++) {
             float outputNote = clamp(finalNotes[c] + extOffset, -10.f, 10.f);
             outputs[POLY_OUTPUT].setVoltage(outputNote, currentPermute[c]);
@@ -567,8 +567,8 @@ struct Weave : Module {
             if (outputs[OUTPUT_4].isConnected()) outputs[OUTPUT_4].setVoltage(finalNotes[3] + extOffset);
             if (outputs[OUTPUT_5].isConnected()) outputs[OUTPUT_5].setVoltage(finalNotes[4] + extOffset);
             if (outputs[OUTPUT_6].isConnected()) outputs[OUTPUT_6].setVoltage(finalNotes[5] + extOffset);
-        }  
-        
+        }
+
         // --- Root Output Logic ---
         // Find the lowest note voltage among the 6 notes
         float lowestNote = 10.f;
@@ -576,16 +576,16 @@ struct Weave : Module {
             if (finalNotes[i] < lowestNote)
                 lowestNote = finalNotes[i];
         }
-        
+
         // Compute the octave based on the lowest note (integer octave range)
-        int lowestOctave = static_cast<int>(std::floor(lowestNote)); 
-        
+        int lowestOctave = static_cast<int>(std::floor(lowestNote));
+
         // Root is noteValue (0–11) scaled to volts + that octave
         float rootVoltage = (noteValue / 12.0f) + lowestOctave + extOffset;
-        
+
         // Clamp for safety
         outputs[OUTPUT_ROOT].setVoltage(clamp(rootVoltage, -10.f, 10.f));
-          
+
     }//end process
 
     // Helper function to convert a fingering (e.g., "X21202") to semitone shifts
@@ -600,31 +600,31 @@ struct Weave : Module {
             }
         }
         return semitoneShifts;
-    }    
+    }
 };
 
 struct WeaveWidget : ModuleWidget {
     DigitalDisplay* noteDisplays[6] = {nullptr};
     DigitalDisplay* chordDisplay = nullptr;
-    
+
     //Draw the Keyboard
     struct KeyboardKey : OpaqueWidget {
         int note = 0;
         Weave* module = nullptr;
-    
+
         void drawLayer(const DrawArgs& args, int layer) override {
             if (layer != 1) { return; }
             if (!module) { return; }
-    
+
             Rect r = box.zeroPos();
             const float margin = mm2px(1.0f);
             Rect rMargin = r.grow(Vec(margin, margin));
-    
+
             nvgBeginPath(args.vg);
             nvgRect(args.vg, RECT_ARGS(rMargin));
             nvgFillColor(args.vg, nvgRGB(12, 12, 12));
             nvgFill(args.vg);
-    
+
             nvgBeginPath(args.vg);
             nvgRect(args.vg, RECT_ARGS(r));
             if (module->playingNotes[note]) {
@@ -668,16 +668,16 @@ struct WeaveWidget : ModuleWidget {
             OpaqueWidget::onButton(e);
         }
     };
-    
+
     struct KeyboardDisplay : LedDisplay {
         Weave* module = nullptr;
-    
+
         void setModule(Weave* mod) {
             module = mod;
             if (!module) {return; }
             float disp_offset_a = 3.7f-5.f;
             float disp_offset_b = 2.5f;
-   
+
             std::vector<Vec> noteAbsPositions = {
                 mm2px(Vec(8.259f + disp_offset_a, 86.558f+ disp_offset_b)), // white
                 mm2px(Vec(11.286f+ disp_offset_a, 85.049f+ disp_offset_b)), // black
@@ -692,10 +692,10 @@ struct WeaveWidget : ModuleWidget {
                 mm2px(Vec(47.667f+ disp_offset_a, 85.049f+ disp_offset_b)), // black
                 mm2px(Vec(49.855f+ disp_offset_a, 86.558f+ disp_offset_b)), // white
             };
-    
+
             Vec whiteNoteSize = mm2px(Vec(6.689f, 13.393f));
             Vec blackNoteSize = mm2px(Vec(4.588f, 9.499f));
-    
+
             // White notes
             static const std::vector<int> whiteNotes = {0, 2, 4, 5, 7, 9, 11};
             for (int note : whiteNotes) {
@@ -706,7 +706,7 @@ struct WeaveWidget : ModuleWidget {
                 keyboardKey->note = note;
                 addChild(keyboardKey);
             }
-    
+
             // Black notes
             static const std::vector<int> blackNotes = {1, 3, 6, 8, 10};
             for (int note : blackNotes) {
@@ -723,18 +723,18 @@ struct WeaveWidget : ModuleWidget {
     struct WeaveDisplay : TransparentWidget {
         Weave* module = nullptr;
         int index;        // Index from 0 to 5 for each envelope
-        
+
         void drawLayer(const DrawArgs& args, int layer) override {
-    
+
             if (layer == 1) { // Self-illuminating layer
 
                 float columns = 7.0f;
                 float buffer = 2.0f;
                 float columnWidth = (box.size.x-2.0f*buffer)/columns;
                 float rowHeight = (box.size.y-buffer)/6.0f;
-                
+
                 NVGcolor color = nvgRGB(208, 140, 89); //gold
-                
+
                 //Draw Circles
                 nvgBeginPath(args.vg);
                 for (int i=0; i<columns; i++){
@@ -743,35 +743,35 @@ struct WeaveWidget : ModuleWidget {
                     }
                 }
                 nvgFillColor(args.vg, color);
-                nvgFill(args.vg);     
-                
+                nvgFill(args.vg);
+
                 int tempPermute[6]={5,0,1,2,3,4};
-                
+
                 if (module){
                     for (int i=0; i<6; i++) tempPermute[i] = module->currentPermute[i];
-                }              
+                }
 
-                for (int i=0; i<(columns-1); i++){                    
+                for (int i=0; i<(columns-1); i++){
 
                     for (int j=0; j<6; j++){
-                        nvgBeginPath(args.vg);                    
+                        nvgBeginPath(args.vg);
                         nvgMoveTo(args.vg, columnWidth*i + buffer, tempPermute[j]*rowHeight + 0.5*buffer);
-                        
-                        int curWeaveSetting = 1; //default to a fav pattern                      
+
+                        int curWeaveSetting = 1; //default to a fav pattern
                         if (module ) curWeaveSetting = module->weaveSetting;
-                        
+
                         int lineDest = Weave_Chart[curWeaveSetting][ tempPermute[j] ];
-                        
+
                         nvgLineTo(args.vg, columnWidth*(i+1) + buffer, lineDest*rowHeight + 0.5*buffer);
 
-                        nvgStrokeColor(args.vg, nvgRGB(208, 140, 89));                       
+                        nvgStrokeColor(args.vg, nvgRGB(208, 140, 89));
                         nvgStrokeWidth(args.vg, 0.4f*( j + 1) );
                         nvgStroke(args.vg);
 
                         tempPermute[j] = lineDest;
-                        
+
                     }
-                }                
+                }
             }
         }
     };
@@ -793,10 +793,10 @@ struct WeaveWidget : ModuleWidget {
         float leftW = -9.f;
         addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(45.0+leftW, 42.0f)), module, Weave::WEAVE_KNOB_PARAM));
         addParam(createParamCentered<Trimpot>(mm2px(Vec(55.0+leftW, 42.00)), module, Weave::WEAVE_ATT_PARAM));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(65.0+leftW-1.f, 42.00)), module, Weave::WEAVE_INPUT));        
+        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(65.0+leftW-1.f, 42.00)), module, Weave::WEAVE_INPUT));
         addParam(createParamCentered<RoundHugeBlackKnob>(mm2px(Vec(23.299+left, 62.14)), module, Weave::CHORD_KNOB_PARAM));
         addLightsAroundKnob(module, mm2px(23.299+left), mm2px(62.14), Weave::CHORD_1_LIGHT, 17, 32.f);
-        
+
         addInput(createInputCentered<PJ301MPort>(mm2px(Vec(8.872, 13.656)), module, Weave::TRIG_INPUT));
         addParam(createParamCentered<TL1105>(mm2px(Vec(8.872, 6.656)), module, Weave::TRIG_BUTTON));
         addInput(createInputCentered<PJ301MPort>(mm2px(Vec(8.872, 32.024)), module, Weave::RESET_INPUT));
@@ -815,7 +815,7 @@ struct WeaveWidget : ModuleWidget {
 
         addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(62.642+right, 16.0f+7*12-1)), module, Weave::TRIG_OUTPUT));
         addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(62.642+right, 16.0f+8*12)), module, Weave::POLY_OUTPUT));
-        
+
 
         //Octave Buttons
         addParam(createParamCentered<TL1105>(mm2px(Vec(9.64f+left+4.f, 85.4f  )), module, Weave::OCTAVE_DOWN_BUTTON));
@@ -840,26 +840,26 @@ struct WeaveWidget : ModuleWidget {
         WeaveDisplay* weaveDisplay = createWidget<WeaveDisplay>(mm2px(Vec(28.f-4.f, 13.5))); // Positioning
         weaveDisplay->box.size = Vec(115.f, 63.f); // Size of the display widget
         weaveDisplay->module = module;
-        addChild(weaveDisplay);                       
+        addChild(weaveDisplay);
 
-        if (module) {          
+        if (module) {
             // Quantizer display
             KeyboardDisplay* keyboardDisplay = createWidget<KeyboardDisplay>(mm2px(Vec(10.7f-5.f, 87.5f)));
             keyboardDisplay->box.size = mm2px(Vec(50.501f, 16.168f));
             keyboardDisplay->setModule(module);
-            addChild(keyboardDisplay);            
+            addChild(keyboardDisplay);
         }
     }
 
     void appendContextMenu(Menu* menu) override {
         ModuleWidget::appendContextMenu(menu);
-    
+
         Weave* module = dynamic_cast<Weave*>(this->module);
         if (!module)
             return;
-    
+
         menu->addChild(new MenuSeparator());
-    
+
         // --- Existing Quantize Shift Toggle ---
         struct QuantizeShiftItem : MenuItem {
             Weave* module;
@@ -875,7 +875,7 @@ struct WeaveWidget : ModuleWidget {
         quantItem->text = "Quantize Shift to semitones";
         quantItem->module = module;
         menu->addChild(quantItem);
-    
+
         // --- NEW: Input Octave Tracking Toggle ---
         struct InputOctaveTrackingItem : MenuItem {
             Weave* module;
@@ -894,7 +894,7 @@ struct WeaveWidget : ModuleWidget {
     }
 
 
-    
+
     void addLightsAroundKnob(Module* module, float knobX, float knobY, int firstLightId, int numLights, float radius) {
         const float startAngle = M_PI*0.7f; // Start angle in radians (8 o'clock on the clock face)
         const float endAngle = 2.0f*M_PI+M_PI*0.3f;   // End angle in radians (4 o'clock on the clock face)
@@ -908,11 +908,16 @@ struct WeaveWidget : ModuleWidget {
         }
     }
 
+#if defined(METAMODULE)
+    // For MM, use step(), because overriding draw() will allocate a module-sized pixel buffer
+    void step() override {
+#else
     void draw(const DrawArgs& args) override {
         ModuleWidget::draw(args);
+#endif
         Weave* module = dynamic_cast<Weave*>(this->module);
         if (!module) return;
-    
+
         int rootNoteVal = 0;
         std::string rootNoteNames[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
         if (chordDisplay) {
@@ -934,26 +939,26 @@ struct WeaveWidget : ModuleWidget {
                 module->lights[Weave::CHORD_1_LIGHT].setBrightness(1.0f);
             }
         }
-    
+
         // Update note displays with permutation applied
         for (int i = 0; i < 6; i++) {
-            if (noteDisplays[i]) {        
+            if (noteDisplays[i]) {
                 float pitchVoltage = module->finalNotes[i] + module->extOffset;
-        
+
                 // Compute note name and octave
                 int octave = static_cast<int>(pitchVoltage + 4);
                 double fractionalPart = fmod(pitchVoltage, 1.0);
                 int semitone = std::roundf(fractionalPart * 12);
                 semitone = (semitone % 12 + 12) % 12;
-        
+
                 // Note names
                 const char* noteNames[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
                 const char* noteName = noteNames[semitone];
-        
+
                 // Format full note display
                 char fullNote[7];
-                snprintf(fullNote, sizeof(fullNote), "%s%d", noteName, octave);        
-                
+                snprintf(fullNote, sizeof(fullNote), "%s%d", noteName, octave);
+
                 // Safe array access with bounds checking
                 int displayIndex = module->currentPermute[i];
                 if (displayIndex >= 0 && displayIndex < 6 && noteDisplays[displayIndex]) {
@@ -961,7 +966,7 @@ struct WeaveWidget : ModuleWidget {
                 }
             }
         }
-        
+
         // Set lights based on octave state
         if (module->octaveState == 1) {
             module->lights[Weave::OCTAVE_UP_LIGHT].setBrightness(1.0f);
@@ -983,6 +988,6 @@ struct WeaveWidget : ModuleWidget {
         display->fontPath = asset::plugin(pluginInstance, "res/fonts/DejaVuSansMono.ttf");
         display->setFontSize(fontSize);
         return display;
-    }    
+    }
 };
 Model* modelWeave = createModel<Weave, WeaveWidget>("Weave");

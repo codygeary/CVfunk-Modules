@@ -13,7 +13,6 @@
 
 const int ONION_LAYERS=18; //total weave patterns
 
-
 struct Onion : Module {
 
     enum ParamIds {
@@ -51,10 +50,11 @@ struct Onion : Module {
     int outputLayers = 1;
     float layers[ONION_LAYERS] = {0.0f};
     float depth = 10.f;
+    float modDepth = 10.f;
     float depthInput = 0.f;
     float polarity = 1.f;
     float out[ONION_LAYERS] = {0.0f};
-    float prevPolarity = 0.f;
+    float prevPolarity = 1.f;
  
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
@@ -87,8 +87,13 @@ struct Onion : Module {
 
         configInput(DEPTH_INPUT, "CV Depth");
         configParam(LAYERS_PARAM, 1.f, 16.f, 1.f, "Onion Layers")->snapEnabled=true;
-        configParam(DEPTH_PARAM, 0.001f, 10.f, 10.f, "CV Depth");
+        configParam(DEPTH_PARAM, 0.0f, 10.f, 10.f, "CV Depth");
         configParam(BIPOLAR_PARAM, 0.f, 1.f, 1.f, "Bipolar");
+
+        for (int layer = 0; layer < ONION_LAYERS; layer++) {
+            paramQuantities[LAYER_1_PARAM + layer]->setDisplayValue(0.f);
+        }        
+
     }
 
     void onReset(const ResetEvent& e) override {
@@ -101,7 +106,10 @@ struct Onion : Module {
     
         depth = params[DEPTH_PARAM].getValue();
         depthInput = (inputs[DEPTH_INPUT].isConnected()) ? inputs[DEPTH_INPUT].getVoltage() : 0.f;
-        depth = clamp(depth+depthInput, 0.001f, 10.f);
+        modDepth = clamp(depth+depthInput, -10.f, 10.f); //range for modulation CV
+        depth = clamp(modDepth, 0.f, 10.f); // depth of the slider
+                                            // Note: In my testing VCV doesn't seem to care if the slider ranges 0-0
+        
         outputLayers = (int)params[LAYERS_PARAM].getValue();
         polarity = params[BIPOLAR_PARAM].getValue();
                 
@@ -127,7 +135,7 @@ struct Onion : Module {
         for (int layer=0; layer<ONION_LAYERS; layer++){
             float value = layers[layer];
             if (polarity<0.5f){ value = (value+1.f)*0.5f; } //adjust for polarity
-            value *= depth;
+            value *= modDepth;
             out[layer] = value;
         }
 
@@ -206,8 +214,13 @@ struct OnionWidget : ModuleWidget {
         }
     }
 
+#if defined(METAMODULE)
+    // For MM, use step(), because overriding draw() will allocate a module-sized pixel buffer
+    void step() override {
+#else
     void draw(const DrawArgs& args) override {
         ModuleWidget::draw(args);
+#endif
         Onion* module = dynamic_cast<Onion*>(this->module);
         if (!module) return;
 

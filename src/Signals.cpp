@@ -42,6 +42,7 @@ struct Signals : Module {
 
     float currentTimeSetting = 1.0f;
     std::array<std::vector<float>, 6> envelopeBuffers;
+    std::array<std::vector<float>, 6> displayBuffers; // persistent display copy
     std::array<int, 6> writeIndices = {}; 
     float lastInputs[6] = {};
     std::array<float, 6> lastTriggerTime = {}; 
@@ -52,7 +53,12 @@ struct Signals : Module {
     float scopeInput[6] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
     int scopeChannels[6] = {0, 0, 0, 0, 0, 0};  // Number of polyphonic channels for Scope inputs
     int activeScopeChannel[6] = {-1, -1, -1, -1, -1, -1};  // Stores the number of the previous active channel for the Scope
+    int previousActiveScopeChannel[6] = {-1, -1, -1, -1, -1, -1};  // Track previous state to detect changes
 
+    //non-glitchy display refreshing
+    bool waitingForTrigger[6] = {true, true, true, true, true, true};
+    bool displayReady[6] = {false, false, false, false, false, false};
+    int samplesSinceTrigger[6] = {0, 0, 0, 0, 0, 0};
 
     FramebufferWidget* fbWidget = nullptr;
 
@@ -73,7 +79,7 @@ struct Signals : Module {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
         configParam(RANGE_PARAM, 0.1f, 0.9999f, 0.5f, "Range");
         configParam(TRIGGER_ON_PARAM, 0.f, 1.f, 1.f, "Retriggering");
-        configParam(RANGE_BUTTON_PARAM, 0.f, 1.f, 0.f, "Range Mode");
+        configSwitch(RANGE_BUTTON_PARAM, 0.f, 1.f, 0.f, "Mode", {"Default", "Slow"});
 
         lastTriggerTime.fill(0.0f);
         MAX_BUFFER_SIZE = int(static_cast<int>(APP->engine->getSampleRate() * MAX_TIME));
@@ -81,20 +87,26 @@ struct Signals : Module {
         for (auto &buffer : envelopeBuffers) {
             buffer.resize(MAX_BUFFER_SIZE, 0.0f);
         }
+        for (auto &buffer : displayBuffers) {
+            buffer.resize(MAX_BUFFER_SIZE, 0.0f);
+        }        
     }
 
     void onSampleRateChange() override {
         MAX_BUFFER_SIZE = int(static_cast<int>(APP->engine->getSampleRate() * MAX_TIME));
-
+    
         for (auto &buffer : envelopeBuffers) {
             buffer.resize(MAX_BUFFER_SIZE, 0.0f);
         }
+        for (auto &buffer : displayBuffers) {
+            buffer.resize(MAX_BUFFER_SIZE, 0.0f);
+        }
     }
-
+    
     void process(const ProcessArgs& args) override {
         float range = pow(params[RANGE_PARAM].getValue(),3.0f);
-
-        if (params[RANGE_BUTTON_PARAM].getValue() > 0.5) {
+    
+        if (params[RANGE_BUTTON_PARAM].getValue() > 0.5f) {
             currentTimeSetting = MAX_TIME;
             lights[LONG_LIGHT].setBrightness(1.0f);
         } else {
@@ -102,125 +114,152 @@ struct Signals : Module {
             lights[LONG_LIGHT].setBrightness(0.0f);
         }
         range = clamp(range, 0.000001f, .9999f);
-
-        int currentBufferSize = int((MAX_BUFFER_SIZE / MAX_TIME) * currentTimeSetting * range);
-
-        // Scan all inputs to determine the polyphony
-        for (int i = 0; i < 6; i++) {        
-            scopeChannels[i] = 0;  // Reset number of polyphonic channels
-            activeScopeChannel[i] = -1;  // Reset active channel
-        
-            // Update the Scope channels
+    
+        int currentBufferSize = std::max(1, int((MAX_BUFFER_SIZE / MAX_TIME) * currentTimeSetting * range));
+    
+        // --- Scan inputs ---
+        for (int i = 0; i < 6; i++) {
+            scopeChannels[i] = 0;
+            activeScopeChannel[i] = -1;
+    
             if (inputs[ENV1_INPUT + i].isConnected()) {
                 scopeChannels[i] = inputs[ENV1_INPUT + i].getChannels();
                 activeScopeChannel[i] = i;
             } else if (i > 0 && activeScopeChannel[i-1] != -1) {
-                // Ensure that the previous channel has enough poly channels to cover the current index
                 if (scopeChannels[activeScopeChannel[i-1]] > (i - activeScopeChannel[i-1])) {
-                    activeScopeChannel[i] = activeScopeChannel[i-1]; // Carry over the active channel
-                } else {
-                    activeScopeChannel[i] = -1; // No valid polyphonic channel to carry over
+                    activeScopeChannel[i] = activeScopeChannel[i-1];
                 }
-            } else {
-                activeScopeChannel[i] = -1; // Explicitly reset if not connected
             }
         }
-        for (int i = 0; i < 6; ++i) { //for the 6 wave inputs
- 
- 
-             if (activeScopeChannel[i] == i) {
-                scopeInput[i] = clamp(inputs[ENV1_INPUT + i].getPolyVoltage(0) , -10.f, 10.f);
-                
-                lastTriggerTime[i] += args.sampleTime;
-
-                if (retriggerEnabled && scopeInput[i] > 0.0f 
-                    && lastInputs[i] <= 0.0f 
-                    && lastTriggerTime[i] >= ( range  * currentTimeSetting ) ) {
-                        writeIndices[i] = 0;
-                        lastTriggerTime[i] = 0.0f;
-                } else {
-                    envelopeBuffers[i][writeIndices[i]] = scopeInput[i];
-                    writeIndices[i] = (writeIndices[i] + 1) % currentBufferSize;
-                }
-
-                lastInputs[i] = scopeInput[i];
-                
-            } else if (activeScopeChannel[i] > -1) {
-                // Now we compute which channel we need to grab
-                int diffBetween = i - activeScopeChannel[i];
-                int currentChannelMax =  scopeChannels[activeScopeChannel[i]] ;    
-                if (currentChannelMax - diffBetween > 0) {    //If we are before the last poly channel
-                    scopeInput[i] = clamp(inputs[ENV1_INPUT + activeScopeChannel[i]].getPolyVoltage(diffBetween), -10.f, 10.f);
-                    
-                    lastTriggerTime[i] += args.sampleTime;
     
-                    if (retriggerEnabled && scopeInput[i] > 0.0f 
-                        && lastInputs[i] <= 0.0f 
-                        && lastTriggerTime[i] >= ( range  * currentTimeSetting ) ) {
-                            writeIndices[i] = 0;
-                            lastTriggerTime[i] = 0.0f;
-                    } else {
-                        envelopeBuffers[i][writeIndices[i]] = scopeInput[i];
-                        writeIndices[i] = (writeIndices[i] + 1) % currentBufferSize;
-                    }
-    
-                    lastInputs[i] = scopeInput[i];
-                                    
+        for (int i = 0; i < 6; ++i) {
+            // --- Check if channel state changed ---
+            bool channelStateChanged = (activeScopeChannel[i] != previousActiveScopeChannel[i]);
+            
+            // --- Inactive channel: zero buffers ONLY when state changes ---
+            if (activeScopeChannel[i] == -1) {
+                if (channelStateChanged) {
+                    std::fill(envelopeBuffers[i].begin(), envelopeBuffers[i].end(), 0.f);
+                    std::fill(displayBuffers[i].begin(), displayBuffers[i].end(), 0.f);
+                    writeIndices[i] = 0;
+                    lastInputs[i] = 0.f;
+                    lastTriggerTime[i] = 0.f;
+                    displayReady[i] = false;
+                    waitingForTrigger[i] = true;
+                    samplesSinceTrigger[i] = 0;
                 }
-            } else {
-
-                for (auto &buffer : envelopeBuffers) {
-                    buffer.resize(MAX_BUFFER_SIZE, 0.0f);
+                outputs[ENV1_OUTPUT + i].setVoltage(0.0f);
+                previousActiveScopeChannel[i] = activeScopeChannel[i];
+                continue;
+            }
+        
+            // --- Fetch input voltage ---
+            int diffBetween = i - activeScopeChannel[i];
+            int currentChannelMax = scopeChannels[activeScopeChannel[i]];
+            if (currentChannelMax - diffBetween <= 0) {
+                // This channel index doesn't exist in the poly cable
+                if (channelStateChanged) {
+                    std::fill(envelopeBuffers[i].begin(), envelopeBuffers[i].end(), 0.f);
+                    std::fill(displayBuffers[i].begin(), displayBuffers[i].end(), 0.f);
+                    writeIndices[i] = 0;
+                    lastInputs[i] = 0.f;
                 }
-
+                outputs[ENV1_OUTPUT + i].setVoltage(0.0f);
+                previousActiveScopeChannel[i] = -2;  // Special state: poly cable exists but this channel is out of range
+                continue;
+            }
+        
+            // Reset state if channel just became active
+            if (channelStateChanged) {
                 writeIndices[i] = 0;
-                lastInputs[i] = scopeInput[i];
-                lastTriggerTime[i] = 0.0f;            
+                lastInputs[i] = 0.f;
+                lastTriggerTime[i] = 0.f;
+                waitingForTrigger[i] = true;
+                displayReady[i] = false;
+                samplesSinceTrigger[i] = 0;
             }
-           
+            
+            scopeInput[i] = clamp(inputs[ENV1_INPUT + activeScopeChannel[i]].getPolyVoltage(diffBetween), -10.f, 10.f);
+            lastTriggerTime[i] += args.sampleTime;
+        
+            if (retriggerEnabled) {
+                // --- Retrigger / capture ---
+                if (waitingForTrigger[i]) {
+                    if (scopeInput[i] > 0.f && lastInputs[i] <= 0.f) {
+                        waitingForTrigger[i] = false;
+                        displayReady[i] = false;
+                        writeIndices[i] = 0;
+                        samplesSinceTrigger[i] = 0;
+                    }
+                } else {
+                    if (writeIndices[i] < currentBufferSize) {
+                        envelopeBuffers[i][writeIndices[i]] = scopeInput[i];
+                    }
+                    writeIndices[i] = (writeIndices[i] + 1) % currentBufferSize;
+                    samplesSinceTrigger[i]++;
+        
+                    if (samplesSinceTrigger[i] >= currentBufferSize) {
+                        displayReady[i] = true;
+                        waitingForTrigger[i] = true;
+                        samplesSinceTrigger[i] = 0;
+        
+                        // Copy current capture into display buffer
+                        std::copy(
+                            envelopeBuffers[i].begin(),
+                            envelopeBuffers[i].begin() + currentBufferSize,
+                            displayBuffers[i].begin()
+                        );
+                    }
+                }
+            } else {
+                // --- Free-running continuous update ---
+                // Write to current position BEFORE incrementing
+                if (writeIndices[i] < currentBufferSize) {
+                    envelopeBuffers[i][writeIndices[i]] = scopeInput[i];
+                    displayBuffers[i][writeIndices[i]] = scopeInput[i];
+                }
+                writeIndices[i] = (writeIndices[i] + 1) % currentBufferSize;
+        
+                displayReady[i] = true;
+                waitingForTrigger[i] = false;
+            }
+        
+            lastInputs[i] = scopeInput[i];
+        
+            // --- Output ---
+            outputs[ENV1_OUTPUT + i].setVoltage(scopeInput[i]);
+            
+            // Update previous state
+            previousActiveScopeChannel[i] = activeScopeChannel[i];
         }
 
+    
+        // --- Retrigger toggle ---
         if (params[TRIGGER_ON_PARAM].getValue() > 0.5f && !retriggerToggleProcessed) {
             retriggerEnabled = !retriggerEnabled;
             retriggerToggleProcessed = true;
             params[TRIGGER_ON_PARAM].setValue(0.0f);
-
+    
             if (!retriggerEnabled) {
                 for (int i = 0; i < NUM_INPUTS; ++i) {
-
-                    for (auto &buffer : envelopeBuffers) {
-                        buffer.resize(MAX_BUFFER_SIZE, 0.0f);
-                    }
-
                     writeIndices[i] = 0;
-                    lastTriggerTime[i] = 0.0f;
+                    lastTriggerTime[i] = 0.f;
                 }
             }
         } else if (params[TRIGGER_ON_PARAM].getValue() <= 0.5f) {
             retriggerToggleProcessed = false;
         }
-
+    
         lights[TRIGGER_ON_LIGHT].setBrightness(retriggerEnabled ? 1.0f : 0.0f);
-
-        for (int i = 0; i < 6; ++i) {
-            // Check if the current scope channel is active
-            if (activeScopeChannel[i] >= 0) {
-                // Output the processed voltage for the corresponding scope channel
-                outputs[ENV1_OUTPUT + i].setVoltage(scopeInput[i]);
-            } else {
-                // If no active input, set the output to 0V
-                outputs[ENV1_OUTPUT + i].setVoltage(0.0f);
-            }
-        }
-
+    
+        // --- Refresh display ---
         timeSinceLastUpdate += args.sampleTime;
         if (timeSinceLastUpdate >= displayUpdateTime) {
             timeSinceLastUpdate = 0.0;
-            if (fbWidget) {
-                fbWidget->dirty = true;
-            }
+            if (fbWidget) fbWidget->dirty = true;
         }
     }
+
 };
 
 struct WaveformDisplay : TransparentWidget {
@@ -232,8 +271,11 @@ struct WaveformDisplay : TransparentWidget {
 
     void drawWaveform(const DrawArgs& args) {
         if (!module) return;
-    
-        const auto& buffer = module->envelopeBuffers[channelId];
+
+        // Always show last valid waveform if available
+        const auto& buffer = module->displayBuffers[channelId];
+        if (buffer.empty()) return;
+
         float range = pow(module->params[Signals::RANGE_PARAM].getValue(), 3.0f) / (MAX_TIME / module->currentTimeSetting);
     
         int displaySamples = 1024;
@@ -250,7 +292,7 @@ struct WaveformDisplay : TransparentWidget {
         for (int i = 0; i < displaySamples; ++i) {
             // Ensure bufferIndex does not exceed buffer.size() - 1
             int bufferIndex = int(i * ((buffer.size() - 1) * range + 1) / (displaySamples - 1));
-            bufferIndex = clamp(bufferIndex, 0, buffer.size() - 1);
+            bufferIndex = clamp(bufferIndex, 0, static_cast<int>(buffer.size()) - 1);
     
             float x = (static_cast<float>(i) / (displaySamples - 1)) * box.size.x;
             float y = box.size.y;

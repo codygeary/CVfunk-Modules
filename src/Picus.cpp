@@ -211,7 +211,11 @@ struct Picus : Module {
         configParam(PATTERN_ATT, -1.f, 1.f, 1.f, "Pattern Input Attenuator");
 
         configSwitch(ON_SWITCH, 0.0, 2.0, 1.0, "Play Mode", {"OFF", "ON", "ONE-SHOT"});
+#if defined(METAMODULE)
+        configInput(CLOCK_INPUT, "Clock Input");
+#else
         configInput(CLOCK_INPUT, "Clock Input \n (Also accepts CHAIN link from Hammer) \n");
+#endif
         configInput(RESET_INPUT, "Reset");
         configInput(PATTERN_INPUT, "Pattern Length");
 

@@ -664,8 +664,13 @@ struct SyncroWidget : ModuleWidget {
     
     }
 
+#if defined(METAMODULE)
+    // For MM, use step(), because overriding draw() will allocate a module-sized pixel buffer
+    void step() override {
+#else
     void draw(const DrawArgs& args) override {
         ModuleWidget::draw(args);
+#endif
         Syncro* module = dynamic_cast<Syncro*>(this->module);
         if (!module) return;
 

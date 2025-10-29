@@ -146,6 +146,7 @@ struct Ouros : Module {
     float SyncInterval[16] = {2};
     float lastoscPhase[16][4] = {{0.0f}};
     float eatValue[16] = {0.0f};
+    int prevSample = 1;
 
     // Serialization method to save module state
     json_t* dataToJson() override {
@@ -513,11 +514,52 @@ struct Ouros : Module {
             }
             
         }
-        
-        int sampleIndex = static_cast<int>(oscPhase[0][2] * 512); 
+ 
+        // --- Cleaner waveform buffer update ---
+        int sampleIndex = static_cast<int>(oscPhase[0][2] * 512);
         sampleIndex = clamp(sampleIndex, 0, 511);
-        waveBuffers[0][sampleIndex] = outputs[L_OUTPUT].getVoltage(0);
-        waveBuffers[1][sampleIndex] = outputs[R_OUTPUT].getVoltage(0);
+        
+        // Get left/right sample voltages for scope display
+        float left  = outputs[L_OUTPUT].getVoltage(0);
+        float right = outputs[R_OUTPUT].getVoltage(0);
+        
+        waveBuffers[0][sampleIndex] = left;
+        waveBuffers[1][sampleIndex] = right;
+        
+        // --- Fill gaps by linear interpolation ---
+        if (prevSample + 1 < sampleIndex) {
+            // Normal forward gap
+            int gap = sampleIndex - prevSample;
+            float prevLeft  = waveBuffers[0][prevSample];
+            float prevRight = waveBuffers[1][prevSample];
+            for (int i = 1; i < gap; i++) {
+                float t = static_cast<float>(i) / gap;
+                waveBuffers[0][prevSample + i] = prevLeft  + t * (left  - prevLeft);
+                waveBuffers[1][prevSample + i] = prevRight + t * (right - prevRight);
+            }
+        }
+        else if (sampleIndex < prevSample) {
+            // Handle wrap-around case
+            int gapToEnd = 511 - prevSample;
+            float prevLeft  = waveBuffers[0][prevSample];
+            float prevRight = waveBuffers[1][prevSample];
+        
+            // Fill to end of buffer
+            for (int i = 1; i <= gapToEnd; i++) {
+                float t = static_cast<float>(i) / (gapToEnd + 1);
+                waveBuffers[0][prevSample + i] = prevLeft  + t * (left - prevLeft);
+                waveBuffers[1][prevSample + i] = prevRight + t * (right - prevRight);
+            }
+        
+            // Now fill from 0 up to sampleIndex
+            for (int i = 0; i < sampleIndex; i++) {
+                float t = static_cast<float>(i + 1) / (sampleIndex + 1);
+                waveBuffers[0][i] = prevLeft  + t * (left - prevLeft);
+                waveBuffers[1][i] = prevRight + t * (right - prevRight);
+            }
+        }
+        
+        prevSample = sampleIndex;
                 
     }//void process
      
@@ -536,12 +578,6 @@ struct PolarXYDisplay : TransparentWidget {
             centerX = box.size.x / 2.0f;
             centerY = box.size.y / 2.0f;
             radiusScale = centerY * 0.8f; // Adjust as needed
-
-            // Clear the area before drawing the waveform
-            nvgBeginPath(args.vg);
-            nvgRect(args.vg, 0, 0, box.size.x, box.size.y);
-            nvgFillColor(args.vg, nvgRGBA(0, 0, 0, 0)); // Transparent background
-            nvgFill(args.vg);
 
             // Draw waveforms
                 drawWaveform(args, module->waveBuffers[0], nvgRGBAf(1, 0.4, 0, 0.8));
@@ -562,8 +598,8 @@ struct PolarXYDisplay : TransparentWidget {
 
             float theta = ((float)i / (displaySamples - 1)) * twoPi; // From 0 to 2π
 
-            float amplitude = waveBuffer[bufferIndex] / 5.0f; // Normalize to -1 to +1
-            float radius = centerY + amplitude * radiusScale;
+            float amplitude = (waveBuffer[bufferIndex] + 5.f) / 10.0f; // Normalize to 0 to +1
+            float radius = amplitude * radiusScale;
 
             Vec pos = polarToCartesian(theta, radius);
 
@@ -645,8 +681,8 @@ struct OurosWidget : ModuleWidget {
         addOutput(createOutputCentered<ThemedPJ301MPort>(knobStartPos.plus(Vec(3*knobSpacing, -72)), module, Ouros::R_OUTPUT));
 
         // Create and add the PolarXYDisplay
-        PolarXYDisplay* polarDisplay = createWidget<PolarXYDisplay>(Vec(56.5,55.5)); // Positioning
-        polarDisplay->box.size = Vec(50, 50); // Size of the display widget
+        PolarXYDisplay* polarDisplay = createWidget<PolarXYDisplay>(Vec(26.5,25.5)); // Positioning
+        polarDisplay->box.size = Vec(113, 113); // Size of the display widget
         polarDisplay->module = module;
         addChild(polarDisplay);
 

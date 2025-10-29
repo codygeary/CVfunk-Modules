@@ -197,21 +197,29 @@ struct Hammer : Module {
         
         // Configure parameters
         configParam(CLOCK_KNOB, 0.000001f, 480.0f, 120.0f, "Clock Rate", " BPM");
-        configParam(CLOCK_ATT, -1.f, 1.f, 0.0f, "Clock Attenuvertor");
+        configParam(CLOCK_ATT, -1.f, 1.f, 0.0f, "Clock Attenuverter");
         configParam(ROTATE_KNOB, -1.0f, 1.0f, 0.0f, "Rotate");
-        configParam(ROTATE_ATT, -1.0f, 1.0f, 0.0f, "Rotate Atenuvertor");
+        configParam(ROTATE_ATT, -1.0f, 1.0f, 0.0f, "Rotate Atenuverter");
         configParam(SWING_KNOB, -99.0f, 99.0f, 0.0f, "Swing", " %");
 
-        // Configure inputs and outputs
+#ifdef METAMODULE
+        configInput(EXT_CLOCK_INPUT, "Ext. Clock Input");
+#else
         configInput(EXT_CLOCK_INPUT, "Ext. Clock Input \n (Also accepts CHAIN from Hammer.) \n");
+#endif
         configInput(RESET_INPUT, "Reset");
         configInput(ON_OFF_INPUT, "ON/OFF");
         configOutput(CLOCK_OUTPUT, "Main Clock");
         for (int i=0; i<CHANNELS; i++){        
             configOutput(CLOCK_OUTPUT_1+i, "Clock " + std::to_string(i+1) );
         }
+#ifdef METAMODULE
+        configOutput(POLY_OUTPUT, "Poly Clock Out");
+        configOutput(CHAIN_OUTPUT, "Chain");
+#else
         configOutput(POLY_OUTPUT, "Poly Clock Out \n Ch 1-8 Clock Gate Outs \n Ch 9-16 Inverted Gate Outs");
-        configOutput(CHAIN_OUTPUT, "CHAIN links to CLOCK input of Hammer or Picus.\n CHAIN");
+        configOutput(CHAIN_OUTPUT, "(CHAIN links to CLOCK input of Hammer or Picus.)\n Chain");
+#endif
 
         configInput(CLOCK_INPUT, "Clock" );
         configInput(ROTATE_INPUT , "Rotation" );

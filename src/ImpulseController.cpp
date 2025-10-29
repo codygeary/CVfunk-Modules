@@ -11,6 +11,9 @@
 
 #include "plugin.hpp"
 
+// Define the maximum number of nodes
+static constexpr int MAX_NODES = 24;
+
 struct ImpulseController : Module {
     enum ParamId {
         LAG_PARAM,
@@ -64,13 +67,10 @@ struct ImpulseController : Module {
         _21OUT_LIGHT, _22OUT_LIGHT, _23OUT_LIGHT, _24OUT_LIGHT,
         LIGHTS_LEN
     };
-
-    // Define the maximum number of nodes
-    static constexpr int MAX_NODES = 24;
     
     // Define an array to store time variables
-    float lag[24] = {0.0f}; // Time interval for each light group
-    float groupElapsedTime[24] = {}; // Elapsed time since the last activation for each light group
+    float lag[MAX_NODES] = {0.0f}; // Time interval for each light group
+    float groupElapsedTime[MAX_NODES] = {}; // Elapsed time since the last activation for each light group
 
     float accumulatedTime = 0.0f; // Accumulator for elapsed time, now an instance variable
 
@@ -84,8 +84,8 @@ struct ImpulseController : Module {
     //Keep track of the time the one input is above the threshold
     float inputAboveThresholdTime = 0.0f; // Time in seconds
 
-    float ImpulseOutput[24] = {0.0f};
-    float nextChunk[24] = {0.0f};
+    float ImpulseOutput[MAX_NODES] = {0.0f};
+    float nextChunk[MAX_NODES] = {0.0f};
 
     // Define groups of lights
     const std::vector<std::vector<LightId>> lightGroups = {
@@ -114,6 +114,8 @@ struct ImpulseController : Module {
         {_23OUT_LIGHT, _14B_LIGHT},
         {_24OUT_LIGHT, _15B_LIGHT},
     };
+
+    float lightGroupVals[LIGHTS_LEN] = {0.0f}; //array to store light values, where we can update then in draw
 
     //Define the node-connected graph structure        
     const std::map<int, std::vector<int>> nodeConnections = {
@@ -149,7 +151,7 @@ struct ImpulseController : Module {
         configInput(SPREAD_INPUT, "Spread");
         configInput(DECAY_INPUT, "Decay");
 
-        for (int i = 0; i < 24; ++i) {
+        for (int i = 0; i < MAX_NODES; ++i) {
             configOutput(_01_OUTPUT + i, "Impulse " + std::to_string(i+1));
         }
     }
@@ -195,15 +197,15 @@ struct ImpulseController : Module {
             lag[0] = clamp(lag[0], 0.001f, 1.0f);
             lag[0] *= 0.6f;
             
-            lag[23] = 1.2f*spread * lag[0] + 1.2f*lag[0];
+            lag[MAX_NODES-1] = 1.2f*spread * lag[0] + 1.2f*lag[0];
             
             // Scaling factor for the power scale
             float scalingFactor =  1.0f; // Adjust this to tune the scaling curve
             
             // Interpolate lag[1] to lag[22] using a power scale
-            for (int i = 1; i < 23; i++) {
+            for (int i = 1; i < MAX_NODES-1; i++) {
                 float factor = powf(i / 23.0f, scalingFactor);
-                lag[i] = lag[0] + (lag[23] - lag[0]) * factor;
+                lag[i] = lag[0] + (lag[MAX_NODES-1] - lag[0]) * factor;
             }
             
             //Set threshold to drop to before propagating to the next node, based on the spread input        
@@ -222,7 +224,7 @@ struct ImpulseController : Module {
                 activeNodes[0] = true; // Activate node 0
                 groupElapsedTime[0] = 0.f; // Reset elapsed time for node 0
                 for (LightId light : lightGroups[0]) {
-                    lights[light].setBrightness(1.0f); // Turn on all lights for node 0's group
+                    lightGroupVals[light] = 1.0f; // Turn on all lights for the child node's group
                 }
             }
             previousInputState = currentInputState;
@@ -234,12 +236,12 @@ struct ImpulseController : Module {
              
             if (inputs[_00_INPUT].isConnected()){
                 float brightness = inputs[_00_INPUT].getVoltage() / 10.0f;
-                lights[_00OUT_LIGHT].setBrightness(brightness);         
+                lightGroupVals[_00OUT_LIGHT] = clamp(brightness, 0.f, 1.f);
             }
 
             // Activate and Deactivate Nodes, Activate Child Nodes
             // Iterate over all possible nodes
-            for (int node = 0; node < 24; ++node) { 
+            for (int node = 0; node < MAX_NODES; ++node) { 
                 // Check if the node is active
                 if (activeNodes[node]) {
                     // Increment the elapsed time for each active node
@@ -256,7 +258,7 @@ struct ImpulseController : Module {
                                     activeNodes[childNode] = true;         // Activate the child node
                                     groupElapsedTime[childNode] = 0.f;     // Reset the child node's elapsed time                                
                                     for (LightId light : lightGroups[childNode]) {
-                                        lights[light].setBrightness(1.0f); // Turn on all lights for the child node's group
+                                        lightGroupVals[light] = 1.0f; // Turn on all lights for the child node's group                                        
                                     }
                                 } 
                             }
@@ -267,9 +269,9 @@ struct ImpulseController : Module {
 
             float slewRate = 0.1f;
             // Map OUT light brightness to OUTPUT voltages
-            for (int i = 0; i < 24; ++i) {
+            for (int i = 0; i < MAX_NODES; ++i) {
                 // Directly map the light brightness to output voltage
-                float brightness = lights[_01OUT_LIGHT + i].getBrightness(); // Get the brightness of the corresponding light
+                float brightness = lightGroupVals[i]; // Get the brightness of the corresponding light
                 float current_out = outputs[_01_OUTPUT + i].getVoltage(); // Get the voltage of the current output
                 float difference = (brightness * 10.0f) - current_out;
                 float voltageChange = difference;
@@ -291,9 +293,9 @@ struct ImpulseController : Module {
 
                 // Apply the dimming factor to each light within the current group
                 for (LightId lightId : lightGroups[groupIndex]) {
-                    float how_bright = lights[lightId].getBrightness();
+                    float how_bright = lightGroupVals[lightId];
                     how_bright *= dimmingFactor; 
-                    lights[lightId].setBrightness(how_bright);
+                    lightGroupVals[lightId] = how_bright;                                                           
                 }
             } 
             
@@ -303,7 +305,7 @@ struct ImpulseController : Module {
         }//if (accumulated_time...
 
         //Interpolate outputs in realtime        
-        for (int i=0; i<24; i++){
+        for (int i=0; i<MAX_NODES; i++){
             float currentOutput = outputs[_01_OUTPUT+i].getVoltage();
             currentOutput += nextChunk[i]* 1/ChunkLength;
             outputs[_01_OUTPUT + i].setVoltage( currentOutput );     
@@ -452,6 +454,23 @@ struct ImpulseControllerWidget : ModuleWidget {
         addChild(createLightCentered<MediumLight<YellowLight>>(mm2px(Vec(146.928, 17.144)), module, ImpulseController::_23OUT_LIGHT));
         addChild(createLightCentered<MediumLight<YellowLight>>(mm2px(Vec(146.928, 35.672)), module, ImpulseController::_24OUT_LIGHT));
     }
+#if defined(METAMODULE)
+    // For MM, use step(), because overriding draw() will allocate a module-sized pixel buffer
+    void step() override {
+#else
+    void draw(const DrawArgs& args) override {
+        ModuleWidget::draw(args);
+#endif
+        ImpulseController* module = dynamic_cast<ImpulseController*>(this->module);
+        if (!module) return;
+
+        for (int groupIndex = 0; groupIndex < MAX_NODES; ++groupIndex) {
+            for (ImpulseController::LightId lightId : module->lightGroups[groupIndex]) {
+                float lightBrightness = clamp(module->lightGroupVals[lightId], 0.f, 1.f);
+                module->lights[lightId].setBrightness(lightBrightness);
+            }
+        }
+    }     
 };
 
 Model* modelImpulseController = createModel<ImpulseController, ImpulseControllerWidget>("ImpulseController");

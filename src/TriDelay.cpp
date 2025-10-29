@@ -219,6 +219,10 @@ struct TriDelay : Module {
         configInput(CLEAR_BUFFER_IN, "Clear Buffer");
         configInput(HOLD_IN, "Hold");
 
+        configInput(AUDIO_INPUT_L, "Audio In L");
+        configInput(AUDIO_INPUT_R, "Audio In R");
+        configOutput(AUDIO_OUTPUT_L, "Audio Out L");
+        configOutput(AUDIO_OUTPUT_R, "Audio Out R");
     }
 
     // Handle sample rate changes
