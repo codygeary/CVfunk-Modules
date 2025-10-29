@@ -107,14 +107,14 @@ struct Wonk : Module {
 
         // Save place array
         json_t* placeArrayJ = json_array();
-        for (int i = 0; i < 16; i++) {
+        for (int i = 0; i < 6; i++) {
             json_array_append_new(placeArrayJ, json_real(place[i]));
         }
         json_object_set_new(rootJ, "place", placeArrayJ);
 
         // Save lfoPhase array
         json_t* lfoPhaseArrayJ = json_array();
-        for (int i = 0; i < 16; i++) {
+        for (int i = 0; i < 6; i++) {
             json_array_append_new(lfoPhaseArrayJ, json_real(lfoPhase[i]));
         }
         json_object_set_new(rootJ, "lfoPhase", lfoPhaseArrayJ);
@@ -135,7 +135,7 @@ struct Wonk : Module {
             size_t i;
             json_t* val;
             json_array_foreach(placeArrayJ, i, val) {
-                if (i < 16)
+                if (i < 6)
                     place[i] = (float)json_real_value(val);
             }
         }
@@ -146,7 +146,7 @@ struct Wonk : Module {
             size_t i;
             json_t* val;
             json_array_foreach(lfoPhaseArrayJ, i, val) {
-                if (i < 16)
+                if (i < 6)
                     lfoPhase[i] = (float)json_real_value(val);
             }
         }
