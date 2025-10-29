@@ -12,13 +12,11 @@
 #include "plugin.hpp"
 #include "rack.hpp"
 
-struct Wonk : Module {
-
-    static inline float linearInterpolate(float a, float b, float fraction) {
-        return a + fraction * (b - a);
-    }
-
-    static inline float lagrange4(
+//Branchless replacement for fmod
+inline __attribute__((always_inline)) float wrap01(float x) { return x - floorf(x); }
+inline __attribute__((always_inline)) float wrapPhaseDiff(float x) {  return x - roundf(x); }
+inline __attribute__((always_inline)) float linearInterpolate(float a, float b, float fraction) { return a + fraction * (b - a); }
+inline __attribute__((always_inline)) float lagrange4(
         float y0, float y1, float y2, float y3, float t
     ) {
         float a = (-t * (t - 1.0f) * (t - 2.0f)) / 6.0f;
@@ -27,6 +25,8 @@ struct Wonk : Module {
         float d = ((t + 1.0f) * t * (t - 1.0f)) / 6.0f;
         return a * y0 + b * y1 + c * y2 + d * y3;
     }
+
+struct Wonk : Module {
 
     enum ParamId {
         RATE_ATT, RATE_KNOB,
@@ -201,18 +201,18 @@ struct Wonk : Module {
     }
 
     void process(const ProcessArgs& args) override {
-
+    
         float deltaTime = args.sampleTime;
         syncTimer.process(deltaTime);
-
+    
         resetCondition = false; //remote reset token
         syncPoint = false; //internal reset-sync token
-
+    
         // Clock handling logic
         bool externalClockConnected = inputs[CLOCK_INPUT].isConnected();
         if (externalClockConnected ) {
             float SyncInputVoltage = inputs[CLOCK_INPUT].getVoltage();
-
+    
             if (abs(SyncInputVoltage - 10.42f) < 0.1f) { //RESET VOLTAGE for CVfunk Chain function
                 syncPoint = true;
                 syncInterval = prevSyncInterval;
@@ -220,9 +220,9 @@ struct Wonk : Module {
                 firstPulseReceived = false;
                 resetCondition = true;
             }
-
+    
             if (clockTrigger.process(SyncInputVoltage - 0.1f)) {
-
+    
                 // Check for special control voltages first
                 if (abs(SyncInputVoltage - 10.69f) < 0.1f) {  //ON VOLTAGE for CVfunk Chain function
                     syncPoint = true;
@@ -237,7 +237,7 @@ struct Wonk : Module {
                     firstPulseReceived = false;
                     return; // Don't process as normal clock
                 }
-
+    
                 // Compute SYNC INTERVAL here
                 if (firstPulseReceived) {
                     prevSyncInterval = syncInterval;  //save interval before overwriting it
@@ -248,88 +248,79 @@ struct Wonk : Module {
                 firstPulseReceived = true;
             }
         }
-
+    
         freqHz = 1.0f/fmax(syncInterval, 0.0001f); //limit syncInterval to avoid div by zero.
-
+    
         // Resetting Logic
         bool resetConnected = inputs[RESET_INPUT].isConnected();
         if (resetConnected && resetTrigger.process(inputs[RESET_INPUT].getVoltage() - 0.1f)) syncPoint = true; //Sync on Reset Trigger
         if (resetButton.process(params[RESET_BUTTON].getValue())) syncPoint = true; //Sync on Reset Button Press
         if (resetCondition) syncPoint = true; //Reset on chain reset signal
-
+    
         if (syncPoint) syncPulse.trigger(0.2f);
-
         syncActive = syncPulse.process(args.sampleTime);
-
+    
         // Compute Modulation Depth
         modulationDepth = params[MOD_DEPTH].getValue();
         if (inputs[MOD_DEPTH_INPUT].isConnected()){
             modulationDepth = clamp (
                 inputs[MOD_DEPTH_INPUT].getVoltage() * params[MOD_DEPTH_ATT].getValue() * 0.5f + modulationDepth, -5.f, 5.f); //map 0-10V to 5V.
         }
-
+    
         processSkipper++;
         if (processSkipper>=processSkips){
-            // Track connection states of each output
             bool cableConnected = outputs[POLY_OUTPUT].isConnected();
-
             if (cableConnected) {
                 outputs[POLY_OUTPUT].setChannels(6);
             }
-
-            // Update previous connection states
             prevcableConnected = cableConnected;
-
             processSkipper = 0;
         }
-
-        SINprocessCounter++;  //Skip some SINE computations to save CPU
+    
+        SINprocessCounter++;
+    
+        // Rate
         float rawRate = params[RATE_KNOB].getValue();
         if (inputs[RATE_INPUT].isConnected()) {
             rawRate = inputs[RATE_INPUT].getVoltage() * params[RATE_ATT].getValue() + rawRate;
         }
+    
         float rate = 1.0f;
-
-        // Compute the effective rate
-        if (rawRate >= 1.0f) {
-            // Positive values: Multiplier
-            rate = rawRate;
-        } else if (rawRate <= -1.0f) {
-            // Negative values: Divider
-            rate = 1.0f / std::abs(rawRate);
-        } else {
-            // Handle the -1.0 to 1.0 range (e.g., default to 1.0)
-            rate = 1.0f;
-        }
-
-        rate = rate * freqHz * 0.5f; //convert from multiple to rate in Hz
-
-        float nodePosition = params[NODES_KNOB].getValue();
-        if (inputs[NODES_INPUT].isConnected()){
-            nodePosition = nodePosition + inputs[NODES_INPUT].getVoltage() * params[NODES_ATT].getValue();
-        }
-        float modRate[6] = {rate, rate, rate, rate, rate, rate};
+        if (rawRate >= 1.0f) rate = rawRate;
+        else if (rawRate <= -1.0f) rate = 1.0f / std::abs(rawRate);
+        rate *= freqHz * 0.5f; // Hz
+    
+        // Wonky / Node position
         float wonky = params[WONK_KNOB].getValue();
         if (inputs[WONK_INPUT].isConnected()){
             wonky = clamp(inputs[WONK_INPUT].getVoltage()*params[WONK_ATT].getValue() / 10.f + wonky, 0.f, 1.f);
         }
-        int wonkPos = static_cast<int>( clamp( roundf(params[POS_KNOB].getValue() - 0.5f), 0.0f, 5.0f ) );
-
-        nodePosition = clamp(nodePosition + nodePosition * (wonky * wonkMod[wonkPos] / 25.0f), -3.0f, 3.0f);
-        deltaTime = args.sampleTime;
-
-        nodePosition = nodePosition - nodePosition*(wonky*0.9); //when wonky==1 nodes =0.1, Narrowing nodes keeps wonk from going crazy
-
+        const int wonkPos = static_cast<int>( clamp( roundf(params[POS_KNOB].getValue() - 0.5f), 0.0f, 5.0f ) );
+    
+        float nodePosition = params[NODES_KNOB].getValue();
+        if (inputs[NODES_INPUT].isConnected()){
+            nodePosition = nodePosition + inputs[NODES_INPUT].getVoltage() * params[NODES_ATT].getValue();
+        }
+    
+        // Cached scalars
+        const float nodePositionFactor = nodePosition - nodePosition * (wonky * 0.9f);
+        const float wonkyScale = wonky * 0.95f / 5.0f;
+        const float rateScaledDT = rate * deltaTime;
+        const float twoPi = 2.0f * M_PI;
+        const float wonkModScale = modulationDepth * 0.2f;
+        const bool polyConnected = outputs[POLY_OUTPUT].isConnected();
+        const bool unipolar = unipolarMode;
+        // -----------------------------------------------
+    
         for (int i = 0; i < 6; i++) {
-            int adjWonkPos = wonkPos+i;
-            if (adjWonkPos >= 6){adjWonkPos -= 6;}
-            if (adjWonkPos < 0){adjWonkPos += 6;}
-
-            modRate[i] = rate + rate * 0.95f * (wonky * wonkMod[adjWonkPos] / 5.0f);
-
+            int adjWonkPos = wonkPos + i;
+            if (adjWonkPos >= 6) adjWonkPos -= 6;
+            if (adjWonkPos < 0) adjWonkPos += 6;
+    
+            float modRate = rate + rate * wonkyScale * wonkMod[adjWonkPos];
             float basePhase = i / -6.0f;
             float targetPhase = basePhase;
-
+        
             if (nodePosition < -2.0f) {
                 // -3.0 <= nodePosition < -2.0: Bimodal behavior (reversed)
                 float trimodalPhase = (i % 3) / 3.0f; // Calculate trimodal phase negatively
@@ -372,8 +363,8 @@ struct Wonk : Module {
             float phaseDiff = wrapPhaseDiff(targetPhase - lfoPhase[i]);
 
             lfoPhase[i] = wrap01(lfoPhase[i] + phaseDiff * 0.2f);
-            lfoPhase[i] = wrap01(lfoPhase[i] + modRate[i] * deltaTime);
-            place[i]    = wrap01(place[i]    + modRate[i] * deltaTime);
+            lfoPhase[i] = wrap01(lfoPhase[i] + modRate * deltaTime);
+            place[i]    = wrap01(place[i]    + modRate * deltaTime);
 
             if (SINprocessCounter > SkipProcesses) {
                 // Compute new sine, store in ring buffer
@@ -409,16 +400,6 @@ struct Wonk : Module {
 
         if (SINprocessCounter > SkipProcesses) { SINprocessCounter = 0; }
 
-    }
-
-    // Wrap to [0, 1)
-    inline float wrap01(float x) {
-        return x - floorf(x);
-    }
-
-    // Wrap phase diff to [-0.5, 0.5)
-    inline float wrapPhaseDiff(float x) {
-        return x - roundf(x);
     }
 
 };

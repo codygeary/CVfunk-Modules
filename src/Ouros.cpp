@@ -3,7 +3,7 @@
 //   Ouros
 //
 //   written by Cody Geary
-//   Copyright 2024, MIT License
+//   Copyright 2025, MIT License
 //
 //   Stereo oscillator with phase-feedback 
 //
@@ -82,21 +82,14 @@ private:
 };
 
 //Branchless replacement for fmod
-inline float fmod_wrap(float x, float y) {
-    return x - y * truncf(x / y);
-}
-inline float wrap01_exact(float x) {
-    return x - floorf(x);
-}
-inline float wrapPhaseDiff(float x) {
-    return x - roundf(x);
-}
+inline __attribute__((always_inline)) float fmod_wrap(float x, float y) { return x - y * truncf(x / y); }
+inline __attribute__((always_inline)) float wrap01_exact(float x) { return x - floorf(x); }
+inline __attribute__((always_inline)) float wrapPhaseDiff(float x) {  return x - roundf(x); }
+inline __attribute__((always_inline)) float linearInterpolation(float a, float b, float fraction) { return a + fraction * (b - a); }
+
+const float SEMITONE_TO_HZ = 261.625565f;
 
 struct Ouros : Module {
-
-    static inline float linearInterpolation(float a, float b, float fraction) {
-        return a + fraction * (b - a);
-    }
 
     enum ParamIds {
         RATE_KNOB,
@@ -169,9 +162,7 @@ struct Ouros : Module {
             json_array_append_new(eatValueArrayJ, json_real(eatValue[i]));
         }
         json_object_set_new(rootJ, "eatValue", eatValueArrayJ);
-    
-        // Repeat for other arrays if needed, e.g., oscPhase, lastTargetVoltages, etc.
-    
+        
         return rootJ;
     }
     
@@ -187,9 +178,7 @@ struct Ouros : Module {
                 }
             }
         }
-    
-        // Repeat for other arrays if needed, e.g., oscPhase, lastTargetVoltages, etc.
-    
+        
         // Trigger resets the phase
         for (int i = 0; i < 16; i++) {
             resetPulse[i].trigger(1e-4);
@@ -290,10 +279,9 @@ struct Ouros : Module {
             // --- FM ---
             float fm = 0.0f;
             if (inputs[FM_INPUT].isConnected()) {
-                fm += isFMMonophonic ? fmMonoValue : inputs[FM_INPUT].getVoltage(c);
+                fm += isFMMonophonic ? fmMonoValue : clamp(inputs[FM_INPUT].getVoltage(c), -10.f, 10.f);
                 fm *= 0.2f * params[FM_ATT_KNOB].getValue();
             }
-            fm = clamp(fm, -3.0f, 3.0f);
     
             // --- Multiply ---
             float multiply = params[MULTIPLY_KNOB].getValue();
@@ -310,10 +298,10 @@ struct Ouros : Module {
             }    
             multiply = clamp(multiply, 0.000001f, 10.0f);
     
-            // Nonlinear adjustment (replace powf)
+            // Nonlinear adjustment
             float baseMultiple = int(multiply);
             float remainder = multiply - baseMultiple;
-            float remPow5 = remainder * remainder * remainder * remainder * remainder;
+            float remPow5 = remainder * remainder * remainder * remainder * remainder; //avoid using powf
             multiply = (remainder < 0.5f)
                 ? baseMultiple + remPow5
                 : (baseMultiple + 1.0f) - ((1.0f - remainder) * (1.0f - remainder) * (1.0f - remainder) * (1.0f - remainder) * (1.0f - remainder));
@@ -324,8 +312,7 @@ struct Ouros : Module {
                 rate += isRateMonophonic ? rateMonoValue : inputs[RATE_INPUT].getVoltage(c);
             }    
             rate += fm;
-            rate = clamp(rate, -4.0f, 4.0f); 
-            rate = 261.625565f * powf(2.0f, rate);
+            rate = SEMITONE_TO_HZ * exp2f(rate);
     
             float multi_rate = rate * multiply;
     
@@ -350,9 +337,8 @@ struct Ouros : Module {
             // --- Feedback ---
             float feedback = params[FEEDBACK_KNOB].getValue();
             if (inputs[FEEDBACK_INPUT].isConnected()) {
-                feedback += (isFeedbackMonophonic ? feedbackMonoValue : inputs[FEEDBACK_INPUT].getVoltage(c)) * 0.1f * params[FEEDBACK_ATT_KNOB].getValue(); 
+                feedback += (isFeedbackMonophonic ? feedbackMonoValue : clamp(inputs[FEEDBACK_INPUT].getVoltage(c)),-10.f, 10.f) * 0.1f * params[FEEDBACK_ATT_KNOB].getValue(); 
             }    
-            feedback = clamp(feedback, -1.0f, 1.0f);
     
             // --- Node ---
             float NodePosition = params[NODE_KNOB].getValue();
@@ -362,7 +348,6 @@ struct Ouros : Module {
             
             NodePosition += feedback * oscOutput[c][3];
             NodePosition = fmod_wrap(NodePosition, 5.0f);
-            NodePosition = clamp(NodePosition, 0.0f, 5.0f);
     
             // --- Reset Logic ---
             float PhaseResetInput = 0.0f;
@@ -376,7 +361,6 @@ struct Ouros : Module {
             }
     
             if (PhaseResetInput < 0.0001f) latch[c] = true;
-            PhaseResetInput = clamp(PhaseResetInput, 0.0f, 10.0f);
     
             // Rising/falling state
             if (risingState[c]) {
@@ -448,7 +432,7 @@ struct Ouros : Module {
                 }
     
                 oscPhase[c][i] = wrap01_exact(oscPhase[c][i]);
-                if (place[c][i] >= 1.0f) place[c][i] -= 1.0f;
+                place[c][i] -= (place[c][i] >= 1.0f) ? 1.0f : 0.0f;
     
                 // Reset logic
                 if (risingState[c] && latch[c]) {
@@ -466,9 +450,7 @@ struct Ouros : Module {
             }
     
             // --- Compute waveform ---
-            simd::float_4 phaseVector = phases * twoPiVec;
-            simd::float_4 sinValues = simd::sin(phaseVector);
-            simd::float_4 outputValues = clamp(fiveVec * sinValues, -5.0f, 5.0f);
+            simd::float_4 outputValues = simd::clamp(simd::sin(phases * twoPiVec) * 5.f, -5.f, 5.f);
     
             for (int i = 0; i < 4; i++) {
                 oscOutput[c][i] = outputValues[i];
@@ -483,7 +465,7 @@ struct Ouros : Module {
             }
         }
     
-        // --- Waveform buffer update (unchanged) ---
+        // --- Waveform buffer update ---
         int sampleIndex = static_cast<int>(oscPhase[0][2] * 512);
         sampleIndex = clamp(sampleIndex, 0, 511);
         
@@ -517,9 +499,7 @@ struct Ouros : Module {
             }
         }
         prevSample = sampleIndex;
-    }
-
-     
+    }    
 };
 
 struct PolarXYDisplay : TransparentWidget {
@@ -579,8 +559,6 @@ struct PolarXYDisplay : TransparentWidget {
         return Vec(x, y);
     }
 };
-
-
 
 struct OurosWidget : ModuleWidget {
     OurosWidget(Ouros* module) {
@@ -642,8 +620,6 @@ struct OurosWidget : ModuleWidget {
         polarDisplay->box.size = Vec(113, 113); // Size of the display widget
         polarDisplay->module = module;
         addChild(polarDisplay);
-
     }    
 };
-
 Model* modelOuros = createModel<Ouros, OurosWidget>("Ouros");
