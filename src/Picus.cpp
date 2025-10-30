@@ -98,6 +98,7 @@ struct Picus : Module {
     bool blinkDON = false;
     bool blinkKA = false;
     bool blinkEND = false;
+    int subBeatCount = 0;
 
     int inputSkipper = 0;
     int inputSkipsTotal = 100; //only process button presses every 1/100 steps as it takes way too much CPU
@@ -187,10 +188,6 @@ struct Picus : Module {
                 }
             }
         }
-
-        for (int i = 0; i < STAGES; i++) {
-            resyncFlag[i] = true;
-        }               
     }
 
     Picus() {
@@ -344,13 +341,13 @@ struct Picus : Module {
         divide[0] = clamp(divide[0],1.f,99.f); // The top stage cannot be turned off, limited to 1 instead of 0.
                                               // if (divide[i]==0.f) the stage is OFF
                                               // if (multiply[i]==0.f) the stage is muted.
-        
+
         // Handle Stage Selection Syncing Priority
         if (syncPoint && (currentStage != selectedStage) && playMode > 0.f){
             beatCount = 0;
             currentStage = selectedStage;
-            beatTimer.reset();
-            syncPoint = false; // Mark as handled - this prevents the second condition from also firing
+            beatTimer.reset(); // <-- Here Reset the Beat Timer
+            syncPoint = false; //reset sync flag
             if (endPulseAtStage) EndPulse.trigger(0.001f);
             blinkEND = true;
             patternIndex++;
@@ -359,30 +356,30 @@ struct Picus : Module {
             if (patternState[patternIndex]==0) DonPulse.trigger(0.001f);
             if (patternState[patternIndex]==1) KaPulse.trigger(0.001f);
         }
-        
-        // Stage Advancing - only process if syncPoint wasn't already handled above
+
+        // Stage Advancing
         if (syncPoint && playMode > 0.f){
             beatCount++;
-            if (firstSync) beatCount = 0;
+            if (firstSync) beatCount = 0; // Reset beat count on the first clock sync
             int stageLength = static_cast<int>(divide[currentStage]);
             if (beatCount >= stageLength ){
                 beatCount = 0;
                 currentStage++;
                 selectedStage++;
-                beatTimer.reset();
+                beatTimer.reset(); // <-- Reset the Beat Timer
                 if (endPulseAtStage) {EndPulse.trigger(0.001f); blinkEND = true;}
                 patternIndex++;
                 if (patternReset) patternIndex=0;
                 if (patternIndex >= patternStages) patternIndex = 0;
                 if (patternState[patternIndex]==0) DonPulse.trigger(0.001f);
                 if (patternState[patternIndex]==1) KaPulse.trigger(0.001f);
-        
+
                 // Advance to next active stage
                 for (int i = 0; i < STAGES; i++) { 
-                    if (currentStage >= STAGES) {
+                    if (currentStage >= STAGES) { //Stage Wrap-Around Point
                         currentStage = 0;
                         if (!endPulseAtStage) { EndPulse.trigger(0.001f); blinkEND = true; }                                           
-                        if (playMode == 2.0) {
+                        if (playMode == 2.0) { //one-shot mode
                             paramQuantities[ON_SWITCH]->setDisplayValue(0.0f);
                             playMode = 0.f;
                             lastPlayMode = 2.0;
@@ -391,23 +388,37 @@ struct Picus : Module {
                     if (divide[currentStage] != 0) break;
                     currentStage++;
                 }
+                // Keep selectedStage in sync
                 selectedStage = currentStage;
             }
-            syncPoint = false; // Reset after processing
         }
-
-        // Beat Computing
-        if (divide[currentStage]>0.f && multiply[currentStage]>0.f && (!firstSync) && playMode > 0.f){
-            if (syncPoint || resyncFlag[currentStage]){
+        
+        // Beat Computing (sub-beats within each stage)
+        if (divide[currentStage] > 0.f && multiply[currentStage] > 0.f && !firstSync && playMode > 0.f) {
+        
+            if (syncPoint || resyncFlag[currentStage]) {
                 resyncFlag[currentStage] = false;
-                beatInterval = (divide[currentStage]*syncInterval)/multiply[currentStage];
-            }
-            if (beatTimer.time >= beatInterval && playMode > 0.f && externalClockConnected){
+                // Total duration of this stage / number of sub-beats
+                beatInterval = (divide[currentStage] * syncInterval) / multiply[currentStage];
                 beatTimer.reset();
-                patternIndex++;
-                if (patternIndex >= patternStages) patternIndex = 0;
-                if (patternState[patternIndex]==0) DonPulse.trigger(0.001f);
-                if (patternState[patternIndex]==1) KaPulse.trigger(0.001f);
+                subBeatCount = 0;
+            }
+        
+            if (beatTimer.time >= beatInterval && playMode > 0.f && externalClockConnected) {
+                beatTimer.reset();
+                subBeatCount++;
+        
+                // Only produce sub-beats for intermediate positions — the last sub-beat is skipped so the stage advance triggers
+                if (subBeatCount < multiply[currentStage]) {
+                    patternIndex++;
+                    if (patternIndex >= patternStages)
+                        patternIndex = 0;
+        
+                    if (patternState[patternIndex] == 0)
+                        DonPulse.trigger(0.001f);
+                    if (patternState[patternIndex] == 1)
+                        KaPulse.trigger(0.001f);
+                }
             }
         }
 
