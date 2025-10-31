@@ -1051,13 +1051,7 @@ struct CartesiaWidget : ModuleWidget {
 
     }
 
-#if defined(METAMODULE)
-    // For MM, use step(), because overriding draw() will allocate a module-sized pixel buffer
     void step() override {
-#else
-    void draw(const DrawArgs& args) override {
-        ModuleWidget::draw(args);
-#endif
         Cartesia* module = dynamic_cast<Cartesia*>(this->module);
         if (!module) return;
 
@@ -1235,6 +1229,7 @@ struct CartesiaWidget : ModuleWidget {
          } else {
              module->lights[Cartesia::ONBUTTON_LIGHT].setBrightness(0.0f);
          }
+         ModuleWidget::step();
     }
 
     DigitalDisplay* createDigitalDisplay(Vec position, std::string initialValue) {

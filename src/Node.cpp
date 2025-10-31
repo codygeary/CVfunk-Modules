@@ -437,19 +437,14 @@ struct NodeWidget : ModuleWidget {
 
     }
 
-#if defined(METAMODULE)
-    // For MM, use step(), because overriding draw() will allocate a module-sized pixel buffer
     void step() override {
-#else
-    void draw(const DrawArgs& args) override {
-        ModuleWidget::draw(args);
-#endif
         Node* module = dynamic_cast<Node*>(this->module);
         if (!module) return;
 
-            module->lights[Node::MUTE_LIGHT1].setBrightness(module->muteState[0] ? 1.0f : 0.f);
-            module->lights[Node::MUTE_LIGHT2].setBrightness(module->muteState[1] ? 1.0f : 0.f);
-            updateLights();
+        module->lights[Node::MUTE_LIGHT1].setBrightness(module->muteState[0] ? 1.0f : 0.f);
+        module->lights[Node::MUTE_LIGHT2].setBrightness(module->muteState[1] ? 1.0f : 0.f);
+        updateLights();
+        ModuleWidget::step();
     }
 
     void updateLights() {

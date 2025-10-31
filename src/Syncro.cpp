@@ -664,13 +664,7 @@ struct SyncroWidget : ModuleWidget {
     
     }
 
-#if defined(METAMODULE)
-    // For MM, use step(), because overriding draw() will allocate a module-sized pixel buffer
     void step() override {
-#else
-    void draw(const DrawArgs& args) override {
-        ModuleWidget::draw(args);
-#endif
         Syncro* module = dynamic_cast<Syncro*>(this->module);
         if (!module) return;
 
@@ -731,6 +725,7 @@ struct SyncroWidget : ModuleWidget {
                 module->lights[Syncro::FILL_INDICATE_1 + i].setBrightness(0.0f);
             }
         }
+        ModuleWidget::step(); 
     }
 
     DigitalDisplay* createDigitalDisplay(Vec position, std::string initialValue) {

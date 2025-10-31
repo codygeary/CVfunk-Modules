@@ -113,18 +113,8 @@ struct Count : Module {
             if (inputText.empty()) {
                 maxCount = 1; // fallback
             } else {
-#if defined(METAMODULE)
-                // Lightweight version for MetaModule
                 long long parsed = atoll(inputText.data());
-#else
-                // Safer, validated version (no exceptions, checks input validity)
-                char* end = nullptr;
-                long long parsed = std::strtoll(inputText.c_str(), &end, 10);
-                if (end == inputText.c_str() || *end != '\0') {
-                    // Invalid input — reset safely
-                    parsed = 1;
-                }
-#endif
+
                 // Clamp to valid range
                 if (parsed < 1) parsed = 1;
                 if (parsed > MAX_COUNT_LIMIT) parsed = MAX_COUNT_LIMIT;
@@ -367,13 +357,7 @@ struct CountWidget : ModuleWidget {
 
     }
 
-#if defined(METAMODULE)
-    // For MM, use step(), because overriding draw() will allocate a module-sized pixel buffer
     void step() override {
-#else
-    void draw(const DrawArgs& args) override {
-        ModuleWidget::draw(args);
-#endif
         Count* module = dynamic_cast<Count*>(this->module);
         if (!module) return;
 
@@ -397,6 +381,7 @@ struct CountWidget : ModuleWidget {
 
         countDisplay->text = numStr;
         countDisplay->setFontSize(fontSize);
+        ModuleWidget::step();
     }
 
     DigitalDisplay* createDigitalDisplay(Vec position, std::string initialValue) {

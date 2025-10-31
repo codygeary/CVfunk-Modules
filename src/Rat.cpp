@@ -267,13 +267,7 @@ struct RatWidget : ModuleWidget {
 
     }
 
-#if defined(METAMODULE)
-    // For MM, use step(), because overriding draw() will allocate a module-sized pixel buffer
     void step() override {
-#else
-    void draw(const DrawArgs& args) override {
-        ModuleWidget::draw(args);
-#endif
         Rat* module = dynamic_cast<Rat*>(this->module);
         if (!module) return;
     
@@ -304,7 +298,7 @@ struct RatWidget : ModuleWidget {
         }
         
         module->lights[Rat::LOCK_BUTTON_LIGHT].setBrightness(module->CVlock ? 1.0f : 0.0f );
-
+        ModuleWidget::step(); 
     }    
 
     // Generic Quantity for any float member 

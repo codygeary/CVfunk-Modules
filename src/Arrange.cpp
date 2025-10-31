@@ -726,13 +726,7 @@ struct ArrangeWidget : ModuleWidget {
         }
     }
 
-#if defined(METAMODULE)
-	// For MM, use step(), because overriding draw() will allocate a module-sized pixel buffer
     void step() override {
-#else
-    void draw(const DrawArgs& args) override {
-        ModuleWidget::draw(args);
-#endif
         Arrange* module = dynamic_cast<Arrange*>(this->module);
         if (!module) return;
 
@@ -803,6 +797,7 @@ struct ArrangeWidget : ModuleWidget {
                 }               
             }
         }
+        ModuleWidget::step();    
     }
 
     // Update the context menu structure and ensure correct function calling

@@ -575,13 +575,7 @@ struct HexModWidget : ModuleWidget {
 
     }
 
-#if defined(METAMODULE)
-    // For MM, use step(), because overriding draw() will allocate a module-sized pixel buffer
     void step() override {
-#else
-    void draw(const DrawArgs& args) override {
-        ModuleWidget::draw(args);
-#endif
         HexMod* module = dynamic_cast<HexMod*>(this->module);
         if (!module) return;
         
@@ -612,8 +606,9 @@ struct HexModWidget : ModuleWidget {
             module->paramQuantities[HexMod::RATE_KNOB]->displayMultiplier = 0.05f;    
         } else {
             module->paramQuantities[HexMod::RATE_KNOB]->displayMultiplier = 1.0f;        
-        }            
-    }                             
+        }  
+		ModuleWidget::step();
+    }   
 
     void appendContextMenu(Menu* menu) override {
         ModuleWidget::appendContextMenu(menu);

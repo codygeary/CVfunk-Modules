@@ -447,13 +447,7 @@ struct MagnetsWidget : ModuleWidget {
         menu->addChild(item);
     }
 
-#if defined(METAMODULE)
-    // For MM, use step(), because overriding draw() will allocate a module-sized pixel buffer
     void step() override {
-#else
-    void draw(const DrawArgs& args) override {
-        ModuleWidget::draw(args);
-#endif
         Magnets* module = dynamic_cast<Magnets*>(this->module);
         if (!module) return;
 
@@ -462,7 +456,8 @@ struct MagnetsWidget : ModuleWidget {
             int lightIndex = module->LIGHTS_START + i;
             bool spinUp = module->spinStates[i] > 0;
             module->lights[lightIndex].setBrightness(spinUp ? 1.f : 0.f);
-        }         
+        } 
+        ModuleWidget::step();
     } 
       
 };

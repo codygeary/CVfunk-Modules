@@ -908,13 +908,7 @@ struct WeaveWidget : ModuleWidget {
         }
     }
 
-#if defined(METAMODULE)
-    // For MM, use step(), because overriding draw() will allocate a module-sized pixel buffer
     void step() override {
-#else
-    void draw(const DrawArgs& args) override {
-        ModuleWidget::draw(args);
-#endif
         Weave* module = dynamic_cast<Weave*>(this->module);
         if (!module) return;
 
@@ -978,6 +972,7 @@ struct WeaveWidget : ModuleWidget {
             module->lights[Weave::OCTAVE_UP_LIGHT].setBrightness(0.0f);
             module->lights[Weave::OCTAVE_DOWN_LIGHT].setBrightness(0.0f);
         }
+        ModuleWidget::step(); 
     }
     DigitalDisplay* createDigitalDisplay(Vec position, std::string initialValue, float fontSize) {
         DigitalDisplay* display = new DigitalDisplay();

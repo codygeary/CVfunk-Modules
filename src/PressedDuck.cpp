@@ -442,7 +442,6 @@ struct PressedDuck : Module {
         // Check if the channel has polyphonic input
         int audioChannels[6] = {0}; // Number of polyphonic channels for AUDIO inputs
         int lChannels[6] = {0}; int rChannels[6] = {0};
-        bool isConnectedL[6] = {false}; bool isConnectedR[6] = {false};
         int vcaChannels[6] = {0}; // Number of polyphonic channels for VCA CV inputs
         int panChannels[6] = {0};   // Number of polyphonic channels for PAN CV inputs
         int muteChannels[6] = {0};  // Number of polyphonic channels for MUTE inputs
@@ -719,6 +718,17 @@ struct PressedDuck : Module {
 
         } //end process channels
 
+        // Handle muting with fade transition
+        if (params[MUTESIDE_PARAM].getValue() > 0.5f) {
+            if (!muteLatch[6]) {
+                muteLatch[6] = true;
+                muteState[6] = !muteState[6];
+                transitionCount[6] = transitionSamples;  // Reset the transition count
+            }
+        } else {
+            muteLatch[6] = false;
+        }
+
 		// If no audio or side-chain channels are active, exit early to save CPU.
 		bool sideConnected = inputs[SIDECHAIN_INPUT_L].isConnected() || inputs[SIDECHAIN_INPUT_R].isConnected();
 		if (inputCount <= 0.0f && !sideConnected) {
@@ -900,17 +910,6 @@ struct PressedDuck : Module {
         float sideVol = params[SIDECHAIN_VOLUME_PARAM].getValue();
         sideL *= sideVol;
         sideR *= sideVol;
-
-        // Handle muting with fade transition
-        if (params[MUTESIDE_PARAM].getValue() > 0.5f) {
-            if (!muteLatch[6]) {
-                muteLatch[6] = true;
-                muteState[6] = !muteState[6];
-                transitionCount[6] = transitionSamples;  // Reset the transition count
-            }
-        } else {
-            muteLatch[6] = false;
-        }
 
         if (transitionCount[6] > 0) {
             float fadeStep = (muteState[6] ? -1.0f : 1.0f) / transitionSamples;
@@ -1186,14 +1185,13 @@ struct PressedDuckWidget : ModuleWidget {
         }
     }
 
-	void draw(const DrawArgs& args) override {
-		ModuleWidget::draw(args);
-	
+	void step() override {
 		// Cast base Module* to your subclass
 		PressedDuck* module = dynamic_cast<PressedDuck*>(this->module);
 		if (!module) return;
 	
 		updateLights(module);
+		ModuleWidget::step();
 	}
 	
 	void updateLights(PressedDuck* module) {    

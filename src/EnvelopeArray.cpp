@@ -647,13 +647,8 @@ struct EnvelopeArrayWidget : ModuleWidget {
         menu->addChild(polyOutItem);
     }
 
-#if defined(METAMODULE)
-    // For MM, use step(), because overriding draw() will allocate a module-sized pixel buffer
     void step() override {
-#else
-    void draw(const DrawArgs& args) override {
-        ModuleWidget::draw(args);
-#endif
+
         EnvelopeArray* module = dynamic_cast<EnvelopeArray*>(this->module);
         if (!module) return;
 
@@ -661,7 +656,7 @@ struct EnvelopeArrayWidget : ModuleWidget {
             module->lights[EnvelopeArray::_1_LIGHT + part].setBrightness(module->out[part] / 10.0);
             module->lights[EnvelopeArray::_1_LIGHT + 6 + part].setBrightness(module->gate_no_output[part] / 10.0);
         }
-
+        ModuleWidget::step();
     }       
 };
 

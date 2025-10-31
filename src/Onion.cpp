@@ -214,13 +214,7 @@ struct OnionWidget : ModuleWidget {
         }
     }
 
-#if defined(METAMODULE)
-    // For MM, use step(), because overriding draw() will allocate a module-sized pixel buffer
     void step() override {
-#else
-    void draw(const DrawArgs& args) override {
-        ModuleWidget::draw(args);
-#endif
         Onion* module = dynamic_cast<Onion*>(this->module);
         if (!module) return;
 
@@ -275,7 +269,8 @@ struct OnionWidget : ModuleWidget {
                 module->configOutput(Onion::LAYER_1_OUTPUT + layer, label);
             }
 
-        }                   
+        } 
+        ModuleWidget::step();                  
     }
 };
 

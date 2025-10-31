@@ -308,13 +308,7 @@ struct HubWidget : ModuleWidget {
         addChild(voltDisplay_II);
     }
 
-#if defined(METAMODULE)
-    // For MM, use step(), because overriding draw() will allocate a module-sized pixel buffer
     void step() override {
-#else
-    void draw(const DrawArgs& args) override {
-        ModuleWidget::draw(args);
-#endif
         Hub* module = dynamic_cast<Hub*>(this->module);
         if (!module) return;
     
@@ -352,7 +346,8 @@ struct HubWidget : ModuleWidget {
             } else {
                 module->lights[Hub::HUB_IIB_1+i].setBrightness(-val2);
             }
-        }       
+        } 
+        ModuleWidget::step();
     }
 
     DigitalDisplay* createDigitalDisplay(Vec position, std::string initialValue) {

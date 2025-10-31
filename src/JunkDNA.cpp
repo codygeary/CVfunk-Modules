@@ -629,19 +629,14 @@ struct JunkDNAWidget : ModuleWidget {
 
     }
 
-#if defined(METAMODULE)
-    // For MM, use step(), because overriding draw() will allocate a module-sized pixel buffer
     void step() override {
-#else
-    void draw(const DrawArgs& args) override {
-        ModuleWidget::draw(args);
-#endif
         JunkDNA* module = dynamic_cast<JunkDNA*>(this->module);
         if (!module) return;
     
         for (int i = 0; i < JunkDNA::NUM_LIGHTS; i++) {
             module->lights[i].setBrightness(module->lightStates[i]);
         }
+        ModuleWidget::step();
     }
 
     // Generic Quantity for any float member 

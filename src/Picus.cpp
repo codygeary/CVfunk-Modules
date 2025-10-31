@@ -644,8 +644,7 @@ struct PicusWidget : ModuleWidget {
 
     }
 
-    void draw(const DrawArgs& args) override {
-        ModuleWidget::draw(args);
+    void step() override {
         Picus* module = dynamic_cast<Picus*>(this->module);
         if (!module) return;
 
@@ -740,7 +739,8 @@ struct PicusWidget : ModuleWidget {
         } else {
             float dim = module->lights[Picus::END_LIGHT].getBrightness();
             module->lights[Picus::END_LIGHT].setBrightness( dim * .8f);
-        }          
+        } 
+        ModuleWidget::step();         
     }  
 
     DigitalDisplay* createDigitalDisplay(Vec position, std::string initialValue) {

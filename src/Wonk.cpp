@@ -559,13 +559,7 @@ struct WonkWidget : ModuleWidget {
 
     }
 
-#if defined(METAMODULE)
-    // For MM, use step(), because overriding draw() will allocate a module-sized pixel buffer
     void step() override {
-#else
-    void draw(const DrawArgs& args) override {
-        ModuleWidget::draw(args);
-#endif
         Wonk* module = dynamic_cast<Wonk*>(this->module);
         if (!module) return;
 
@@ -580,6 +574,7 @@ struct WonkWidget : ModuleWidget {
             } else {
             module->paramQuantities[Wonk::MOD_DEPTH]->displayMultiplier = 1.f;
         }
+        ModuleWidget::step(); 
     }
 };
 

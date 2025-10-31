@@ -819,6 +819,17 @@ struct PreeeeeeeeeeessedDuck : Module {
 
         } //end process channels
 
+        // Handle muting with fade transition
+        if (params[MUTESIDE_PARAM].getValue() > 0.5f) {
+            if (!muteLatch[16]) {
+                muteLatch[16] = true;
+                muteState[16] = !muteState[16];
+                transitionCount[16] = transitionSamples;  // Reset the transition count
+            }
+        } else {
+            muteLatch[16] = false;
+        }
+
 		// If no audio or side-chain channels are active, exit early to save CPU.
 		bool sideConnected = inputs[SIDECHAIN_INPUT_L].isConnected() || inputs[SIDECHAIN_INPUT_R].isConnected();
 		if (inputCount <= 0.0f && !sideConnected) {
@@ -952,8 +963,6 @@ struct PreeeeeeeeeeessedDuck : Module {
         outputs[AUDIO_OUTPUT_L].setVoltage(outputL);
         outputs[AUDIO_OUTPUT_R].setVoltage(outputR);
 
-        // Update lights periodically
-        updateLights();
     }
 
     float applyADAA(float input, float lastInput, float sampleRate) {
@@ -986,6 +995,7 @@ struct PreeeeeeeeeeessedDuck : Module {
 	}
 
     void processSide(float &sideL, float &sideR, float decayRate, float &mixL, float &mixR) {
+
         // Apply VCA control if connected
         if (inputs[VCA_SIDECHAIN_INPUT].isConnected()) {
             float vcaVoltage = inputs[VCA_SIDECHAIN_INPUT].getVoltage() / 10.f;
@@ -998,17 +1008,6 @@ struct PreeeeeeeeeeessedDuck : Module {
         float sideVol = params[SIDECHAIN_VOLUME_PARAM].getValue();
         sideL *= sideVol;
         sideR *= sideVol;
-
-        // Handle muting with fade transition
-        if (params[MUTESIDE_PARAM].getValue() > 0.5f) {
-            if (!muteLatch[16]) {
-                muteLatch[16] = true;
-                muteState[16] = !muteState[16];
-                transitionCount[16] = transitionSamples;  // Reset the transition count
-            }
-        } else {
-            muteLatch[16] = false;
-        }
 
         if (transitionCount[16] > 0) {
             float fadeStep = (muteState[16] ? -1.0f : 1.0f) / transitionSamples;
@@ -1074,59 +1073,6 @@ struct PreeeeeeeeeeessedDuck : Module {
             }
         }
     }//end process side
-
-    void updateLights() {
-        if (++cycleCount >= 2000) {
-            for (int i = 0; i < 16; i++) {
-                lights[VOLUME1_LIGHT + i].setBrightness(filteredEnvelope[i]);
-                // Update mute lights based on the mute button state
-                if (muteState[i]){
-                    lights[MUTE1_LIGHT + i].setBrightness(1.0f);
-                } else {
-                    lights[MUTE1_LIGHT + i].setBrightness(0.0f);
-                }
-            }
-            lights[BASS_VOLUME_LIGHT].setBrightness(sideEnvelope);
-            if (muteState[16]){
-                lights[MUTESIDE_LIGHT].setBrightness(1.0f);
-            } else {
-                lights[MUTESIDE_LIGHT].setBrightness(0.0f);
-            }
-
-            // Update PRESS lights with segmented levels
-            updateSegmentedLights(PRESS_LIGHT1L, pressTotalL, 35.0f, 20);
-            updateSegmentedLights(PRESS_LIGHT1R, pressTotalR, 35.0f, 20);
-
-            // Update FEED lights with segmented levels
-            updateSegmentedLights(FEED_LIGHT1L, distortTotalL, 100.0f, 20);
-            updateSegmentedLights(FEED_LIGHT1R, distortTotalR, 100.0f, 20);
-
-            // Update VOL lights with segmented levels
-            updateSegmentedLights(VOL_LIGHT1, volTotalL, 10.0f, 20);
-            // Update VOL lights with segmented levels
-            updateSegmentedLights(VOL_LIGHT1R, volTotalR, 10.0f, 20);
-
-            cycleCount = 0;
-        }
-    }
-
-    void updateSegmentedLights(int startLightId, float totalValue, float maxValue, int numLights) {
-        float normalizedValue = totalValue / maxValue;
-        int fullLights = static_cast<int>(normalizedValue * numLights);
-        float fractionalBrightness = (normalizedValue * numLights) - fullLights;
-
-        for (int i = 0; i < numLights; i++) {
-            if (i < fullLights) {
-                lights[startLightId + i].setBrightness(1.0f); // Full brightness for fully covered segments
-            } else if (i == fullLights) {
-                lights[startLightId + i].setBrightness(fractionalBrightness); // Partial brightness for the last partially covered segment
-            } else {
-                float dimming = lights[startLightId + i].getBrightness();
-                lights[startLightId + i].setBrightness(dimming * 0.75f);
-            }
-        }
-    }
-
 };
 
 struct PreeeeeeeeeeessedDuckWidget : ModuleWidget {
@@ -1316,6 +1262,48 @@ struct PreeeeeeeeeeessedDuckWidget : ModuleWidget {
 
     }
 
+	void step() override {
+		// Cast base Module* to your subclass
+		PreeeeeeeeeeessedDuck* module = dynamic_cast<PreeeeeeeeeeessedDuck*>(this->module);
+		if (!module) return;
+	
+		updateLights(module);
+		ModuleWidget::step();
+	}
+	
+	void updateLights(PreeeeeeeeeeessedDuck* module) {    
+		for (int i = 0; i < 16; i++) {
+			module->lights[PreeeeeeeeeeessedDuck::VOLUME1_LIGHT + i].setBrightness(module->filteredEnvelope[i]);
+			module->lights[PreeeeeeeeeeessedDuck::MUTE1_LIGHT + i].setBrightness(module->muteState[i] ? 1.0f : 0.0f);
+		}
+		module->lights[PreeeeeeeeeeessedDuck::BASS_VOLUME_LIGHT].setBrightness(module->sideEnvelope);
+		module->lights[PreeeeeeeeeeessedDuck::MUTESIDE_LIGHT].setBrightness(module->muteState[16] ? 1.0f : 0.0f);
+	
+		updateSegmentedLights(module, PreeeeeeeeeeessedDuck::PRESS_LIGHT1L, module->pressTotalL, 35.0f, 20);
+		updateSegmentedLights(module, PreeeeeeeeeeessedDuck::PRESS_LIGHT1R, module->pressTotalR, 35.0f, 20);
+		updateSegmentedLights(module, PreeeeeeeeeeessedDuck::FEED_LIGHT1L, module->distortTotalL, 100.0f, 20);
+		updateSegmentedLights(module, PreeeeeeeeeeessedDuck::FEED_LIGHT1R, module->distortTotalR, 100.0f, 20);
+		updateSegmentedLights(module, PreeeeeeeeeeessedDuck::VOL_LIGHT1, module->volTotalL, 10.0f, 20);
+		updateSegmentedLights(module, PreeeeeeeeeeessedDuck::VOL_LIGHT1R, module->volTotalR, 10.0f, 20);
+	}
+	
+	void updateSegmentedLights(PreeeeeeeeeeessedDuck* module, int startLightId, float totalValue, float maxValue, int numLights) {
+		float normalizedValue = totalValue / maxValue;
+		int fullLights = static_cast<int>(normalizedValue * numLights);
+		float fractionalBrightness = (normalizedValue * numLights) - fullLights;
+	
+		for (int i = 0; i < numLights; i++) {
+			if (i < fullLights) {
+				module->lights[startLightId + i].setBrightness(1.0f);
+			} else if (i == fullLights) {
+				module->lights[startLightId + i].setBrightness(fractionalBrightness);
+			} else {
+				float dimming = module->lights[startLightId + i].getBrightness();
+				module->lights[startLightId + i].setBrightness(dimming * 0.75f);
+			}
+		}
+	}
+	
     void addLightsAroundKnob(Module* module, float knobX, float knobY, int firstLightId, int numLights, float radius) {
         const float startAngle = M_PI*0.7f; // Start angle in radians (8 o'clock on the clock face)
         const float endAngle = 2.0f*M_PI+M_PI*0.3f;   // End angle in radians (4 o'clock on the clock face)

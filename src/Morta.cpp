@@ -253,13 +253,7 @@ struct MortaWidget : ModuleWidget {
 
     }
 
-#if defined(METAMODULE)
-    // For MM, use step(), because overriding draw() will allocate a module-sized pixel buffer
     void step() override {
-#else
-    void draw(const DrawArgs& args) override {
-        ModuleWidget::draw(args);
-#endif
         Morta* module = dynamic_cast<Morta*>(this->module);
         if (!module) return;
     
@@ -272,6 +266,7 @@ struct MortaWidget : ModuleWidget {
             
             voltDisplay->text = voltText;
         }
+        ModuleWidget::step();
     }
 
     DigitalDisplay* createDigitalDisplay(Vec position, std::string initialValue) {

@@ -203,7 +203,7 @@ struct FrequencyTracker {
         // Find first strong local peak
         int candidateLag = 0;
         for (int lag = 2; lag < half - 1; ++lag) {
-            bool isLocalMax = (ac[lag] > ac[lag - 1]) & (ac[lag] >= ac[lag + 1]);
+            bool isLocalMax = (ac[lag] > ac[lag - 1]) && (ac[lag] >= ac[lag + 1]);
             bool isStrong = ac[lag] >= adaptiveThreshold;
             if (isLocalMax & isStrong) {
                 candidateLag = lag;
@@ -647,8 +647,7 @@ struct TunerWidget : ModuleWidget {
         
     }
 
-    void draw(const DrawArgs& args) override {
-        ModuleWidget::draw(args);
+    void step() override {
         Tuner* module = dynamic_cast<Tuner*>(this->module);
         if (!module) return;
     
@@ -715,6 +714,7 @@ struct TunerWidget : ModuleWidget {
             freqDisp2->setFontSize(18.f);
             freqDisp2->box.pos.y = baseFreqY2;
         }
+        ModuleWidget::step(); 
     }
 };
 

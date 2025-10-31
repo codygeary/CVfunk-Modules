@@ -102,7 +102,7 @@ struct Strings : Module {
             {"A7", "A7-Bar", "Asus4", "Aadd9"},
             {"D7", "D7-Bar", "Dsus4", "Dadd9"},
             {"G7", "G7-Bar", "Gsus4", "Gadd9"},
-            {"C6", "C7-Bar", "Csus4", "Cadd9"},
+            {"C7", "C7-Bar", "Csus4", "Cadd9"},
             {"F7", "F7-Bar", "Fsus4", "Fadd9"}
         }};
         // Define chord fingerings for row 1

@@ -857,8 +857,7 @@ struct HammerWidget : ModuleWidget {
     }
 
 
-    void draw(const DrawArgs& args) override {
-        ModuleWidget::draw(args);
+    void step() override {
         Hammer* module = dynamic_cast<Hammer*>(this->module);
         if (!module) return;
 
@@ -917,7 +916,7 @@ struct HammerWidget : ModuleWidget {
         }
 
         module->lights[Hammer::ON_OFF_LIGHT].setBrightness(module->sequenceRunning ? 1.0f : 0.0f);
-
+        ModuleWidget::step();
     }
 
     DigitalDisplay* createDigitalDisplay(Vec position, std::string initialValue, float fontSizeFloat) {

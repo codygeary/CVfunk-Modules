@@ -454,13 +454,8 @@ struct ImpulseControllerWidget : ModuleWidget {
         addChild(createLightCentered<MediumLight<YellowLight>>(mm2px(Vec(146.928, 17.144)), module, ImpulseController::_23OUT_LIGHT));
         addChild(createLightCentered<MediumLight<YellowLight>>(mm2px(Vec(146.928, 35.672)), module, ImpulseController::_24OUT_LIGHT));
     }
-#if defined(METAMODULE)
-    // For MM, use step(), because overriding draw() will allocate a module-sized pixel buffer
+
     void step() override {
-#else
-    void draw(const DrawArgs& args) override {
-        ModuleWidget::draw(args);
-#endif
         ImpulseController* module = dynamic_cast<ImpulseController*>(this->module);
         if (!module) return;
 
@@ -470,6 +465,7 @@ struct ImpulseControllerWidget : ModuleWidget {
                 module->lights[lightId].setBrightness(lightBrightness);
             }
         }
+        ModuleWidget::step();        
     }     
 };
 
