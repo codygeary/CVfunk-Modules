@@ -90,11 +90,9 @@ struct Picus : Module {
     bool resyncFlag[STAGES] = {false,false,false,false,false,false,false}; 
     int beatCount = 0;
     float beatInterval = 1.f;
-    float playMode = 0.f;
     bool endPulseAtStage = true;
     bool patternReset = false;
     bool resetCondition = false;
-    float lastPlayMode = 1.0f;
     bool blinkDON = false;
     bool blinkKA = false;
     bool blinkEND = false;
@@ -102,6 +100,9 @@ struct Picus : Module {
 
     int inputSkipper = 0;
     int inputSkipsTotal = 100; //only process button presses every 1/100 steps as it takes way too much CPU
+    float playMode = 0.f;
+    float lastPlayMode = 1.0f;
+
 
     dsp::PulseGenerator DonPulse, KaPulse, EndPulse;
 
@@ -132,6 +133,9 @@ struct Picus : Module {
             json_array_append_new(divideJ, json_real(divide[i]));
         }
         json_object_set_new(rootJ, "divide", divideJ);
+
+        json_object_set_new(rootJ, "playMode", json_real(playMode));
+        json_object_set_new(rootJ, "lastPlayMode", json_real(lastPlayMode));
     
         return rootJ;
     }
@@ -188,6 +192,17 @@ struct Picus : Module {
                 }
             }
         }
+ 
+        json_t* playModeJ = json_object_get(rootJ, "playMode");
+        if (playModeJ && json_is_number(playModeJ)) {
+            playMode = json_number_value(playModeJ);
+        }
+    
+        json_t* lastPlayModeJ = json_object_get(rootJ, "lastPlayMode");
+        if (lastPlayModeJ && json_is_number(lastPlayModeJ)) {
+            lastPlayMode = json_number_value(lastPlayModeJ);
+        }
+        firstPulseReceived = true;
     }
 
     Picus() {
@@ -449,8 +464,14 @@ struct Picus : Module {
             currentStage = 0;
             selectedStage = 0;
             beatTimer.reset();
-            firstPulseReceived = false;
             patternIndex = 0; 
+
+            clockTrigger.reset();
+            syncTimer.reset();
+            syncPoint = false;
+
+            firstPulseReceived = true;
+            firstSync = true;
 
             if (lastPlayMode == 2.0f){   
                 if (playMode>0.f){
