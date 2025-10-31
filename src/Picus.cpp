@@ -102,6 +102,7 @@ struct Picus : Module {
     int inputSkipsTotal = 100; //only process button presses every 1/100 steps as it takes way too much CPU
     float playMode = 0.f;
     float lastPlayMode = 1.0f;
+    bool resetArmed = false;
 
 
     dsp::PulseGenerator DonPulse, KaPulse, EndPulse;
@@ -202,7 +203,6 @@ struct Picus : Module {
         if (lastPlayModeJ && json_is_number(lastPlayModeJ)) {
             lastPlayMode = json_number_value(lastPlayModeJ);
         }
-        firstPulseReceived = true;
     }
 
     Picus() {
@@ -316,13 +316,42 @@ struct Picus : Module {
                     return; // Don't process as normal clock
                 }
                 
-                if (firstPulseReceived) {
+                // --- Clock pulse detected ---
+                if (resetArmed) {
+                    // --- first clock after a reset ---
+                    resetArmed = false;
+                    firstPulseReceived = true;
+                    firstSync = true;
+                    syncPoint = true;        // trigger immediately
+                    syncTimer.reset();
+                    beatTimer.reset();
+                    beatCount = 0;
+                    subBeatCount = 0;
+                
+                    // optional: produce the first beat now
+                    if (playMode > 0.f) {
+                        patternIndex = 0;  // always start from step 1
+                        if (patternState[patternIndex] == 0) DonPulse.trigger(0.001f);
+                        if (patternState[patternIndex] == 1) KaPulse.trigger(0.001f);
+                    }
+                
+                } else if (!firstPulseReceived) {
+                    // --- normal initial start ---
+                    firstPulseReceived = true;
+                    firstSync = true;
+                    syncPoint = true;
+                    syncTimer.reset();
+                    beatTimer.reset();
+                    beatCount = 0;
+                    subBeatCount = 0;
+                
+                } else {
+                    // --- all subsequent pulses ---
                     syncInterval = syncTimer.time;
                     syncTimer.reset();
                     syncPoint = true;
                     firstSync = false;
                 }
-                firstPulseReceived = true;
             }
         }
 
@@ -409,7 +438,7 @@ struct Picus : Module {
         }
         
         // Beat Computing (sub-beats within each stage)
-        if (divide[currentStage] > 0.f && multiply[currentStage] > 0.f && !firstSync && playMode > 0.f) {
+        if (divide[currentStage] > 0.f && multiply[currentStage] > 0.f && playMode > 0.f) {
         
             if (syncPoint || resyncFlag[currentStage]) {
                 resyncFlag[currentStage] = false;
@@ -460,21 +489,26 @@ struct Picus : Module {
         if (inputs[RESET_INPUT].isConnected()){
             if(resetTrigger.process(inputs[RESET_INPUT].getVoltage()-0.1f)) reset = true;
         }
-        if (reset || resetCondition){
+
+        if (reset || resetCondition) {
             currentStage = 0;
             selectedStage = 0;
             beatTimer.reset();
             patternIndex = 0; 
-
+        
             clockTrigger.reset();
             syncTimer.reset();
             syncPoint = false;
-
-            firstPulseReceived = true;
-            firstSync = true;
-
-            if (lastPlayMode == 2.0f){   
-                if (playMode>0.f){
+        
+            firstPulseReceived = false;
+            firstSync = false;
+        
+            subBeatCount = 0;
+            beatCount = 0;
+            resetArmed = true;   
+        
+            if (lastPlayMode == 2.0f) {   
+                if (playMode > 0.f) {
                     lastPlayMode = playMode;
                     paramQuantities[ON_SWITCH]->setDisplayValue(playMode);
                 } else {
