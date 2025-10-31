@@ -561,12 +561,12 @@ struct Weave : Module {
             outputs[POLY_OUTPUT].setVoltage(outputNote, currentPermute[c]);
 
             // Also send the same notes to the individual mono outputs
-            if (outputs[OUTPUT_1].isConnected()) outputs[OUTPUT_1].setVoltage(finalNotes[0] + extOffset);
-            if (outputs[OUTPUT_2].isConnected()) outputs[OUTPUT_2].setVoltage(finalNotes[1] + extOffset);
-            if (outputs[OUTPUT_3].isConnected()) outputs[OUTPUT_3].setVoltage(finalNotes[2] + extOffset);
-            if (outputs[OUTPUT_4].isConnected()) outputs[OUTPUT_4].setVoltage(finalNotes[3] + extOffset);
-            if (outputs[OUTPUT_5].isConnected()) outputs[OUTPUT_5].setVoltage(finalNotes[4] + extOffset);
-            if (outputs[OUTPUT_6].isConnected()) outputs[OUTPUT_6].setVoltage(finalNotes[5] + extOffset);
+            if (outputs[OUTPUT_1].isConnected()) outputs[OUTPUT_1 + currentPermute[0]].setVoltage(finalNotes[0] + extOffset);
+            if (outputs[OUTPUT_2].isConnected()) outputs[OUTPUT_1 + currentPermute[1]].setVoltage(finalNotes[1] + extOffset);
+            if (outputs[OUTPUT_3].isConnected()) outputs[OUTPUT_1 + currentPermute[2]].setVoltage(finalNotes[2] + extOffset);
+            if (outputs[OUTPUT_4].isConnected()) outputs[OUTPUT_1 + currentPermute[3]].setVoltage(finalNotes[3] + extOffset);
+            if (outputs[OUTPUT_5].isConnected()) outputs[OUTPUT_1 + currentPermute[4]].setVoltage(finalNotes[4] + extOffset);
+            if (outputs[OUTPUT_6].isConnected()) outputs[OUTPUT_1 + currentPermute[5]].setVoltage(finalNotes[5] + extOffset);
         }
 
         // --- Root Output Logic ---
