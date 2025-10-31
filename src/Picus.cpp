@@ -450,8 +450,7 @@ struct Picus : Module {
             selectedStage = 0;
             beatTimer.reset();
             firstPulseReceived = false;
-            patternIndex = 0;
-            EndPulse.trigger(0.001f);
+            patternIndex = 0; 
 
             if (lastPlayMode == 2.0f){   
                 if (playMode>0.f){
