@@ -422,7 +422,7 @@ struct Picus : Module {
                 for (int i = 0; i < STAGES; i++) { 
                     if (currentStage >= STAGES) { //Stage Wrap-Around Point
                         currentStage = 0;
-                        if (!endPulseAtStage) { EndPulse.trigger(0.001f); blinkEND = true; }                                           
+                        if (!endPulseAtStage) { EndPulse.trigger(0.001f); blinkEND = true; }
                         if (playMode == 2.0) { //one-shot mode
                             paramQuantities[ON_SWITCH]->setDisplayValue(0.0f);
                             playMode = 0.f;
@@ -440,7 +440,7 @@ struct Picus : Module {
         // Beat Computing (sub-beats within each stage)
         if (divide[currentStage] > 0.f && multiply[currentStage] > 0.f && playMode > 0.f) {
         
-            if (syncPoint || resyncFlag[currentStage]) {
+            if ((syncPoint && beatCount == 0) || resyncFlag[currentStage]) {
                 resyncFlag[currentStage] = false;
                 // Total duration of this stage / number of sub-beats
                 beatInterval = (divide[currentStage] * syncInterval) / multiply[currentStage];
@@ -481,6 +481,9 @@ struct Picus : Module {
         if (divide[currentStage]>0.f && multiply[currentStage]>0.f && playMode > 0.f ){
             outputs[DON_OUTPUT].setVoltage(DonActive ? 10.f : 0.f);
             outputs[KA_OUTPUT].setVoltage(KaActive ? 10.f : 0.f);
+        } else {
+            outputs[DON_OUTPUT].setVoltage(0.f);
+            outputs[KA_OUTPUT].setVoltage(0.f);        
         }
         outputs[END_OUTPUT].setVoltage(EndActive ? 10.f : 0.f);
 
