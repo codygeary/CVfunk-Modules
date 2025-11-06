@@ -141,11 +141,11 @@ struct Clpy : Module {
         config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
         configParam(GAIN_PARAM, 0.f, 10.f, 1.f, "Gain");
         configParam(CLIP_PARAM, -5.f, 5.f, 0.f, "Clip");
-        configParam(GAIN_ATT_PARAM, -1.f, 1.f, 0.f, "Gain Attenuverter");
-        configParam(CLIP_ATT_PARAM, -1.f, 1.f, 0.f, "Clip Attenuverter");
-        configInput(GAIN_INPUT, "Gain");
-        configInput(CLIP_L_INPUT, "Clip L");
-        configInput(CLIP_R_INPUT, "Clip R");
+        configParam(GAIN_ATT_PARAM, -1.f, 1.f, 0.f, "Gain Att.");
+        configParam(CLIP_ATT_PARAM, -1.f, 1.f, 0.f, "Clip Att.");
+        configInput(GAIN_INPUT, "Gain CV");
+        configInput(CLIP_L_INPUT, "Clip L CV");
+        configInput(CLIP_R_INPUT, "Clip R CV");
         configInput(INL_INPUT, "In L");
         configInput(INR_INPUT, "In R");
         configOutput(OUTL_OUTPUT, "Out L");

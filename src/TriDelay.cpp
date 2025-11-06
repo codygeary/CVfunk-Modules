@@ -177,11 +177,11 @@ struct TriDelay : Module {
 
         // Global Delay
         configParam(GLOBAL_DELAY, 0.f, 1.f, 0.138888f, "Global Delay Time", " msec");
-        configParam(GLOBAL_DELAY_ATT, -1.f, 1.f, 0.f, "Global Delay Attenuverter");
+        configParam(GLOBAL_DELAY_ATT, -1.f, 1.f, 0.f, "Global Delay Att.");
 
         // Global WetDry
         configParam(GLOBAL_WETDRY, 0.f, 100.0f, 50.f, "Dry/Wet", "% Wet");
-        configParam(GLOBAL_WETDRY_ATT, -10.f, 10.f, 0.f, "Dry/Wet Attenuverter");
+        configParam(GLOBAL_WETDRY_ATT, -10.f, 10.f, 0.f, "Dry/Wet Att.");
 
     
         // Per-tap Delay Offsets
@@ -191,7 +191,7 @@ struct TriDelay : Module {
     
         // Global Panning
         configParam(GLOBAL_PAN, -1.f, 1.f, 0.f, "Global Pan", " L/R");
-        configParam(GLOBAL_PAN_ATT, -1.f, 1.f, 0.f, "Global Pan Attenuverter");
+        configParam(GLOBAL_PAN_ATT, -1.f, 1.f, 0.f, "Global Pan Att.");
     
         // Per-tap Panning Offsets
         configParam(TAP_1_PAN, -1.f, 1.f, -.5f, "Tap 1 Pan Offset", " L/R");
@@ -200,7 +200,7 @@ struct TriDelay : Module {
         
         // Global Feedback
         configParam(GLOBAL_FEEDBACK, 0.f, 100.f, 35.f, "Global Feedback", "%");
-        configParam(GLOBAL_FEEDBACK_ATT, -10.f, 10.f, 0.f, "Global Feedback Attenuverter");
+        configParam(GLOBAL_FEEDBACK_ATT, -10.f, 10.f, 0.f, "Global Feedback Att.");
     
         // Per-tap Feedback Offsets
         configParam(TAP_1_FEEDBACK, -100.f, 100.f, 0.f, "Tap 1 Feedback Offset", "%");
@@ -216,8 +216,8 @@ struct TriDelay : Module {
         configInput(GLOBAL_PAN_IN, "Global Pan CV");
         configInput(GLOBAL_FEEDBACK_IN, "Global Feedback CV");
         configInput(GLOBAL_WETDRY_IN, "Dry/Wet CV");
-        configInput(CLEAR_BUFFER_IN, "Clear Buffer");
-        configInput(HOLD_IN, "Hold");
+        configInput(CLEAR_BUFFER_IN, "Clear Buffer In");
+        configInput(HOLD_IN, "Hold In");
 
         configInput(AUDIO_INPUT_L, "Audio In L");
         configInput(AUDIO_INPUT_R, "Audio In R");

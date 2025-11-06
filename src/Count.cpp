@@ -97,12 +97,17 @@ struct Count : Module {
         configSwitch(LOOP_SWITCH, 0.0, 2.0, 2.0, "Loop Logic", {"Stop", "Unbounded", "Loop"});
         configSwitch(RESET_POINT_SWITCH, 0.0, 2.0, 0.0, "Reset Point", {"0", "Center", "End"});
 
-        configInput(UP_INPUT, "Up");
-        configInput(DOWN_INPUT, "Down");
-        configInput(RESET_INPUT, "Reset");
+        configInput(UP_INPUT, "Up CV");
+        configInput(DOWN_INPUT, "Down CV");
+        configInput(RESET_INPUT, "Reset CV");
 
+#ifdef METAMODULE
+        configOutput(COUNT_OUTPUT, "Count Gate Out");
+        configOutput(PHASE_OUTPUT, "Stepped-Phase Out");
+#else
         configOutput(COUNT_OUTPUT, "High Gate at Loop Point or upon reaching Start/End");
         configOutput(PHASE_OUTPUT, "Stepped-Phase 0-10V");
+#endif
 
     }
 

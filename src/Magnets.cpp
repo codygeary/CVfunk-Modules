@@ -103,20 +103,20 @@ struct Magnets : Module {
         configParam(RESET_BUTTON, 0.0, 1.0, 0.0, "Reset" );
 
         // Initialize attenuators 
-        configParam(TEMP_ATTENUATOR, -1.f, 1.f, 0.0f, "Temperature Attenuator");
-        configParam(POLARIZATION_ATTENUATOR, -1.f, 1.f, 0.0f, "Polarization Attenuator");
-        configParam(INTERACTION_ATTENUATOR, -1.f, 1.f, 0.0f, "Interaction Strength Attenuator");
+        configParam(TEMP_ATTENUATOR, -1.f, 1.f, 0.0f, "Temperature Att.");
+        configParam(POLARIZATION_ATTENUATOR, -1.f, 1.f, 0.0f, "Polarization Att.");
+        configParam(INTERACTION_ATTENUATOR, -1.f, 1.f, 0.0f, "Interaction Strength Att.");
 
         // Initialize inputs with labels
-        configInput(HEAD_INPUT, "Tape Head");
-        configInput(RESET_INPUT, "Reset");
+        configInput(HEAD_INPUT, "Tape Head CV");
+        configInput(RESET_INPUT, "Reset CV");
         configInput(TEMP_INPUT, "Temperature CV");
         configInput(POLARIZATION_INPUT, "Polarization CV");
         configInput(INTERACTION_INPUT, "Interaction CV");
 
         // Initialize outputs with labels
         for (int i = 0; i < NUM_SECTIONS; ++i) {
-            configOutput(OUTPUTS_START + i, "Zone " + std::to_string(i+1));
+            configOutput(OUTPUTS_START + i, "Zone " + std::to_string(i+1) + " Out");
         }
         
         // Initialize all lights to off

@@ -82,26 +82,26 @@ struct Hub : Module {
         // Configure I parameters
         configParam(MASTER_KNOB_I, -10.0f, 10.0f, 0.0f, "Master Knob I");
         configParam(VCA_GAIN_I, 0.0f, 10.0f, 10.0f, "Output Range I");
-        configParam(VCA_ATT_I, -1.0f, 1.0f, 1.0f, "Range Attenuverter I");
-        configParam(MAIN_GAIN_I, -2.0f, 2.0f, 1.0f, "Input I Attenuverter");
+        configParam(VCA_ATT_I, -1.0f, 1.0f, 1.0f, "Range Att. I");
+        configParam(MAIN_GAIN_I, -2.0f, 2.0f, 1.0f, "Input I Att.");
         configParam(MAIN_OFFSET_I, -10.0f, 10.0f, 0.0f, "Input I Offset Bias");
 
         // Configure II parameters
         configParam(MASTER_KNOB_II, -10.0f, 10.0f, 0.0f, "Master Knob II");
         configParam(VCA_GAIN_II, 0.0f, 10.0f, 10.0f, "Output Range II");
-        configParam(VCA_ATT_II, -1.0f, 1.0f, 1.0f, "Range Attenuverter II");
-        configParam(MAIN_GAIN_II, -2.0f, 2.0f, 1.0f, "Input II Attenuverter");
+        configParam(VCA_ATT_II, -1.0f, 1.0f, 1.0f, "Range Att. II");
+        configParam(MAIN_GAIN_II, -2.0f, 2.0f, 1.0f, "Input II Att.");
         configParam(MAIN_OFFSET_II, -10.0f, 10.0f, 0.0f, "Input II Offset Bias");
 
         // Configure I inputs/outputs
-        configInput(MAIN_INPUT_I, "INPUT I");
+        configInput(MAIN_INPUT_I, "In I");
         configInput(VCA_CV_INPUT_I, "Range CV I");
-        configOutput(MAIN_OUTPUT_I, "Output I" );
+        configOutput(MAIN_OUTPUT_I, "Out I" );
 
         // Configure II inputs/outputs
-        configInput(MAIN_INPUT_II, "INPUT II");
+        configInput(MAIN_INPUT_II, "In II");
         configInput(VCA_CV_INPUT_II, "Range CV II");
-        configOutput(MAIN_OUTPUT_II, "Output II" );
+        configOutput(MAIN_OUTPUT_II, "Out II" );
       
         isEditing[0] = false;   
         isEditing[1] = false;   

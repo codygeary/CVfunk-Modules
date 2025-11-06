@@ -31,15 +31,6 @@ std::array<std::array<float, 12>, 6> Scales = {{
     {{2093.0f, 2217.46f, 2349.32f, 2489.02f, 2637.02f, 2793.83f, 2959.96f, 3135.96f, 3322.44f, 3520.0f, 3729.31f, 3951.07f}}
 }};
 
-// std::array<std::array<std::string, 12>, 6> Names = {{
-//     {"C2", "C#2/Db2", "D2", "D#2/Eb2", "E2", "F2", "F#2/Gb2", "G2", "G#2/Ab2", "A2", "A#2/Bb2", "B2"},
-//     {"C3", "C#3/Db3", "D3", "D#3/Eb3", "E3", "F3", "F#3/Gb3", "G3", "G#3/Ab3", "A3", "A#3/Bb3", "B3"},
-//     {"C4", "C#4/Db4", "D4", "D#4/Eb4", "E4", "F4", "F#4/Gb4", "G4", "G#4/Ab4", "A4", "A#4/Bb4", "B4"},
-//     {"C5", "C#5/Db5", "D5", "D#5/Eb5", "E5", "F5", "F#5/Gb5", "G5", "G#5/Ab5", "A5", "A#5/Bb5", "B5"},
-//     {"C6", "C#6/Db6", "D6", "D#6/Eb6", "E6", "F6", "F#6/Gb6", "G6", "G#6/Ab6", "A6", "A#6/Bb6", "B6"},
-//     {"C7", "C#7/Db7", "D7", "D#7/Eb7", "E7", "F7", "F#7/Gb7", "G7", "G#7/Ab7", "A7", "A#7/Bb7", "B7"}
-// }};
-
 #include <cstddef> // for std::size_t
 static bool isAligned(void* ptr, std::size_t alignment) {
     return reinterpret_cast<uintptr_t>(ptr) % alignment == 0;
@@ -89,8 +80,7 @@ struct FlowerPatch : Module {
     // Frame history buffer
     float frameHistory[MAX_HISTORY_FRAMES][BUFFER_SIZE] = {{0}}; // Store history for waveform frames
     int currentFrame = 0; // Index for the current frame
-
-   
+  
     // FFT related buffers
     dsp::RealFFT fft;  // Using RealFFT from the Rack DSP library
     float* fftOutput; // This will point to the aligned buffer
@@ -148,23 +138,28 @@ struct FlowerPatch : Module {
         configInput(AUDIO_INPUT, "Audio Input");
 
         configParam(HUE_PARAM, -5.0, 5.0, 0.0, "Hue");
-        configParam(HUE_ATT_PARAM, -1.0, 1.0, 0.0, "Hue Attenuvertor");
-        configInput(HUE_INPUT, "Hue");
+        configParam(HUE_ATT_PARAM, -1.0, 1.0, 0.0, "Hue Att.");
+        configInput(HUE_INPUT, "Hue CV");
 
         configParam(FILL_PARAM, -5.0, 5.0, 0.0, "Fill");
-        configParam(FILL_ATT_PARAM, -1.0, 1.0, 0.0, "Fill Attenuvertor");
-        configInput(FILL_INPUT, "Fill");
+        configParam(FILL_ATT_PARAM, -1.0, 1.0, 0.0, "Fill Att.");
+        configInput(FILL_INPUT, "Fill CV");
 
         configParam(FLOWER_PARAM, -5.0, 5.0, 0.0, "Flower");
-        configParam(FLOWER_ATT_PARAM, -1.0, 1.0, 0.0, "Flower Attenuvertor");
-        configInput(FLOWER_INPUT, "Flower");
+        configParam(FLOWER_ATT_PARAM, -1.0, 1.0, 0.0, "Flower Att.");
+        configInput(FLOWER_INPUT, "Flower CV");
 
         configParam(FFT_PARAM, -5.0, 5.0, 1.0, "FFT Intensity");
-        configParam(FFT_ATT_PARAM, -1.0, 1.0, 0.0, "FFT Attenuvertor");
-        configInput(FFT_INPUT, "FFT");
+        configParam(FFT_ATT_PARAM, -1.0, 1.0, 0.0, "FFT Att.");
+        configInput(FFT_INPUT, "FFT CV");
 
+#ifdef METAMODULE
+        configOutput(FREQUENCY_OUTPUT, "Main Frequency");
+        configOutput(AMPLITUDE_OUTPUT, "Amplitude");
+#else
         configOutput(FREQUENCY_OUTPUT, "Frequency Peaks (poly)");
         configOutput(AMPLITUDE_OUTPUT, "Amplitudes (poly)");
+#endif
        
      }
  

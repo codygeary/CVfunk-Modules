@@ -271,25 +271,25 @@ struct Alloy : Module {
         configParam(IMPULSE_PARAM, 0.f, 1.f, 0.25f, "Impulse Length");
         configParam(OVERDRIVE_PARAM, 0.f, 1.f, 0.0f, "Overdrive Distortion");
 
-        configParam(TEMPER_ATT, -1.f, 1.f, 0.0f, "Temper");
-        configParam(RESONANCE_ATT, -1.f, 1.f, 0.0f, "Resonance");
-        configParam(NOISE_ATT,-1.f, 1.f, 0.0f, "Noise");
-        configParam(SHAPE_ATT, -1.f, 1.f, 0.0f, "Shape");
-        configParam(IMPULSE_ATT, -1.f, 1.f, 0.0f, "Impulse Length");
-        configParam(OVERDRIVE_ATT, -1.f, 1.f, 0.0f, "Overdrive Distortion");
+        configParam(TEMPER_ATT, -1.f, 1.f, 0.0f, "Temper Att.");
+        configParam(RESONANCE_ATT, -1.f, 1.f, 0.0f, "Resonance Att.");
+        configParam(NOISE_ATT,-1.f, 1.f, 0.0f, "Noise Att.");
+        configParam(SHAPE_ATT, -1.f, 1.f, 0.0f, "Shape Att.");
+        configParam(IMPULSE_ATT, -1.f, 1.f, 0.0f, "Impulse Length Att." );
+        configParam(OVERDRIVE_ATT, -1.f, 1.f, 0.0f, "Overdrive Distortion Att.");
 
-        configInput(TEMPER_IN,   "Tension");
-        configInput(RESONANCE_IN, "Resonance");
-        configInput(NOISE_IN,     "Noise");
-        configInput(SHAPE_IN,     "Shape");
-        configInput(IMPULSE_IN,   "Impulse");
-        configInput(OVERDRIVE_IN,  "Overdrive");
-        configInput(PITCH_IN,  "Pitch (V/Oct)");
-        configInput(TRIG_INPUT,  "Strike");
-        configInput(AUDIO_INPUT, "Resonator");
+        configInput(TEMPER_IN,   "Tension CV");
+        configInput(RESONANCE_IN, "Resonance CV");
+        configInput(NOISE_IN,     "Noise CV");
+        configInput(SHAPE_IN,     "Shape CV");
+        configInput(IMPULSE_IN,   "Impulse CV");
+        configInput(OVERDRIVE_IN,  "Overdrive CV");
+        configInput(PITCH_IN,  "Pitch CV (V/Oct)");
+        configInput(TRIG_INPUT,  "Strike CV");
+        configInput(AUDIO_INPUT, "Resonator CV");
 
-        configOutput(AUDIO_OUTPUT_L,  "Audio L");
-        configOutput(AUDIO_OUTPUT_R,  "Audio R");
+        configOutput(AUDIO_OUTPUT_L,  "Audio L Out");
+        configOutput(AUDIO_OUTPUT_R,  "Audio R Out");
 
         // Initialize all detune tables
         for (int c = 0; c < MAX_POLY; ++c)

@@ -391,99 +391,116 @@ struct PreeeeeeeeeeessedDuck : Module {
         // Configure side and saturation parameters
         configParam(SIDECHAIN_VOLUME_PARAM, 0.f, 2.f, 0.6f, "Sidechain Volume");
         configParam(DUCK_PARAM, 0.f, 1.f, 0.7f, "Duck Amount");
-        configParam(DUCK_ATT, -1.f, 1.f, 0.0f, "Duck Attenuverter");
-        configParam(FEEDBACK_ATT, -1.f, 1.f, 0.0f, "Feedback Attenuverter");
-        configParam(MASTER_VOL_ATT, -1.f, 1.f, 0.0f, "Master Volume Attenuverter");
+        configParam(DUCK_ATT, -1.f, 1.f, 0.0f, "Duck Att.");
+        configParam(FEEDBACK_ATT, -1.f, 1.f, 0.0f, "Feedback Att.");
+        configParam(MASTER_VOL_ATT, -1.f, 1.f, 0.0f, "Master Volume Att.");
 
         configParam(PRESS_PARAM, 0.f, 1.f, 0.f, "Press");
-        configParam(PRESS_ATT, -1.f, 1.f, 0.0f, "Press Attenuation");
+        configParam(PRESS_ATT, -1.f, 1.f, 0.0f, "Press Att.");
 
         // Configure inputs for each channel
-        configInput(AUDIO_1L_INPUT, "Channel 1 L / Poly");
-        configInput(AUDIO_1R_INPUT, "Channel 1 R / Poly");
-        configInput(AUDIO_2L_INPUT, "Channel 2 L");
-        configInput(AUDIO_2R_INPUT, "Channel 2 R");
-        configInput(AUDIO_3L_INPUT, "Channel 3 L");
-        configInput(AUDIO_3R_INPUT, "Channel 3 R");
-        configInput(AUDIO_4L_INPUT, "Channel 4 L");
-        configInput(AUDIO_4R_INPUT, "Channel 4 R");
-        configInput(AUDIO_5L_INPUT, "Channel 5 L");
-        configInput(AUDIO_5R_INPUT, "Channel 5 R");
-        configInput(AUDIO_6L_INPUT, "Channel 6 L");
-        configInput(AUDIO_6R_INPUT, "Channel 6 R");
-        configInput(AUDIO_7L_INPUT, "Channel 7 L");
-        configInput(AUDIO_7R_INPUT, "Channel 7 R");
-        configInput(AUDIO_8L_INPUT, "Channel 8 L");
-        configInput(AUDIO_8R_INPUT, "Channel 8 R");
-        configInput(AUDIO_9L_INPUT, "Channel 9 L");
-        configInput(AUDIO_9R_INPUT, "Channel 9 R");
-        configInput(AUDIO_10L_INPUT, "Channel 10 L");
-        configInput(AUDIO_10R_INPUT, "Channel 10 R");
-        configInput(AUDIO_11L_INPUT, "Channel 11 L");
-        configInput(AUDIO_11R_INPUT, "Channel 11 R");
-        configInput(AUDIO_12L_INPUT, "Channel 12 L");
-        configInput(AUDIO_12R_INPUT, "Channel 12 R");
-        configInput(AUDIO_13L_INPUT, "Channel 13 L");
-        configInput(AUDIO_13R_INPUT, "Channel 13 R");
-        configInput(AUDIO_14L_INPUT, "Channel 14 L");
-        configInput(AUDIO_14R_INPUT, "Channel 14 R");
-        configInput(AUDIO_15L_INPUT, "Channel 15 L");
-        configInput(AUDIO_15R_INPUT, "Channel 15 R");
-        configInput(AUDIO_16L_INPUT, "Channel 16 L");
-        configInput(AUDIO_16R_INPUT, "Channel 16 R");
+#ifdef METAMODULE    
+        configInput(AUDIO_1L_INPUT, "Chan. 1 L / Poly");
+        configInput(AUDIO_1R_INPUT, "Chan. 1 R / Poly");
+#else
+        configInput(AUDIO_1L_INPUT, "Chan. 1 L In");
+        configInput(AUDIO_1R_INPUT, "Chan. 1 R In");
+#endif
+        configInput(AUDIO_2L_INPUT, "Chan. 2 L In");
+        configInput(AUDIO_2R_INPUT, "Chan. 2 R In");
+        configInput(AUDIO_3L_INPUT, "Chan. 3 L In");
+        configInput(AUDIO_3R_INPUT, "Chan. 3 R In");
+        configInput(AUDIO_4L_INPUT, "Chan. 4 L In");
+        configInput(AUDIO_4R_INPUT, "Chan. 4 R In");
+        configInput(AUDIO_5L_INPUT, "Chan. 5 L In");
+        configInput(AUDIO_5R_INPUT, "Chan. 5 R In");
+        configInput(AUDIO_6L_INPUT, "Chan. 6 L In");
+        configInput(AUDIO_6R_INPUT, "Chan. 6 R In");
+        configInput(AUDIO_7L_INPUT, "Chan. 7 L In");
+        configInput(AUDIO_7R_INPUT, "Chan. 7 R In");
+        configInput(AUDIO_8L_INPUT, "Chan. 8 L In");
+        configInput(AUDIO_8R_INPUT, "Chan. 8 R In");
+        configInput(AUDIO_9L_INPUT, "Chan. 9 L In");
+        configInput(AUDIO_9R_INPUT, "Chan. 9 R In");
+        configInput(AUDIO_10L_INPUT, "Chan. 10 L In");
+        configInput(AUDIO_10R_INPUT, "Chan. 10 R In");
+        configInput(AUDIO_11L_INPUT, "Chan. 11 L In");
+        configInput(AUDIO_11R_INPUT, "Chan. 11 R In");
+        configInput(AUDIO_12L_INPUT, "Chan. 12 L In");
+        configInput(AUDIO_12R_INPUT, "Chan. 12 R In");
+        configInput(AUDIO_13L_INPUT, "Chan. 13 L In");
+        configInput(AUDIO_13R_INPUT, "Chan. 13 R In");
+        configInput(AUDIO_14L_INPUT, "Chan. 14 L In");
+        configInput(AUDIO_14R_INPUT, "Chan. 14 R In");
+        configInput(AUDIO_15L_INPUT, "Chan. 15 L In");
+        configInput(AUDIO_15R_INPUT, "Chan. 15 R In");
+        configInput(AUDIO_16L_INPUT, "Chan. 16 L In");
+        configInput(AUDIO_16R_INPUT, "Chan. 16 R In");
 
-        configInput(VCA_CV1_INPUT, "Channel 1 VCA CV / Poly");
-        configInput(VCA_CV2_INPUT, "Channel 2 VCA CV");
-        configInput(VCA_CV3_INPUT, "Channel 3 VCA CV");
-        configInput(VCA_CV4_INPUT, "Channel 4 VCA CV");
-        configInput(VCA_CV5_INPUT, "Channel 5 VCA CV");
-        configInput(VCA_CV6_INPUT, "Channel 6 VCA CV");
-        configInput(VCA_CV7_INPUT, "Channel 7 VCA CV");
-        configInput(VCA_CV8_INPUT, "Channel 8 VCA CV");
-        configInput(VCA_CV9_INPUT, "Channel 9 VCA CV");
-        configInput(VCA_CV10_INPUT, "Channel 10 VCA CV");
-        configInput(VCA_CV11_INPUT, "Channel 11 VCA CV");
-        configInput(VCA_CV12_INPUT, "Channel 12 VCA CV");
-        configInput(VCA_CV13_INPUT, "Channel 13 VCA CV");
-        configInput(VCA_CV14_INPUT, "Channel 14 VCA CV");
-        configInput(VCA_CV15_INPUT, "Channel 15 VCA CV");
-        configInput(VCA_CV16_INPUT, "Channel 16 VCA CV");
-
+#ifdef METAMODULE    
+        configInput(VCA_CV1_INPUT, "Chan. 1 VCA CV");
+#else
+        configInput(VCA_CV1_INPUT, "Chan. 1 VCA CV / Poly");
+#endif
+        configInput(VCA_CV2_INPUT, "Chan. 2 VCA CV");
+        configInput(VCA_CV3_INPUT, "Chan. 3 VCA CV");
+        configInput(VCA_CV4_INPUT, "Chan. 4 VCA CV");
+        configInput(VCA_CV5_INPUT, "Chan. 5 VCA CV");
+        configInput(VCA_CV6_INPUT, "Chan. 6 VCA CV");
+        configInput(VCA_CV7_INPUT, "Chan. 7 VCA CV");
+        configInput(VCA_CV8_INPUT, "Chan. 8 VCA CV");
+        configInput(VCA_CV9_INPUT, "Chan. 9 VCA CV");
+        configInput(VCA_CV10_INPUT, "Chan. 10 VCA CV");
+        configInput(VCA_CV11_INPUT, "Chan. 11 VCA CV");
+        configInput(VCA_CV12_INPUT, "Chan. 12 VCA CV");
+        configInput(VCA_CV13_INPUT, "Chan. 13 VCA CV");
+        configInput(VCA_CV14_INPUT, "Chan. 14 VCA CV");
+        configInput(VCA_CV15_INPUT, "Chan. 15 VCA CV");
+        configInput(VCA_CV16_INPUT, "Chan. 16 VCA CV");
         configInput(VCA_SIDECHAIN_INPUT, "Sidechain VCA CV");
 
-        configInput(PAN_CV1_INPUT, "Channel 1 Pan CV / Poly");
-        configInput(PAN_CV2_INPUT, "Channel 2 Pan CV");
-        configInput(PAN_CV3_INPUT, "Channel 3 Pan CV");
-        configInput(PAN_CV4_INPUT, "Channel 4 Pan CV");
-        configInput(PAN_CV5_INPUT, "Channel 5 Pan CV");
-        configInput(PAN_CV6_INPUT, "Channel 6 Pan CV");
-        configInput(PAN_CV7_INPUT, "Channel 7 Pan CV");
-        configInput(PAN_CV8_INPUT, "Channel 8 Pan CV");
-        configInput(PAN_CV9_INPUT, "Channel 9 Pan CV");
-        configInput(PAN_CV10_INPUT, "Channel 10 Pan CV");
-        configInput(PAN_CV11_INPUT, "Channel 11 Pan CV");
-        configInput(PAN_CV12_INPUT, "Channel 12 Pan CV");
-        configInput(PAN_CV13_INPUT, "Channel 13 Pan CV");
-        configInput(PAN_CV14_INPUT, "Channel 14 Pan CV");
-        configInput(PAN_CV15_INPUT, "Channel 15 Pan CV");
-        configInput(PAN_CV16_INPUT, "Channel 16 Pan CV");
 
-        configInput(MUTE_1_INPUT, "Channel 1 Mute CV / Poly");
-        configInput(MUTE_2_INPUT, "Channel 2 Mute CV");
-        configInput(MUTE_3_INPUT, "Channel 3 Mute CV");
-        configInput(MUTE_4_INPUT, "Channel 4 Mute CV");
-        configInput(MUTE_5_INPUT, "Channel 5 Mute CV");
-        configInput(MUTE_6_INPUT, "Channel 6 Mute CV");
-        configInput(MUTE_7_INPUT, "Channel 7 Mute CV");
-        configInput(MUTE_8_INPUT, "Channel 8 Mute CV");
-        configInput(MUTE_9_INPUT, "Channel 9 Mute CV");
-        configInput(MUTE_10_INPUT, "Channel 10 Mute CV");
-        configInput(MUTE_11_INPUT, "Channel 11 Mute CV");
-        configInput(MUTE_12_INPUT, "Channel 12 Mute CV");
-        configInput(MUTE_13_INPUT, "Channel 13 Mute CV");
-        configInput(MUTE_14_INPUT, "Channel 14 Mute CV");
-        configInput(MUTE_15_INPUT, "Channel 15 Mute CV");
-        configInput(MUTE_16_INPUT, "Channel 16 Mute CV");
+#ifdef METAMODULE    
+        configInput(PAN_CV1_INPUT, "Chan. 1 Pan CV");
+#else
+        configInput(PAN_CV1_INPUT, "Chan. 1 Pan CV / Poly");
+#endif
+        configInput(PAN_CV2_INPUT, "Chan. 2 Pan CV");
+        configInput(PAN_CV3_INPUT, "Chan. 3 Pan CV");
+        configInput(PAN_CV4_INPUT, "Chan. 4 Pan CV");
+        configInput(PAN_CV5_INPUT, "Chan. 5 Pan CV");
+        configInput(PAN_CV6_INPUT, "Chan. 6 Pan CV");
+        configInput(PAN_CV7_INPUT, "Chan. 7 Pan CV");
+        configInput(PAN_CV8_INPUT, "Chan. 8 Pan CV");
+        configInput(PAN_CV9_INPUT, "Chan. 9 Pan CV");
+        configInput(PAN_CV10_INPUT, "Chan. 10 Pan CV");
+        configInput(PAN_CV11_INPUT, "Chan. 11 Pan CV");
+        configInput(PAN_CV12_INPUT, "Chan. 12 Pan CV");
+        configInput(PAN_CV13_INPUT, "Chan. 13 Pan CV");
+        configInput(PAN_CV14_INPUT, "Chan. 14 Pan CV");
+        configInput(PAN_CV15_INPUT, "Chan. 15 Pan CV");
+        configInput(PAN_CV16_INPUT, "Chan. 16 Pan CV");
+
+#ifdef METAMODULE    
+        configInput(MUTE_1_INPUT, "Chan. 1 Mute CV");
+#else
+        configInput(MUTE_1_INPUT, "Chan. 1 Mute CV / Poly");
+#endif
+        configInput(MUTE_2_INPUT, "Chan. 2 Mute CV");
+        configInput(MUTE_3_INPUT, "Chan. 3 Mute CV");
+        configInput(MUTE_4_INPUT, "Chan. 4 Mute CV");
+        configInput(MUTE_5_INPUT, "Chan. 5 Mute CV");
+        configInput(MUTE_6_INPUT, "Chan. 6 Mute CV");
+        configInput(MUTE_7_INPUT, "Chan. 7 Mute CV");
+        configInput(MUTE_8_INPUT, "Chan. 8 Mute CV");
+        configInput(MUTE_9_INPUT, "Chan. 9 Mute CV");
+        configInput(MUTE_10_INPUT, "Chan. 10 Mute CV");
+        configInput(MUTE_11_INPUT, "Chan. 11 Mute CV");
+        configInput(MUTE_12_INPUT, "Chan. 12 Mute CV");
+        configInput(MUTE_13_INPUT, "Chan. 13 Mute CV");
+        configInput(MUTE_14_INPUT, "Chan. 14 Mute CV");
+        configInput(MUTE_15_INPUT, "Chan. 15 Mute CV");
+        configInput(MUTE_16_INPUT, "Chan. 16 Mute CV");
 
         // Side and saturation CV inputs
         configInput(SIDECHAIN_INPUT_L, "Sidechain L");
@@ -491,7 +508,7 @@ struct PreeeeeeeeeeessedDuck : Module {
         configInput(DUCK_CV, "Duck CV");
         configInput(PRESS_CV_INPUT, "Press CV");
         configInput(FEEDBACK_CV, "Feedback CV");
-        configInput(MASTER_VOL_CV, "Master Volume CV");
+        configInput(MASTER_VOL_CV, "Master Vol. CV");
 
         // Outputs
         configOutput(AUDIO_OUTPUT_L, "Main Out L");

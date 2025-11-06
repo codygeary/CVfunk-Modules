@@ -142,17 +142,17 @@ struct ImpulseController : Module {
         configParam(SPREAD_PARAM, -1.0f, 1.f, 0.0f, "Spread");
         configParam(DECAY_PARAM, 0.0f, 1.0f, 0.5f, "Decay");
         
-        configParam(LAG_ATT_PARAM, -1.0f, 1.0f, 0.0f, "Lag Attenuverter");
-        configParam(SPREAD_ATT_PARAM, -1.0f, 1.0f, 0.0f, "Spread Attenuverter");
-        configParam(DECAY_ATT_PARAM, -1.0f, 1.0f, 0.0f, "Decay Attenuverter");
+        configParam(LAG_ATT_PARAM, -1.0f, 1.0f, 0.0f, "Lag Att.");
+        configParam(SPREAD_ATT_PARAM, -1.0f, 1.0f, 0.0f, "Spread Att.");
+        configParam(DECAY_ATT_PARAM, -1.0f, 1.0f, 0.0f, "Decay Att.");
 
-        configInput(_00_INPUT, "IN");
-        configInput(LAG_INPUT, "Lag");
-        configInput(SPREAD_INPUT, "Spread");
-        configInput(DECAY_INPUT, "Decay");
+        configInput(_00_INPUT, "In");
+        configInput(LAG_INPUT, "Lag CV");
+        configInput(SPREAD_INPUT, "Spread CV");
+        configInput(DECAY_INPUT, "Decay CV");
 
         for (int i = 0; i < MAX_NODES; ++i) {
-            configOutput(_01_OUTPUT + i, "Impulse " + std::to_string(i+1));
+            configOutput(_01_OUTPUT + i, "Impulse " + std::to_string(i+1) + " Out");
         }
     }
 

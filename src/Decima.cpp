@@ -98,15 +98,15 @@ struct Decima : Module {
             configLight(BUTTON_LIGHT_1 + i, "Button Light " + std::to_string(i + 1));
             configLight(STAGE_LIGHT_1 + i, "Stage Light " + std::to_string(i + 1));
         }
-        configInput(CLOCK_IN, "Clock In");
-        configInput(RESET_IN, "Reset In");
-        configInput(DIR_IN, "Direction In");
+        configInput(CLOCK_IN, "Clock CV");
+        configInput(RESET_IN, "Reset CV");
+        configInput(DIR_IN, "Dir. CV");
 
         for (int i = 0; i < 10; i++) {
             configOutput(GATE_1 + i, "Gate " + std::to_string(i + 1));
         }
-        configOutput(OUTPUT, "Output");
-        configOutput(INV_OUTPUT, "Inverted Output");
+        configOutput(OUTPUT, "Main Out");
+        configOutput(INV_OUTPUT, "Inv. Out");
     }
 
     void onReset(const ResetEvent& e) override {

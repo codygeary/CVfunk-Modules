@@ -240,27 +240,27 @@ struct Tatami : Module {
     Tatami() : Module() {
         config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
 
-        configParam(SHAPE_ATT_PARAM, 0.f, 1.f, 0.f, "Shape Attenuation");
+        configParam(SHAPE_ATT_PARAM, 0.f, 1.f, 0.f, "Shape Att.");
         configParam(SHAPE_PARAM, 0.f, 3.f, 0.f, "Wave Shape");
-        configParam(COMPRESS_ATT_PARAM, 0.f, 1.f, 0.f, "Compress Attenuation");
+        configParam(COMPRESS_ATT_PARAM, 0.f, 1.f, 0.f, "Compress Att.");
         configParam(COMPRESS_PARAM, 0.f, 10.f, 0.f, "Pre Folding Compression");
-        configParam(SYMMETRY_ATT_PARAM, 0.f, 1.f, 0.f, "Symmetry Attenuation");
+        configParam(SYMMETRY_ATT_PARAM, 0.f, 1.f, 0.f, "Symmetry Att.");
         configParam(SYMMETRY_PARAM, -5.f, 5.f, 0.f, "Symmetry - Input Bias");
         configParam(DENSITY_PARAM1, 1.f, 20.f, 1.f, "Folding Density Left");
         configParam(DENSITY_PARAM2, 1.f, 20.f, 1.f, "Folding Density Right");
-        configParam(DENSITY_ATT_PARAM, 0.f, 1.f, 0.f, "Density Attenuation");
+        configParam(DENSITY_ATT_PARAM, 0.f, 1.f, 0.f, "Density Att.");
 
-        configInput(AUDIO_L_INPUT, "Left Audio");
-        configInput(AUDIO_R_INPUT, "Right Audio");
+        configInput(AUDIO_L_INPUT, "L Audio In");
+        configInput(AUDIO_R_INPUT, "R Audio In");
 
-        configInput(SHAPE_INPUT, "Shape");
-        configInput(COMPRESS_INPUT, "Compress");
-        configInput(SYMMETRY_INPUT, "Symmetry");
-        configInput(DENSITY_INPUT1, "Density Left");
-        configInput(DENSITY_INPUT2, "Density Right");
+        configInput(SHAPE_INPUT, "Shape CV");
+        configInput(COMPRESS_INPUT, "Compress CV");
+        configInput(SYMMETRY_INPUT, "Symmetry CV");
+        configInput(DENSITY_INPUT1, "Density Left CV");
+        configInput(DENSITY_INPUT2, "Density Right CV");
 
-        configOutput(AUDIO_L_OUTPUT, "Left Audio");
-        configOutput(AUDIO_R_OUTPUT, "Right Audio");
+        configOutput(AUDIO_L_OUTPUT, "L Audio Out");
+        configOutput(AUDIO_R_OUTPUT, "R Audio Out");
 
     }
 

@@ -148,13 +148,34 @@ struct JunkDNA : Module {
     JunkDNA() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTS, NUM_LIGHTS);
         rng.seed(seed);
+        
+#ifdef METAMODULE
+        configInput(FWD_IN, "Forward In");
+        configInput(REV_IN, "Reverse In");
+        configInput(RESET_IN, "Reset In");
+        configOutput(A_OUT, "A Out");
+        configOutput(T_OUT, "T Out");
+        configOutput(C_OUT, "C Out");
+        configOutput(G_OUT, "G Out");
+        configOutput(R_OUT, "R Out");
+        configOutput(Y_OUT, "Y Out");
+        configOutput(S_OUT, "S Out");
+        configOutput(W_OUT, "W Out");
+        configOutput(D_OUT, "D Out");
+        configOutput(H_OUT, "H Out");
+        configOutput(V_OUT, "V Out");
+        configOutput(B_OUT, "B Out");
+        configOutput(N_OUT, "N Out");
+        configOutput(DNA_OUT, "DNA Out");
+        configOutput(POLY_OUT, "Poly Layer 0: A Out");
+#else
         configInput(FWD_IN, "Forward");
         configInput(REV_IN, "Reverse");
         configInput(RESET_IN, "Reset");
-        configOutput(A_OUT, "A");
-        configOutput(T_OUT, "T");
-        configOutput(C_OUT, "C");
-        configOutput(G_OUT, "G");
+        configOutput(A_OUT, "A Out");
+        configOutput(T_OUT, "T Out");
+        configOutput(C_OUT, "C Out");
+        configOutput(G_OUT, "G Out");
         configOutput(R_OUT, "R (puRine: A or G)");
         configOutput(Y_OUT, "Y (pYramidine: C or T)");
         configOutput(S_OUT, "S (Strong: C or G)");
@@ -166,8 +187,8 @@ struct JunkDNA : Module {
         configOutput(N_OUT, "N (aNy) - Outputs trigger each step");
         configOutput(DNA_OUT, "DNA Signal: set in context menu");
         configOutput(POLY_OUT, "Polyphonic: A,T,C,G, R,Y,S,W, D,H,V,B ");
-
-
+#endif
+        
         configParam(FWD_BUTTON, 0.f, 1.f, 0.f, "Forward");
         configParam(REV_BUTTON, 0.f, 1.f, 0.f, "Reverse");
         configParam(RESET_BUTTON, 0.f, 1.f, 0.f, "Reset");

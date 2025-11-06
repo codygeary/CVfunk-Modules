@@ -58,7 +58,7 @@ struct Node : Module {
     float volTotalL = 0.0f,   volTotalR = 0.0f;
     float Ch1TotalL = 0.0f,   Ch1TotalR = 0.0f;
     float Ch2TotalL = 0.0f,   Ch2TotalR = 0.0f;
-    float lastOutputL = 0.0f, lastOutputR = 0.0f;
+    float lastInputL = 0.0f, lastInputR = 0.0f;
     float volume = 0.0f;
     float Ch1L = 0.0f, Ch1R = 0.0f;
     float Ch2L = 0.0f, Ch2R = 0.0f;
@@ -132,20 +132,20 @@ struct Node : Module {
 
     Node() {
         config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
-        configParam(MUTE1_PARAM, 0.f, 1.f, 0.f, "Channel I Mute");
-        configParam(MUTE2_PARAM, 0.f, 1.f, 0.f, "Channel II Mute");
+        configParam(MUTE1_PARAM, 0.f, 1.f, 0.f, "Chan. I Mute");
+        configParam(MUTE2_PARAM, 0.f, 1.f, 0.f, "Chan. II Mute");
         configParam(GAIN1_PARAM, 0.f, 10.f, 1.f, "Gain I (0-10x)");
         configParam(GAIN2_PARAM, 0.f, 10.f, 1.f, "Gain II (0-10x)");
         configParam(VOL_PARAM, 0.f, 1.f, 1.0f, "Volume");
         configParam(XFADE_PARAM, -1.f, 1.f, 0.f, "Crossfader (-1=I, 1=II)");
 
-        configInput(_1_IN1, "Channel I L");
-        configInput(_1_IN2, "Channel I R");
-        configInput(_2_IN1, "Channel II L");
-        configInput(_2_IN2, "Channel II R");
-        configInput(XFADE_IN, "Crossfader (-5...5V range)");
-        configInput(CV1_IN, "CV I (0...10V range)");
-        configInput(CV2_IN, "CV II (0...10V range)");
+        configInput(_1_IN1, "Chan. I L In");
+        configInput(_1_IN2, "Chan. I R In");
+        configInput(_2_IN1, "Chan. II L In");
+        configInput(_2_IN2, "Chan. II R In");
+        configInput(XFADE_IN, "Cr.fader CV");
+        configInput(CV1_IN, "CV I In");
+        configInput(CV2_IN, "CV II In");
 
         configOutput(OUT1, "Output L");
         configOutput(OUT2, "Output R");
@@ -287,10 +287,13 @@ struct Node : Module {
                 float maxHeadRoom = 13.14f;
                 outL = clamp(outL, -maxHeadRoom, maxHeadRoom);
                 outR = clamp(outR, -maxHeadRoom, maxHeadRoom);
-                outL = applyADAA(outL / 10.f, lastOutputL, args.sampleRate);
-                outR = applyADAA(outR / 10.f, lastOutputR, args.sampleRate);
-                lastOutputL = outL;
-                lastOutputR = outR;
+
+                float inputL = outL / 10.f; //fix ADAA to be more technically correct
+                float inputR = outR / 10.f;
+                outL = applyADAA(inputL, lastInputL, args.sampleRate);
+                outR = applyADAA(inputR, lastInputR, args.sampleRate);
+                lastInputL = inputL;  // Store input, not output
+                lastInputR = inputR;
         
                 outputs[OUT1].setVoltage(clamp(outL * volume * 6.9f, -10.f, 10.f), c);
                 outputs[OUT2].setVoltage(clamp(outR * volume * 6.9f, -10.f, 10.f), c);
@@ -301,10 +304,10 @@ struct Node : Module {
             float maxHeadRoom = 13.14f;
             outL = clamp(outL, -maxHeadRoom, maxHeadRoom);
             outR = clamp(outR, -maxHeadRoom, maxHeadRoom);
-            outL = applyADAA(outL / 10.f, lastOutputL, args.sampleRate);
-            outR = applyADAA(outR / 10.f, lastOutputR, args.sampleRate);
-            lastOutputL = outL;
-            lastOutputR = outR;
+            outL = applyADAA(outL / 10.f, lastInputL, args.sampleRate);
+            outR = applyADAA(outR / 10.f, lastInputR, args.sampleRate);
+            lastInputL = outL;
+            lastInputR = outR;
         
             outputs[OUT1].setVoltage(clamp(outL * volume * 6.9f, -10.f, 10.f));
             outputs[OUT2].setVoltage(clamp(outR * volume * 6.9f, -10.f, 10.f));
@@ -337,9 +340,9 @@ struct Node : Module {
 
     float antiderivative(float x) {
         float x2 = x * x;
-        return x2 * (0.5f - x2 * (1.0f/12.0f - x2 * (1.0f/45.0f - 17.0f/2520.0f * x2)));
-    }
-    
+        return 0.5f * x2 - (1.0f/12.0f) * x2*x2 + (1.0f/45.0f) * x2*x2*x2 - (17.0f/2520.0f) * x2*x2*x2*x2;
+    } 
+   
     float polyTanh(float x) {
         float x2 = x * x;
         return x - x * x2 * (1.0f/3.0f - x2 * (2.0f/15.0f - 17.0f/315.0f * x2));

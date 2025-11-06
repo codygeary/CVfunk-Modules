@@ -222,9 +222,9 @@ struct HexMod : Module {
         configParam(NODE_KNOB, 0.0f, 3.0f, 0.0f, "Node Distribution"); // 0: Hexagonal, 1: Unison, 2: Bimodal, 3: Trimodal
         configParam(RANGE_KNOB, -10.0f, 10.0f, 5.0f, "Output Range"); //
 
-        configParam(RATE_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Rate Attenuverter"); // 
-        configParam(NODE_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Node Attenuverter"); // 
-        configParam(RANGE_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Range Attenuverter"); // 
+        configParam(RATE_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Rate Att."); // 
+        configParam(NODE_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Node Att."); // 
+        configParam(RANGE_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Range Att."); // 
         configParam(SLOW_BUTTON, 0.f, 1.f, 0.f, "Slow LFO Mode");
 
 
@@ -233,14 +233,14 @@ struct HexMod : Module {
         }
         configInput(RATE_INPUT, "Rate CV");
         configInput(NODE_INPUT, "Node Distribution CV");
-        configInput(SYNC_INPUT, "Sync");
-        configInput(RANGE_INPUT, "Range");
+        configInput(SYNC_INPUT, "Sync CV");
+        configInput(RANGE_INPUT, "Range CV");
        
         lightsEnabled = true; // Default to true
         synclinkEnabled = true;
 
         for (int i = 0; i < 6; i++) {
-            configOutput(LFO_OUTPUT_1 + i, "LFO " + std::to_string(i + 1));
+            configOutput(LFO_OUTPUT_1 + i, "LFO " + std::to_string(i + 1) + " Out");
         }
     }
 

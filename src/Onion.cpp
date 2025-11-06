@@ -82,7 +82,8 @@ struct Onion : Module {
         for (int i = 0; i < ONION_LAYERS; i++) {
             std::string label = "Layer " + std::to_string(i + 1);
             configParam(LAYER_1_PARAM + i, -1.f, 1.f, 0.0f, label);
-            configOutput(LAYER_1_OUTPUT + i, label);
+            std::string outLabel = "Layer " + std::to_string(i + 1) + " Out";
+            configOutput(LAYER_1_OUTPUT + i, outLabel);
         }
 
         configInput(DEPTH_INPUT, "CV Depth");
@@ -110,7 +111,12 @@ struct Onion : Module {
         depth = clamp(modDepth, 0.f, 10.f); // depth of the slider
                                             // Note: In my testing VCV doesn't seem to care if the slider ranges 0-0
         
+#ifdef METAMODULE
+        outputLayers = 1;
+#else
         outputLayers = (int)params[LAYERS_PARAM].getValue();
+#endif
+        
         polarity = params[BIPOLAR_PARAM].getValue();
                 
         for (int layer=0; layer<ONION_LAYERS; layer++){
@@ -242,7 +248,10 @@ struct OnionWidget : ModuleWidget {
                 int endLayer = (layer + module->outputLayers - 1) % ONION_LAYERS + 1;
             
                 std::string label;
-            
+                
+            #ifdef METAMODULE
+                //No polyphony on MM, so no need to rename the layer tooltips.
+            #else
                 if (module->outputLayers == 0 || startLayer == endLayer) {
                     // Single layer Ñ just show it
                     label = "Layer " + std::to_string(endLayer);
@@ -267,6 +276,8 @@ struct OnionWidget : ModuleWidget {
                 }
             
                 module->configOutput(Onion::LAYER_1_OUTPUT + layer, label);
+            #endif
+
             }
 
         } 

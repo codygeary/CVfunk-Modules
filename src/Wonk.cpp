@@ -162,27 +162,35 @@ struct Wonk : Module {
         config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
         configParam(RATE_ATT, -1.f, 1.f, 0.f, "Rate Attenuverter");
         configParam(RESET_BUTTON, 0.f, 1.f, 0.f, "Reset Button");
+#ifdef METAMODULE
+        configParam(RATE_KNOB, -24.0f, 24.f, 1.f, "Rate Knob");
+#else
         configParam(RATE_KNOB, -24.0f, 24.f, 1.f, "Rate multiplier (or divider for negative)");
+#endif
         configParam(WONK_KNOB, 0.f, 1.f, 0.f, "Wonk Intensity");
-        configParam(WONK_ATT, -1.f, 1.f, 0.f, "Wonk Input Attenuverter");
-        configParam(POS_KNOB, 1.f, 6.f, 1.f, "Wonk Feedback Position")->snapEnabled=true;
-        configParam(NODES_ATT, -1.f, 1.f, 0.f, "Nodes Attenuverter");
-        configParam(NODES_KNOB, -3.f, 3.f, 1.f, "Number of Modulation Nodes");
-        configParam(MOD_DEPTH_ATT, -1.f, 1.f, 0.f, "Modulation Depth Attenuverter");
+        configParam(WONK_ATT, -1.f, 1.f, 0.f, "Wonk Input Att.");
+        configParam(POS_KNOB, 1.f, 6.f, 1.f, "Wonk Feedback Pos.")->snapEnabled=true;
+        configParam(NODES_ATT, -1.f, 1.f, 0.f, "Nodes Att.");
+        configParam(NODES_KNOB, -3.f, 3.f, 1.f, "Number of Mod. Nodes");
+        configParam(MOD_DEPTH_ATT, -1.f, 1.f, 0.f, "Modulation Depth Att.");
         configParam(MOD_DEPTH, 0.f, 5.f, 5.f, "Modulation Depth");
         configInput(CLOCK_INPUT, "Clock");
         configInput(RESET_INPUT, "Reset");
         configInput(RATE_INPUT, "Rate");
         configInput(WONK_INPUT, "Wonk");
         configInput(NODES_INPUT, "Nodes");
-        configInput(MOD_DEPTH_INPUT, "Modulation Depth");
-        configOutput(_1_OUTPUT, "1");
-        configOutput(_2_OUTPUT, "2");
-        configOutput(_3_OUTPUT, "3");
-        configOutput(_4_OUTPUT, "4");
-        configOutput(_5_OUTPUT, "5");
-        configOutput(_6_OUTPUT, "6");
-        configOutput(POLY_OUTPUT, "Polyphonic");
+        configInput(MOD_DEPTH_INPUT, "Mod. Depth");
+        configOutput(_1_OUTPUT, "1 Out");
+        configOutput(_2_OUTPUT, "2 Out");
+        configOutput(_3_OUTPUT, "3 Out");
+        configOutput(_4_OUTPUT, "4 Out");
+        configOutput(_5_OUTPUT, "5 Out");
+        configOutput(_6_OUTPUT, "6 Out");
+#ifdef METAMODULE
+        configOutput(POLY_OUTPUT, "Poly: 1 Out");
+#else
+        configOutput(POLY_OUTPUT, "Polyphonic Out");
+#endif
 
         outputs[POLY_OUTPUT].setChannels(6);
     }
@@ -302,15 +310,7 @@ struct Wonk : Module {
             nodePosition = nodePosition + inputs[NODES_INPUT].getVoltage() * params[NODES_ATT].getValue();
         }
     
-        // Cached scalars
-        const float nodePositionFactor = nodePosition - nodePosition * (wonky * 0.9f);
         const float wonkyScale = wonky * 0.95f / 5.0f;
-        const float rateScaledDT = rate * deltaTime;
-        const float twoPi = 2.0f * M_PI;
-        const float wonkModScale = modulationDepth * 0.2f;
-        const bool polyConnected = outputs[POLY_OUTPUT].isConnected();
-        const bool unipolar = unipolarMode;
-        // -----------------------------------------------
     
         for (int i = 0; i < 6; i++) {
             int adjWonkPos = wonkPos + i;

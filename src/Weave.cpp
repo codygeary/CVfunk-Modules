@@ -236,29 +236,39 @@ struct Weave : Module {
     Weave() {
         config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
         configParam(WEAVE_KNOB_PARAM, 0.f, WEAVE_PATTERNS-1, 0.f, "Weave");
-        configParam(WEAVE_ATT_PARAM, -1.f, 1.0, 1.f, "Weave Attenuverter");
-        configParam(CHORD_KNOB_PARAM, 0.f, 1.41666f, 0.f, "");
-        configInput(TRIG_INPUT, "Weave Trigger");
-        configInput(RESET_INPUT, "Reset Trigger");
+        configParam(WEAVE_ATT_PARAM, -1.f, 1.0, 1.f, "Weave Att.");
+        configParam(CHORD_KNOB_PARAM, 0.f, 1.41666f, 0.f, "Chord");
+        configInput(TRIG_INPUT, "Weave Trig. In");
+        configInput(RESET_INPUT, "Reset Trig. In");
+
+#ifdef METAMODULE
+        configInput(WEAVE_INPUT, "Weave CV");
+        configInput(NOTE_INPUT, "Root Note In");        
+        configInput(CHORD_INPUT, "Chord CV");
+        configInput(SHIFT_INPUT, "Shift In");
+        configOutput(POLY_OUTPUT, "Poly: Note 1 Out");
+#else
         configInput(WEAVE_INPUT, "Weave CV 1V/pattern");
-        configInput(NOTE_INPUT, "Root Note V/oct");
-        configInput(CHORD_INPUT, "Chord (1 semitone per value)");
-        configInput(SHIFT_INPUT, "Transpose Shift");
-        configOutput(POLY_OUTPUT, "Poly CV");
-        configOutput(TRIG_OUTPUT, "Note Trigger");
+        configInput(NOTE_INPUT, "Root Note V/oct In");        
+        configInput(CHORD_INPUT, "Chord (1 semitone per value) In");
+        configInput(SHIFT_INPUT, "Transpose Shift In");
+        configOutput(POLY_OUTPUT, "Poly V/Oct Out");
+#endif
+
+        configOutput(TRIG_OUTPUT, "Note Trigger Out");
         configParam(TRIG_BUTTON, 0.f, 1.f, 0.f, "Trigger Weave");
         configParam(RESET_BUTTON, 0.f, 1.f, 0.f, "Reset Weave");
         configParam(SHIFT_KNOB_PARAM, -1.f, 1.f, 0.f, "Transpose");
         configParam(OCTAVE_DOWN_BUTTON, 0.f, 1.f, 0.f, "Octave Down");
         configParam(OCTAVE_UP_BUTTON, 0.f, 1.f, 0.f, "Octave Up");
 
-        configOutput(OUTPUT_1, "Note 1");
-        configOutput(OUTPUT_2, "Note 2");
-        configOutput(OUTPUT_3, "Note 3");
-        configOutput(OUTPUT_4, "Note 4");
-        configOutput(OUTPUT_5, "Note 5");
-        configOutput(OUTPUT_6, "Note 6");
-        configOutput(OUTPUT_ROOT, "Root Note");
+        configOutput(OUTPUT_1, "Note 1 Out");
+        configOutput(OUTPUT_2, "Note 2 Out");
+        configOutput(OUTPUT_3, "Note 3 Out");
+        configOutput(OUTPUT_4, "Note 4 Out");
+        configOutput(OUTPUT_5, "Note 5 Out");
+        configOutput(OUTPUT_6, "Note 6 Out");
+        configOutput(OUTPUT_ROOT, "Root Note Out");
     }
 
     void process(const ProcessArgs& args) override {

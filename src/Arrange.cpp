@@ -213,44 +213,44 @@ struct Arrange : Module {
         configParam(BACKWARDS_BUTTON, 0.f, 1.f, 0.f, "Backward");
         configParam(RESET_BUTTON, 0.f, 1.f, 0.f, "Reset");
         configParam(REC_BUTTON, 0.f, 1.f, 0.f, "Record");
-        configParam(CHAN_1_BUTTON, 0.f, 1.f, 0.f, "Channel 1 Mode");
-        configParam(CHAN_2_BUTTON, 0.f, 1.f, 0.f, "Channel 2 Mode");
-        configParam(CHAN_3_BUTTON, 0.f, 1.f, 0.f, "Channel 3 Mode");
-        configParam(CHAN_4_BUTTON, 0.f, 1.f, 0.f, "Channel 4 Mode");
-        configParam(CHAN_5_BUTTON, 0.f, 1.f, 0.f, "Channel 5 Mode");
-        configParam(CHAN_6_BUTTON, 0.f, 1.f, 0.f, "Channel 6 Mode");
-        configParam(CHAN_7_BUTTON, 0.f, 1.f, 0.f, "Channel 7 Mode");
+        configParam(CHAN_1_BUTTON, 0.f, 1.f, 0.f, "Chan. 1 Mode");
+        configParam(CHAN_2_BUTTON, 0.f, 1.f, 0.f, "Chan. 2 Mode");
+        configParam(CHAN_3_BUTTON, 0.f, 1.f, 0.f, "Chan. 3 Mode");
+        configParam(CHAN_4_BUTTON, 0.f, 1.f, 0.f, "Chan. 4 Mode");
+        configParam(CHAN_5_BUTTON, 0.f, 1.f, 0.f, "Chan. 5 Mode");
+        configParam(CHAN_6_BUTTON, 0.f, 1.f, 0.f, "Chan. 6 Mode");
+        configParam(CHAN_7_BUTTON, 0.f, 1.f, 0.f, "Chan. 7 Mode");
     
         // Knob parameters for each channel
-        configParam(CHAN_1_KNOB, -10.f, 10.f, 0.f, "Channel 1");
-        configParam(CHAN_2_KNOB, -10.f, 10.f, 0.f, "Channel 2");
-        configParam(CHAN_3_KNOB, -10.f, 10.f, 0.f, "Channel 3");
-        configParam(CHAN_4_KNOB, -10.f, 10.f, 0.f, "Channel 4");
-        configParam(CHAN_5_KNOB, -10.f, 10.f, 0.f, "Channel 5");
-        configParam(CHAN_6_KNOB, -10.f, 10.f, 0.f, "Channel 6");
-        configParam(CHAN_7_KNOB, -10.f, 10.f, 0.f, "Channel 7");
+        configParam(CHAN_1_KNOB, -10.f, 10.f, 0.f, "Chan. 1");
+        configParam(CHAN_2_KNOB, -10.f, 10.f, 0.f, "Chan. 2");
+        configParam(CHAN_3_KNOB, -10.f, 10.f, 0.f, "Chan. 3");
+        configParam(CHAN_4_KNOB, -10.f, 10.f, 0.f, "Chan. 4");
+        configParam(CHAN_5_KNOB, -10.f, 10.f, 0.f, "Chan. 5");
+        configParam(CHAN_6_KNOB, -10.f, 10.f, 0.f, "Chan. 6");
+        configParam(CHAN_7_KNOB, -10.f, 10.f, 0.f, "Chan. 7");
     
         // Configure inputs
         configInput(RESET_INPUT, "Reset");
         configInput(FORWARD_INPUT, "Forward");
         configInput(BACKWARDS_INPUT, "Backward");
         configInput(REC_INPUT, "Record");
-        configInput(CHAN_1_INPUT, "Channel 1");
-        configInput(CHAN_2_INPUT, "Channel 2");
-        configInput(CHAN_3_INPUT, "Channel 3");
-        configInput(CHAN_4_INPUT, "Channel 4");
-        configInput(CHAN_5_INPUT, "Channel 5");
-        configInput(CHAN_6_INPUT, "Channel 6");
-        configInput(CHAN_7_INPUT, "Channel 7");
+        configInput(CHAN_1_INPUT, "Chan. 1 In");
+        configInput(CHAN_2_INPUT, "Chan. 2 In");
+        configInput(CHAN_3_INPUT, "Chan. 3 In");
+        configInput(CHAN_4_INPUT, "Chan. 4 In");
+        configInput(CHAN_5_INPUT, "Chan. 5 In");
+        configInput(CHAN_6_INPUT, "Chan. 6 In");
+        configInput(CHAN_7_INPUT, "Chan. 7 In");
     
         // Configure outputs
-        configOutput(CHAN_1_OUTPUT, "Channel 1");
-        configOutput(CHAN_2_OUTPUT, "Channel 2");
-        configOutput(CHAN_3_OUTPUT, "Channel 3");
-        configOutput(CHAN_4_OUTPUT, "Channel 4");
-        configOutput(CHAN_5_OUTPUT, "Channel 5");
-        configOutput(CHAN_6_OUTPUT, "Channel 6");
-        configOutput(CHAN_7_OUTPUT, "Channel 7");
+        configOutput(CHAN_1_OUTPUT, "Chan. 1 Out");
+        configOutput(CHAN_2_OUTPUT, "Chan. 2 Out");
+        configOutput(CHAN_3_OUTPUT, "Chan. 3 Out");
+        configOutput(CHAN_4_OUTPUT, "Chan. 4 Out");
+        configOutput(CHAN_5_OUTPUT, "Chan. 5 Out");
+        configOutput(CHAN_6_OUTPUT, "Chan. 6 Out");
+        configOutput(CHAN_7_OUTPUT, "Chan. 7 Out");
 
         isShiftHeld.store(false);
 

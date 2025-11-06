@@ -395,40 +395,40 @@ struct Cartesia : Module {
         // Configure range parameters
         configParam(MIN_PARAM, -10.f, 10.f, 0.f, "Knob Min");
         configParam(RANGE_PARAM, 1.f, 20.f, 5.f, "Knob Range (V)");
-        configParam(MINATT_PARAM, -1.f, 1.f, 0.f, "Knob Min Attenuverter");
-        configParam(RANGEATT_PARAM, -1.f, 1.f, 0.f, "Range Attenuverter");
+        configParam(MINATT_PARAM, -1.f, 1.f, 0.f, "Knob Min Att.");
+        configParam(RANGEATT_PARAM, -1.f, 1.f, 0.f, "Range Att.");
         configParam(POLYKNOB_PARAM, 1.f, 4.f, 1.f, "Z Poly")->snapEnabled=true;
 
         // Configure inputs
         configInput(XCV_INPUT, "X Axis CV");
-        configInput(XREV_INPUT, "X Reverse Trigger");
-        configInput(XFWD_INPUT, "X Forward Trigger");
+        configInput(XREV_INPUT, "X Rev. Trig.");
+        configInput(XFWD_INPUT, "X Fwd. Trig.");
         
         configInput(YCV_INPUT, "Y Axis CV");
-        configInput(YREV_INPUT, "Y Reverse Trigger");
-        configInput(YFWD_INPUT, "Y Forward Trigger");
+        configInput(YREV_INPUT, "Y Rev. Trig.");
+        configInput(YFWD_INPUT, "Y Fwd. Trig.");
         
         configInput(ZCV_INPUT, "Z Axis CV");
-        configInput(ZREV_INPUT, "Z Reverse Trigger");
-        configInput(ZFWD_INPUT, "Z Forward Trigger");
+        configInput(ZREV_INPUT, "Z Rev. Trig.");
+        configInput(ZFWD_INPUT, "Z Fwd. Trig.");
         
-        configInput(MINCV_INPUT, "Minimum Step CV");
+        configInput(MINCV_INPUT, "Min. Step CV");
         configInput(RANGECV_INPUT, "Step Range CV");
         configInput(SCANCV_INPUT, "Scan Position CV");
-        configInput(SCANREV_INPUT, "Scan Reverse Trigger");
-        configInput(SCANFWD_INPUT, "Scan Forward Trigger");
+        configInput(SCANREV_INPUT, "Scan Rev. Trig.");
+        configInput(SCANFWD_INPUT, "Scan Fwd. Trig.");
         
-        configInput(ONOFF_INPUT, "ON/OFF Trigger");
-        configInput(RESET_INPUT, "Reset Trigger");
-        configInput(RANDOM_INPUT, "Randomize Trigger");
+        configInput(ONOFF_INPUT, "ON/OFF Trig.");
+        configInput(RESET_INPUT, "Reset Trig.");
+        configInput(RANDOM_INPUT, "Randomize Trig.");
         configInput(OFFSET_INPUT, "Offset CV");
         
         // Configure outputs
-        configOutput(RESET_OUTPUT, "Reset Trigger Out");
-        configOutput(TRIGGER_OUTPUT, "Step Trigger Out");
+        configOutput(RESET_OUTPUT, "Reset Trig. Out");
+        configOutput(TRIGGER_OUTPUT, "Step Trig. Out");
         configOutput(GATEOUT_OUTPUT, "Step Gate Out");
         configOutput(INVGATEOUT_OUTPUT, "Inverted Step Gate Out");
-        configOutput(OUTPUT_OUTPUT, "Main Sequencer Output");
+        configOutput(OUTPUT_OUTPUT, "Main Sequencer Out");
 
     }
 

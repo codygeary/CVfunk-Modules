@@ -147,9 +147,9 @@ struct Syncro : Module {
     
         // Configure parameters
         configParam(CLOCK_KNOB, 0.000001f, 480.0f, 120.0f, "Clock Rate", " BPM");
-        configParam(CLOCK_ATT, -1.f, 1.f, 0.0f, "Clock Attenuvertor");
+        configParam(CLOCK_ATT, -1.f, 1.f, 0.0f, "Clock Att.");
         configParam(SWING_KNOB, -99.0f, 99.0f, 0.0f, "Swing", " %");
-        configParam(SWING_ATT, -1.f, 1.f, 0.0f, "Swing Attenuvertor");
+        configParam(SWING_ATT, -1.f, 1.f, 0.0f, "Swing Att.");
         configParam(MULTIPLY_KNOB_1, 0.0f, 128.0f, 1.0f, "Multiply 1")->snapEnabled=true;
         configParam(MULTIPLY_KNOB_2, 0.0f, 128.0f, 1.0f, "Multiply 2")->snapEnabled=true;
         configParam(MULTIPLY_KNOB_3, 0.0f, 128.0f, 1.0f, "Multiply 3")->snapEnabled=true;
@@ -167,42 +167,42 @@ struct Syncro : Module {
         configParam(DIVIDE_KNOB_7, 1.0f, 256.0f, 1.0f, "Divide 7")->snapEnabled=true;
         configParam(DIVIDE_KNOB_8, 1.0f, 256.0f, 1.0f, "Divide 8")->snapEnabled=true;
         configParam(FILL_KNOB, 0.0f, 8.0f, 3.0f, "Fill")->snapEnabled=true;
-        configParam(FILL_ATT, -1.0f, 1.0f, 0.0f, "Fill Attenuvertor");
+        configParam(FILL_ATT, -1.0f, 1.0f, 0.0f, "Fill Att.");
         configParam(WIDTH_KNOB, 0.0f, 1.0f, 0.5f, "Gate Width");
-        configParam(WIDTH_ATT, -1.0f, 1.0f, 0.0f, "Gate Width Attenuvertor");
+        configParam(WIDTH_ATT, -1.0f, 1.0f, 0.0f, "Gate Width Att.");
         configParam(ROTATE_KNOB, -1.0f, 1.0f, 0.0f, "Rotate");
-        configParam(ROTATE_ATT, -1.0f, 1.0f, 0.0f, "Rotate Atenuvertor");
+        configParam(ROTATE_ATT, -1.0f, 1.0f, 0.0f, "Rotate Att.");
 
         // Configure inputs and outputs
-        configInput(EXT_CLOCK_INPUT, "External Clock");
-        configInput(RESET_INPUT, "Reset");
-        configInput(ON_OFF_INPUT, "ON/OFF");
-        configOutput(CLOCK_OUTPUT, "Main Clock");
-        configOutput(INV_CLOCK_OUTPUT, "Inverted Main Clock");
-        configOutput(CLOCK_OUTPUT_1, "Clock 1");
-        configOutput(INV_CLOCK_OUTPUT_1, "Inverted Clock 1");
-        configOutput(CLOCK_OUTPUT_2, "Clock 2");
-        configOutput(INV_CLOCK_OUTPUT_2, "Inverted Clock 2");
-        configOutput(CLOCK_OUTPUT_3, "Clock 3");
-        configOutput(INV_CLOCK_OUTPUT_3, "Inverted Clock 3");
-        configOutput(CLOCK_OUTPUT_4, "Clock 4");
-        configOutput(INV_CLOCK_OUTPUT_4, "Inverted Clock 4");
-        configOutput(CLOCK_OUTPUT_5, "Clock 5");
-        configOutput(INV_CLOCK_OUTPUT_5, "Inverted Clock 5");
-        configOutput(CLOCK_OUTPUT_6, "Clock 6");
-        configOutput(INV_CLOCK_OUTPUT_6, "Inverted Clock 6");
-        configOutput(CLOCK_OUTPUT_7, "Clock 7");
-        configOutput(INV_CLOCK_OUTPUT_7, "Inverted Clock 7");
-        configOutput(CLOCK_OUTPUT_8, "Clock 8");
-        configOutput(INV_CLOCK_OUTPUT_8, "Inverted Clock 8");
+        configInput(EXT_CLOCK_INPUT, "Ext. Clock In");
+        configInput(RESET_INPUT, "Reset In");
+        configInput(ON_OFF_INPUT, "On/Off In");
+        configOutput(CLOCK_OUTPUT, "Main Clock Out");
+        configOutput(INV_CLOCK_OUTPUT, "Inv. Main Clock Out");
+        configOutput(CLOCK_OUTPUT_1, "Clock 1 Out");
+        configOutput(INV_CLOCK_OUTPUT_1, "Inv. Clock 1 Out");
+        configOutput(CLOCK_OUTPUT_2, "Clock 2 Out");
+        configOutput(INV_CLOCK_OUTPUT_2, "Inv. Clock 2 Out");
+        configOutput(CLOCK_OUTPUT_3, "Clock 3 Out");
+        configOutput(INV_CLOCK_OUTPUT_3, "Inv. Clock 3 Out");
+        configOutput(CLOCK_OUTPUT_4, "Clock 4 Out");
+        configOutput(INV_CLOCK_OUTPUT_4, "Inv. Clock 4 Out");
+        configOutput(CLOCK_OUTPUT_5, "Clock 5 Out");
+        configOutput(INV_CLOCK_OUTPUT_5, "Inv. Clock 5 Out");
+        configOutput(CLOCK_OUTPUT_6, "Clock 6 Out");
+        configOutput(INV_CLOCK_OUTPUT_6, "Inv. Clock 6 Out");
+        configOutput(CLOCK_OUTPUT_7, "Clock 7 Out");
+        configOutput(INV_CLOCK_OUTPUT_7, "Inv. Clock 7 Out");
+        configOutput(CLOCK_OUTPUT_8, "Clock 8 Out");
+        configOutput(INV_CLOCK_OUTPUT_8, "Inv. Clock 8 Out");
 
-        configInput(CLOCK_INPUT , "Clock" );
-        configInput(SWING_INPUT , "Swing" );
-        configInput(FILL_INPUT , "Fill" );
-        configInput(WIDTH_INPUT , "Pulse Width" );
-        configInput(ROTATE_INPUT , "Rotation" );
+        configInput(CLOCK_INPUT , "Clock In" );
+        configInput(SWING_INPUT , "Swing CV" );
+        configInput(FILL_INPUT , "Fill CV" );
+        configInput(WIDTH_INPUT , "Pulse Width CV" );
+        configInput(ROTATE_INPUT , "Rotation CV" );
         configParam(RESET_BUTTON, 0.0, 1.0, 0.0, "Reset" );
-        configParam(ON_OFF_BUTTON, 0.0, 1.0, 0.0, "On / Off " );
+        configParam(ON_OFF_BUTTON, 0.0, 1.0, 0.0, "On / Off" );
 
         // Initialize fill buttons
         for (int i = 0; i < 8; i++) {
@@ -211,7 +211,7 @@ struct Syncro : Module {
 
         // Initialize fill inputs
         for (int i = 0; i < 8; i++) {
-            configInput(FILL_INPUT_1 + i, "Fill " + std::to_string(i + 1));
+            configInput(FILL_INPUT_1 + i, "Fill " + std::to_string(i + 1) + " In");
         }
 
         // Initialize fill LEDs

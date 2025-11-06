@@ -81,23 +81,23 @@ struct Collatz : Module {
 
         configParam(START_NUMBER, 2.f, 1000.f, 5.f, "Starting Number")->snapEnabled=true;
         configParam(BEAT_MODULUS, 1.f, 100.f, 24.f, "Beat Modulus")->snapEnabled=true;
-        configParam(START_NUMBER_ATT, -1.f, 1.f, 0.f, "Starting Number Attenuverter");
-        configParam(BEAT_MODULUS_ATT, -1.f, 1.f, 0.f, "Beat Modulus Attenuverter");
+        configParam(START_NUMBER_ATT, -1.f, 1.f, 0.f, "Starting Number Att.");
+        configParam(BEAT_MODULUS_ATT, -1.f, 1.f, 0.f, "Beat Modulus Att.");
 
         configParam(RESET_BUTTON_PARAM, 0.f, 1.f, 0.f, "Reset");
         configParam(START_BUTTON_PARAM, 0.f, 1.f, 0.f, "Start");
 
         // Configuring inputs
-        configInput(CLOCK_INPUT, "Clock");
-        configInput(RESET_INPUT, "Reset");
-        configInput(START_INPUT, "Start");
+        configInput(CLOCK_INPUT, "Clock CV");
+        configInput(RESET_INPUT, "Reset CV");
+        configInput(START_INPUT, "Start CV");
         configInput(START_NUMBER_CV, "Starting Number CV");
         configInput(BEAT_MODULUS_CV, "Beat Modulus CV");
 
         // Configuring outputsBEAT_MODULUS
-        configOutput(GATE_OUTPUT, "Gate Output");
-        configOutput(ACCENT_OUTPUT, "Accent Output");
-        configOutput(COMPLETION_OUTPUT, "Sequence Completion");
+        configOutput(GATE_OUTPUT, "Gate Out");
+        configOutput(ACCENT_OUTPUT, "Accent Out");
+        configOutput(COMPLETION_OUTPUT, "Sequence End Out");
         configLight(COMPLETION_LIGHT, "Completion Indicator");
     }
 
