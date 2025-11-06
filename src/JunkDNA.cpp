@@ -172,10 +172,10 @@ struct JunkDNA : Module {
         configInput(FWD_IN, "Forward");
         configInput(REV_IN, "Reverse");
         configInput(RESET_IN, "Reset");
-        configOutput(A_OUT, "A Out");
-        configOutput(T_OUT, "T Out");
-        configOutput(C_OUT, "C Out");
-        configOutput(G_OUT, "G Out");
+        configOutput(A_OUT, "A");
+        configOutput(T_OUT, "T");
+        configOutput(C_OUT, "C");
+        configOutput(G_OUT, "G");
         configOutput(R_OUT, "R (puRine: A or G)");
         configOutput(Y_OUT, "Y (pYramidine: C or T)");
         configOutput(S_OUT, "S (Strong: C or G)");

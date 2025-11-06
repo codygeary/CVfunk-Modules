@@ -235,9 +235,9 @@ struct Picus : Module {
         configInput(RESET_INPUT, "Reset");
         configInput(PATTERN_INPUT, "Pattern Len.");
 
-        configOutput(DON_OUTPUT, "Don Trig. Out");
-        configOutput(KA_OUTPUT, "Ka Trig. Out");
-        configOutput(END_OUTPUT, "End Trig. Out");
+        configOutput(DON_OUTPUT, "Don Trig.");
+        configOutput(KA_OUTPUT, "Ka Trig.");
+        configOutput(END_OUTPUT, "End Trig.");
 
     }
 

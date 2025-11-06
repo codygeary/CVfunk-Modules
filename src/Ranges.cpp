@@ -52,9 +52,9 @@ struct Ranges : Module {
         configParam(BOTTOM_ATT_PARAM, -1.f, 1.f, 0.f, "Botom Att.");
         configParam(DIVISIONS_PARAM, 0.f, 11.f, 1.f, "Divisions");
 
-        configInput(TOP_INPUT, "Top In");
-        configInput(BOTTOM_INPUT, "Bottom In");
-        configInput(DIVISIONS_INPUT, "Divisions In");
+        configInput(TOP_INPUT, "Top");
+        configInput(BOTTOM_INPUT, "Bottom");
+        configInput(DIVISIONS_INPUT, "Divisions");
 
         // Initialize lights if needed
         for (int i = 0; i < 13; ++i) {

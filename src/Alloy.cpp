@@ -288,8 +288,8 @@ struct Alloy : Module {
         configInput(TRIG_INPUT,  "Strike CV");
         configInput(AUDIO_INPUT, "Resonator CV");
 
-        configOutput(AUDIO_OUTPUT_L,  "Audio L Out");
-        configOutput(AUDIO_OUTPUT_R,  "Audio R Out");
+        configOutput(AUDIO_OUTPUT_L,  "Audio L");
+        configOutput(AUDIO_OUTPUT_R,  "Audio R");
 
         // Initialize all detune tables
         for (int c = 0; c < MAX_POLY; ++c)

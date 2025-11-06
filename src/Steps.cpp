@@ -83,18 +83,18 @@ struct Steps : Module {
         configParam(COMPARATOR_ATT, -1.0f, 1.0f, 1.0f, "Comp. Input Att.");
 
 #ifdef METAMODULE
-        configInput(COMPARATOR_INPUT, "Comparator In (Input breaks normal)");
+        configInput(COMPARATOR_INPUT, "Comparator");
 #else
-        configInput(COMPARATOR_INPUT, "Comparator In)");
+        configInput(COMPARATOR_INPUT, "Comparator In (Input breaks normal)");
 #endif
         configInput(BIAS_INPUT, "Bias CV");
         configInput(RANGE_INPUT, "Range CV");
-        configInput(INVERT_INPUT, "Invert Gate In");
+        configInput(INVERT_INPUT, "Invert Gate");
         configInput(STEP_INPUT, "Step Size CV");
-        configInput(TRIGGER_INPUT, "Trigger In");
-        configInput(RESET_INPUT, "Reset In");
-        configOutput(COMPARATOR_UP_OUTPUT, "Comp. Above Out");
-        configOutput(COMPARATOR_DN_OUTPUT, "Comp. Below Out");
+        configInput(TRIGGER_INPUT, "Trigger");
+        configInput(RESET_INPUT, "Reset");
+        configOutput(COMPARATOR_UP_OUTPUT, "Comparator Above");
+        configOutput(COMPARATOR_DN_OUTPUT, "Comparator Below");
         configOutput(STEPPER_OUTPUT, "Stepper");
         // Initialize step_mix with the bias value
         step_mix = params[BIAS_PARAM].getValue() + inputs[BIAS_INPUT].getVoltage();

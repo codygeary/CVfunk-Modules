@@ -163,18 +163,18 @@ struct EnvelopeArray : Module {
         configInput(_4_INPUT, "Gate 4 CV");
         configInput(_5_INPUT, "Gate 5 CV");
         configInput(_6_INPUT, "Gate 6 CV");
-        configOutput(_1_OUTPUT, "Env. 1 Out");
-        configOutput(_2_OUTPUT, "Env. 2 Out");
-        configOutput(_3_OUTPUT, "Env. 3 Out");
-        configOutput(_4_OUTPUT, "Env. 4 Out");
-        configOutput(_5_OUTPUT, "Env. 5 Out");
-        configOutput(_6_OUTPUT, "Env. 6 Out");
-        configOutput(EOF1_OUTPUT, "End Gate 1 Out");
-        configOutput(EOF2_OUTPUT, "End Gate 2 Out");
-        configOutput(EOF3_OUTPUT, "End Gate 3 Out");
-        configOutput(EOF4_OUTPUT, "End Gate 4 Out");
-        configOutput(EOF5_OUTPUT, "End Gate 5 Out");
-        configOutput(EOF6_OUTPUT, "End Gate 6 Out");
+        configOutput(_1_OUTPUT, "Env. 1");
+        configOutput(_2_OUTPUT, "Env. 2");
+        configOutput(_3_OUTPUT, "Env. 3");
+        configOutput(_4_OUTPUT, "Env. 4");
+        configOutput(_5_OUTPUT, "Env. 5");
+        configOutput(_6_OUTPUT, "Env. 6");
+        configOutput(EOF1_OUTPUT, "End Gate 1");
+        configOutput(EOF2_OUTPUT, "End Gate 2");
+        configOutput(EOF3_OUTPUT, "End Gate 3");
+        configOutput(EOF4_OUTPUT, "End Gate 4");
+        configOutput(EOF5_OUTPUT, "End Gate 5");
+        configOutput(EOF6_OUTPUT, "End Gate 6");
 
         // Default initialization of time ranges to MID
         time1Range = MID;

@@ -325,15 +325,15 @@ struct Tuner : Module {
 
     Tuner() {
         config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
-        configInput(AUDIO_INPUT, "Audio 1 In");
-        configOutput(FREQ_OUTPUT, "Frequency (V/oct) Out");
+        configInput(AUDIO_INPUT, "Audio 1");
+        configOutput(FREQ_OUTPUT, "Frequency (V/oct)");
         configParam(GAIN_PARAM, 0.f, 5.f, 1.f, "Wave Gain");
         configParam(OFFSET_PARAM, -5.f, 5.f, 0.f, "Wave Offset");
         configParam(WIDTH_PARAM, 1.f, 6.f, 1.f, "Width in Wavelengths")->snapEnabled=true;
         paramQuantities[WIDTH_PARAM]->displayMultiplier = 2.0f;
 
-        configInput(AUDIO2_INPUT, "Audio 2 In");
-        configOutput(FREQ2_OUTPUT, "Frequency (V/oct) Out");
+        configInput(AUDIO2_INPUT, "Audio 2");
+        configOutput(FREQ2_OUTPUT, "Frequency (V/oct)");
         configParam(GAIN2_PARAM, 0.f, 5.f, 1.f, "Wave Gain");
         configParam(OFFSET2_PARAM, -5.f, 5.f, 0.f, "Wave Offset");
         configParam(WIDTH2_PARAM, 1.f, 6.f, 1.f, "Width in Wavelengths")->snapEnabled=true;

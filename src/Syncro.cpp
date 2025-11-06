@@ -178,25 +178,25 @@ struct Syncro : Module {
         configInput(RESET_INPUT, "Reset In");
         configInput(ON_OFF_INPUT, "On/Off In");
         configOutput(CLOCK_OUTPUT, "Main Clock Out");
-        configOutput(INV_CLOCK_OUTPUT, "Inv. Main Clock Out");
-        configOutput(CLOCK_OUTPUT_1, "Clock 1 Out");
-        configOutput(INV_CLOCK_OUTPUT_1, "Inv. Clock 1 Out");
-        configOutput(CLOCK_OUTPUT_2, "Clock 2 Out");
-        configOutput(INV_CLOCK_OUTPUT_2, "Inv. Clock 2 Out");
-        configOutput(CLOCK_OUTPUT_3, "Clock 3 Out");
-        configOutput(INV_CLOCK_OUTPUT_3, "Inv. Clock 3 Out");
-        configOutput(CLOCK_OUTPUT_4, "Clock 4 Out");
-        configOutput(INV_CLOCK_OUTPUT_4, "Inv. Clock 4 Out");
-        configOutput(CLOCK_OUTPUT_5, "Clock 5 Out");
-        configOutput(INV_CLOCK_OUTPUT_5, "Inv. Clock 5 Out");
-        configOutput(CLOCK_OUTPUT_6, "Clock 6 Out");
-        configOutput(INV_CLOCK_OUTPUT_6, "Inv. Clock 6 Out");
-        configOutput(CLOCK_OUTPUT_7, "Clock 7 Out");
-        configOutput(INV_CLOCK_OUTPUT_7, "Inv. Clock 7 Out");
-        configOutput(CLOCK_OUTPUT_8, "Clock 8 Out");
-        configOutput(INV_CLOCK_OUTPUT_8, "Inv. Clock 8 Out");
+        configOutput(INV_CLOCK_OUTPUT, "Inv. Main Clock");
+        configOutput(CLOCK_OUTPUT_1, "Clock 1");
+        configOutput(INV_CLOCK_OUTPUT_1, "Inv. Clock 1");
+        configOutput(CLOCK_OUTPUT_2, "Clock 2");
+        configOutput(INV_CLOCK_OUTPUT_2, "Inv. Clock 2");
+        configOutput(CLOCK_OUTPUT_3, "Clock 3");
+        configOutput(INV_CLOCK_OUTPUT_3, "Inv. Clock 3");
+        configOutput(CLOCK_OUTPUT_4, "Clock 4");
+        configOutput(INV_CLOCK_OUTPUT_4, "Inv. Clock 4");
+        configOutput(CLOCK_OUTPUT_5, "Clock 5");
+        configOutput(INV_CLOCK_OUTPUT_5, "Inv. Clock 5");
+        configOutput(CLOCK_OUTPUT_6, "Clock 6");
+        configOutput(INV_CLOCK_OUTPUT_6, "Inv. Clock 6");
+        configOutput(CLOCK_OUTPUT_7, "Clock 7");
+        configOutput(INV_CLOCK_OUTPUT_7, "Inv. Clock 7");
+        configOutput(CLOCK_OUTPUT_8, "Clock 8");
+        configOutput(INV_CLOCK_OUTPUT_8, "Inv. Clock 8");
 
-        configInput(CLOCK_INPUT , "Clock In" );
+        configInput(CLOCK_INPUT , "Clock" );
         configInput(SWING_INPUT , "Swing CV" );
         configInput(FILL_INPUT , "Fill CV" );
         configInput(WIDTH_INPUT , "Pulse Width CV" );
@@ -211,7 +211,7 @@ struct Syncro : Module {
 
         // Initialize fill inputs
         for (int i = 0; i < 8; i++) {
-            configInput(FILL_INPUT_1 + i, "Fill " + std::to_string(i + 1) + " In");
+            configInput(FILL_INPUT_1 + i, "Fill " + std::to_string(i + 1));
         }
 
         // Initialize fill LEDs

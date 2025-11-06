@@ -216,13 +216,13 @@ struct TriDelay : Module {
         configInput(GLOBAL_PAN_IN, "Global Pan CV");
         configInput(GLOBAL_FEEDBACK_IN, "Global Feedback CV");
         configInput(GLOBAL_WETDRY_IN, "Dry/Wet CV");
-        configInput(CLEAR_BUFFER_IN, "Clear Buffer In");
-        configInput(HOLD_IN, "Hold In");
+        configInput(CLEAR_BUFFER_IN, "Clear Buffer");
+        configInput(HOLD_IN, "Hold");
 
-        configInput(AUDIO_INPUT_L, "Audio In L");
-        configInput(AUDIO_INPUT_R, "Audio In R");
-        configOutput(AUDIO_OUTPUT_L, "Audio Out L");
-        configOutput(AUDIO_OUTPUT_R, "Audio Out R");
+        configInput(AUDIO_INPUT_L, "Audio L");
+        configInput(AUDIO_INPUT_R, "Audio R");
+        configOutput(AUDIO_OUTPUT_L, "Audio L");
+        configOutput(AUDIO_OUTPUT_R, "Audio R");
     }
 
     // Handle sample rate changes

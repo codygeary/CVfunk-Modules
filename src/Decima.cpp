@@ -105,8 +105,8 @@ struct Decima : Module {
         for (int i = 0; i < 10; i++) {
             configOutput(GATE_1 + i, "Gate " + std::to_string(i + 1));
         }
-        configOutput(OUTPUT, "Main Out");
-        configOutput(INV_OUTPUT, "Inv. Out");
+        configOutput(OUTPUT, "Main");
+        configOutput(INV_OUTPUT, "Inv.");
     }
 
     void onReset(const ResetEvent& e) override {

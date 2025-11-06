@@ -116,7 +116,7 @@ struct Magnets : Module {
 
         // Initialize outputs with labels
         for (int i = 0; i < NUM_SECTIONS; ++i) {
-            configOutput(OUTPUTS_START + i, "Zone " + std::to_string(i+1) + " Out");
+            configOutput(OUTPUTS_START + i, "Zone " + std::to_string(i+1) );
         }
         
         // Initialize all lights to off

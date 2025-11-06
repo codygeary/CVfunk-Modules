@@ -125,18 +125,18 @@ struct PentaSequencer : Module {
         configParam(KNOB3_PARAM, -5.f, 5.f, 0.f, "III");
         configParam(KNOB4_PARAM, -5.f, 5.f, 0.f, "IV");
         configParam(KNOB5_PARAM, -5.f, 5.f, 0.f, "V");
-        configInput(TRIG_INPUT, "Trigger In");
-        configInput(SHAPE_INPUT, "Shape In");
-        configInput(SHIFT_INPUT, "Shift In");
-        configInput(DIR_INPUT, "Dir In");
-        configInput(RESET_INPUT, "Reset In"); 
+        configInput(TRIG_INPUT, "Trigger");
+        configInput(SHAPE_INPUT, "Shape");
+        configInput(SHIFT_INPUT, "Shift");
+        configInput(DIR_INPUT, "Dir");
+        configInput(RESET_INPUT, "Reset"); 
         configInput(SLEW_INPUT, "Slew CV"); 
 
-        configOutput(A_OUTPUT, "A Out");
-        configOutput(B_OUTPUT, "B Out");
-        configOutput(C_OUTPUT, "C Out");
-        configOutput(D_OUTPUT, "D Out");
-        configOutput(E_OUTPUT, "E Out");
+        configOutput(A_OUTPUT, "A");
+        configOutput(B_OUTPUT, "B");
+        configOutput(C_OUTPUT, "C");
+        configOutput(D_OUTPUT, "D");
+        configOutput(E_OUTPUT, "E");
         configParam(MANUAL_TRIGGER_PARAM, 0.0, 1.0, 0.0, "Manual Trig." );
         configParam(MANUAL_RESET_PARAM, 0.0, 1.0, 0.0, "Manual Reset" );
     }

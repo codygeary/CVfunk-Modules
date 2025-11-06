@@ -95,9 +95,9 @@ struct Collatz : Module {
         configInput(BEAT_MODULUS_CV, "Beat Modulus CV");
 
         // Configuring outputsBEAT_MODULUS
-        configOutput(GATE_OUTPUT, "Gate Out");
-        configOutput(ACCENT_OUTPUT, "Accent Out");
-        configOutput(COMPLETION_OUTPUT, "Sequence End Out");
+        configOutput(GATE_OUTPUT, "Gate");
+        configOutput(ACCENT_OUTPUT, "Accent");
+        configOutput(COMPLETION_OUTPUT, "Sequence End");
         configLight(COMPLETION_LIGHT, "Completion Indicator");
     }
 

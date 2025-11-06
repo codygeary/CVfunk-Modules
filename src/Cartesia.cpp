@@ -424,11 +424,11 @@ struct Cartesia : Module {
         configInput(OFFSET_INPUT, "Offset CV");
         
         // Configure outputs
-        configOutput(RESET_OUTPUT, "Reset Trig. Out");
-        configOutput(TRIGGER_OUTPUT, "Step Trig. Out");
-        configOutput(GATEOUT_OUTPUT, "Step Gate Out");
-        configOutput(INVGATEOUT_OUTPUT, "Inverted Step Gate Out");
-        configOutput(OUTPUT_OUTPUT, "Main Sequencer Out");
+        configOutput(RESET_OUTPUT, "Reset Trig.");
+        configOutput(TRIGGER_OUTPUT, "Step Trig.");
+        configOutput(GATEOUT_OUTPUT, "Step Gate");
+        configOutput(INVGATEOUT_OUTPUT, "Inverted Step Gate");
+        configOutput(OUTPUT_OUTPUT, "Main Sequencer");
 
     }
 

@@ -197,21 +197,21 @@ struct Ouros : Module {
         configParam(MULTIPLY_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Multiply Att."); // 
 
         configParam(FM_ATT_KNOB, -1.0f, 1.0f, 0.0f, "FM Att."); // 
-        configInput(HARD_SYNC_INPUT, "Sync In");
-        configParam(RESET_BUTTON, 0.0, 1.0, 0.0, "Reset In" );
+        configInput(HARD_SYNC_INPUT, "Sync");
+        configParam(RESET_BUTTON, 0.0, 1.0, 0.0, "Reset" );
 
-        configInput(ROTATE_INPUT, "Rotate In");
-        configInput(SPREAD_INPUT, "Spread In");
-        configInput(FEEDBACK_INPUT, "Feedback In");
-        configInput(FM_INPUT, "FM In");
+        configInput(ROTATE_INPUT, "Rotate");
+        configInput(SPREAD_INPUT, "Spread");
+        configInput(FEEDBACK_INPUT, "Feedback");
+        configInput(FM_INPUT, "FM");
 
-        configInput(RATE_INPUT, "V/Oct In");
-        configInput(NODE_INPUT, "Node Dist. In");
-        configInput(POSITION_INPUT, "Feedback Pos. In");
-        configInput(MULTIPLY_INPUT, "Multiply In");
+        configInput(RATE_INPUT, "V/Oct");
+        configInput(NODE_INPUT, "Node Dist.");
+        configInput(POSITION_INPUT, "Feedback Pos.");
+        configInput(MULTIPLY_INPUT, "Multiply");
 
-        configOutput(L_OUTPUT, "Orange - L Out" );
-        configOutput(R_OUTPUT, "Blue - R Out" );
+        configOutput(L_OUTPUT, "Orange - L" );
+        configOutput(R_OUTPUT, "Blue - R" );
 
      }
 

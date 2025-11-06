@@ -102,8 +102,8 @@ struct Count : Module {
         configInput(RESET_INPUT, "Reset CV");
 
 #ifdef METAMODULE
-        configOutput(COUNT_OUTPUT, "Count Gate Out");
-        configOutput(PHASE_OUTPUT, "Stepped-Phase Out");
+        configOutput(COUNT_OUTPUT, "Count Gate");
+        configOutput(PHASE_OUTPUT, "Stepped-Phase");
 #else
         configOutput(COUNT_OUTPUT, "High Gate at Loop Point or upon reaching Start/End");
         configOutput(PHASE_OUTPUT, "Stepped-Phase 0-10V");

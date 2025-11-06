@@ -209,13 +209,13 @@ struct Hammer : Module {
 #endif
         configInput(RESET_INPUT, "Reset CV");
         configInput(ON_OFF_INPUT, "ON/OFF CV");
-        configOutput(CLOCK_OUTPUT, "Main Clock Out");
+        configOutput(CLOCK_OUTPUT, "Main Clock");
         for (int i=0; i<CHANNELS; i++){        
-            configOutput(CLOCK_OUTPUT_1+i, "Clock " + std::to_string(i+1) + " Out" );
+            configOutput(CLOCK_OUTPUT_1+i, "Clock " + std::to_string(i+1) );
         }
 #ifdef METAMODULE
-        configOutput(POLY_OUTPUT, "Poly Clock Out");
-        configOutput(CHAIN_OUTPUT, "Chain Out");
+        configOutput(POLY_OUTPUT, "Poly Clock");
+        configOutput(CHAIN_OUTPUT, "Chain");
 #else
         configOutput(POLY_OUTPUT, "Poly Clock Out \n Ch 1-8 Clock Gate Outs \n Ch 9-16 Inverted Gate Outs");
         configOutput(CHAIN_OUTPUT, "(CHAIN links to CLOCK input of Hammer or Picus.)\n Chain");

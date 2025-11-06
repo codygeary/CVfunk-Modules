@@ -139,13 +139,13 @@ struct Node : Module {
         configParam(VOL_PARAM, 0.f, 1.f, 1.0f, "Volume");
         configParam(XFADE_PARAM, -1.f, 1.f, 0.f, "Crossfader (-1=I, 1=II)");
 
-        configInput(_1_IN1, "Chan. I L In");
-        configInput(_1_IN2, "Chan. I R In");
-        configInput(_2_IN1, "Chan. II L In");
-        configInput(_2_IN2, "Chan. II R In");
+        configInput(_1_IN1, "Chan. I L");
+        configInput(_1_IN2, "Chan. I R");
+        configInput(_2_IN1, "Chan. II L");
+        configInput(_2_IN2, "Chan. II R");
         configInput(XFADE_IN, "Cr.fader CV");
-        configInput(CV1_IN, "CV I In");
-        configInput(CV2_IN, "CV II In");
+        configInput(CV1_IN, "CV I");
+        configInput(CV2_IN, "CV II");
 
         configOutput(OUT1, "Output L");
         configOutput(OUT2, "Output R");

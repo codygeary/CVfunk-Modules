@@ -146,13 +146,13 @@ struct ImpulseController : Module {
         configParam(SPREAD_ATT_PARAM, -1.0f, 1.0f, 0.0f, "Spread Att.");
         configParam(DECAY_ATT_PARAM, -1.0f, 1.0f, 0.0f, "Decay Att.");
 
-        configInput(_00_INPUT, "In");
+        configInput(_00_INPUT, "Impulse");
         configInput(LAG_INPUT, "Lag CV");
         configInput(SPREAD_INPUT, "Spread CV");
         configInput(DECAY_INPUT, "Decay CV");
 
         for (int i = 0; i < MAX_NODES; ++i) {
-            configOutput(_01_OUTPUT + i, "Impulse " + std::to_string(i+1) + " Out");
+            configOutput(_01_OUTPUT + i, "Impulse " + std::to_string(i+1));
         }
     }
 

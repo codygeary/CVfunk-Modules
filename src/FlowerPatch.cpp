@@ -135,7 +135,7 @@ struct FlowerPatch : Module {
         fftOutput   = static_cast<float*>(pffft_aligned_malloc(BUFFER_SIZE * sizeof(float)));
         
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
-        configInput(AUDIO_INPUT, "Audio Input");
+        configInput(AUDIO_INPUT, "Audio");
 
         configParam(HUE_PARAM, -5.0, 5.0, 0.0, "Hue");
         configParam(HUE_ATT_PARAM, -1.0, 1.0, 0.0, "Hue Att.");

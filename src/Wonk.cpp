@@ -180,16 +180,16 @@ struct Wonk : Module {
         configInput(WONK_INPUT, "Wonk");
         configInput(NODES_INPUT, "Nodes");
         configInput(MOD_DEPTH_INPUT, "Mod. Depth");
-        configOutput(_1_OUTPUT, "1 Out");
-        configOutput(_2_OUTPUT, "2 Out");
-        configOutput(_3_OUTPUT, "3 Out");
-        configOutput(_4_OUTPUT, "4 Out");
-        configOutput(_5_OUTPUT, "5 Out");
-        configOutput(_6_OUTPUT, "6 Out");
+        configOutput(_1_OUTPUT, "1");
+        configOutput(_2_OUTPUT, "2");
+        configOutput(_3_OUTPUT, "3");
+        configOutput(_4_OUTPUT, "4");
+        configOutput(_5_OUTPUT, "5");
+        configOutput(_6_OUTPUT, "6");
 #ifdef METAMODULE
-        configOutput(POLY_OUTPUT, "Poly: 1 Out");
+        configOutput(POLY_OUTPUT, "Poly: 1");
 #else
-        configOutput(POLY_OUTPUT, "Polyphonic Out");
+        configOutput(POLY_OUTPUT, "Polyphonic");
 #endif
 
         outputs[POLY_OUTPUT].setChannels(6);

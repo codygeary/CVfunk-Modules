@@ -250,8 +250,8 @@ struct Tatami : Module {
         configParam(DENSITY_PARAM2, 1.f, 20.f, 1.f, "Folding Density Right");
         configParam(DENSITY_ATT_PARAM, 0.f, 1.f, 0.f, "Density Att.");
 
-        configInput(AUDIO_L_INPUT, "L Audio In");
-        configInput(AUDIO_R_INPUT, "R Audio In");
+        configInput(AUDIO_L_INPUT, "L Audio");
+        configInput(AUDIO_R_INPUT, "R Audio");
 
         configInput(SHAPE_INPUT, "Shape CV");
         configInput(COMPRESS_INPUT, "Compress CV");
@@ -259,8 +259,8 @@ struct Tatami : Module {
         configInput(DENSITY_INPUT1, "Density Left CV");
         configInput(DENSITY_INPUT2, "Density Right CV");
 
-        configOutput(AUDIO_L_OUTPUT, "L Audio Out");
-        configOutput(AUDIO_R_OUTPUT, "R Audio Out");
+        configOutput(AUDIO_L_OUTPUT, "L Audio");
+        configOutput(AUDIO_R_OUTPUT, "R Audio");
 
     }
 

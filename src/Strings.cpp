@@ -388,24 +388,24 @@ struct Strings : Module {
 
         // Initialize outputs
 #ifdef METAMODULE
-        configOutput(STRING_CV_OUT_1, "String 1 Out");
-        configOutput(STRING_CV_OUT_2, "String 2 Out");
-        configOutput(STRING_CV_OUT_3, "String 3 Out");
-        configOutput(STRING_CV_OUT_4, "String 4 Out");
-        configOutput(STRING_CV_OUT_5, "String 5 Out");
-        configOutput(STRING_CV_OUT_6, "String 6 Out");
-        configOutput(ROOT_NOTE_CV_OUT, "Root Note V/oct Out");      
+        configOutput(STRING_CV_OUT_1, "String 1");
+        configOutput(STRING_CV_OUT_2, "String 2");
+        configOutput(STRING_CV_OUT_3, "String 3");
+        configOutput(STRING_CV_OUT_4, "String 4");
+        configOutput(STRING_CV_OUT_5, "String 5");
+        configOutput(STRING_CV_OUT_6, "String 6");
+        configOutput(ROOT_NOTE_CV_OUT, "Root Note V/oct");      
         configOutput(TRIGGER_OUT, "Chord Change Trigger");      
 
         configParam(BARRE_CHORD_BUTTON, 0.0, 1.0, 0.0, "Chord Bank I" );
         configParam(ALT_CHORD_BUTTON, 0.0, 1.0, 0.0, "Chord Bank II" );
 
-        configOutput(MUTE_OUT_1, "Mute 1 Out");
-        configOutput(MUTE_OUT_2, "Mute 2 Out");
-        configOutput(MUTE_OUT_3, "Mute 3 Out");
-        configOutput(MUTE_OUT_4, "Mute 4 Out");
-        configOutput(MUTE_OUT_5, "Mute 5 Out");
-        configOutput(MUTE_OUT_6, "Mute 6 Out");
+        configOutput(MUTE_OUT_1, "Mute 1");
+        configOutput(MUTE_OUT_2, "Mute 2");
+        configOutput(MUTE_OUT_3, "Mute 3");
+        configOutput(MUTE_OUT_4, "Mute 4");
+        configOutput(MUTE_OUT_5, "Mute 5");
+        configOutput(MUTE_OUT_6, "Mute 6");
 #else
         configOutput(STRING_CV_OUT_1, "String 1 V/oct / Poly");
         configOutput(STRING_CV_OUT_2, "String 2 V/oct");

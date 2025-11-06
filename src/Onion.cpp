@@ -82,7 +82,7 @@ struct Onion : Module {
         for (int i = 0; i < ONION_LAYERS; i++) {
             std::string label = "Layer " + std::to_string(i + 1);
             configParam(LAYER_1_PARAM + i, -1.f, 1.f, 0.0f, label);
-            std::string outLabel = "Layer " + std::to_string(i + 1) + " Out";
+            std::string outLabel = "Layer " + std::to_string(i + 1) ;
             configOutput(LAYER_1_OUTPUT + i, outLabel);
         }
 

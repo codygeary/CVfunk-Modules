@@ -240,7 +240,7 @@ struct HexMod : Module {
         synclinkEnabled = true;
 
         for (int i = 0; i < 6; i++) {
-            configOutput(LFO_OUTPUT_1 + i, "LFO " + std::to_string(i + 1) + " Out");
+            configOutput(LFO_OUTPUT_1 + i, "LFO " + std::to_string(i + 1));
         }
     }
 

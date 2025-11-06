@@ -340,27 +340,27 @@ struct StepWave : Module {
         configInput(STEP_6_7_DISPLACE_IN, "Rhy. Displace. 6-7");
         configInput(STEP_7_8_DISPLACE_IN, "Rhy. Displace. 7-8");
         configInput(SLEW_INPUT, "Slew CV");
-        configInput(ON_OFF_INPUT, "On/Off In");
-        configInput(RESET_INPUT, "Reset In");
+        configInput(ON_OFF_INPUT, "On/Off");
+        configInput(RESET_INPUT, "Reset");
         
 #ifdef METAMODULE
-        configInput(LINK_INPUT, "Link In");
-        configInput(TRACK_INPUT, "Track In");
+        configInput(LINK_INPUT, "Link");
+        configInput(TRACK_INPUT, "Track");
 #else
         configInput(LINK_INPUT, "Link Beats to Step");
         configInput(TRACK_INPUT, "Track Stage Value CV");
 #endif       
  
         configOutput(CV_OUTPUT, "Sequencer CV");
-        configOutput(GATE_OUTPUT, "Sequencer Gate Out");
-        configOutput(STEP_1_GATE_OUT, "Stage 1 Gate Out");
-        configOutput(STEP_2_GATE_OUT, "Stage 2 Gate Out");
-        configOutput(STEP_3_GATE_OUT, "Stage 3 Gate Out");
-        configOutput(STEP_4_GATE_OUT, "Stage 4 Gate Out");
-        configOutput(STEP_5_GATE_OUT, "Stage 5 Gate Out");
-        configOutput(STEP_6_GATE_OUT, "Stage 6 Gate Out");
-        configOutput(STEP_7_GATE_OUT, "Stage 7 Gate Out");
-        configOutput(STEP_8_GATE_OUT, "Stage 8 Gate Out");
+        configOutput(GATE_OUTPUT, "Sequencer Gate");
+        configOutput(STEP_1_GATE_OUT, "Stage 1 Gate");
+        configOutput(STEP_2_GATE_OUT, "Stage 2 Gate");
+        configOutput(STEP_3_GATE_OUT, "Stage 3 Gate");
+        configOutput(STEP_4_GATE_OUT, "Stage 4 Gate");
+        configOutput(STEP_5_GATE_OUT, "Stage 5 Gate");
+        configOutput(STEP_6_GATE_OUT, "Stage 6 Gate");
+        configOutput(STEP_7_GATE_OUT, "Stage 7 Gate");
+        configOutput(STEP_8_GATE_OUT, "Stage 8 Gate");
 
         configSwitch(STEP_1_BUTTON, 0.f, 1.f, 0.f, "Stage 1");
         configSwitch(STEP_2_BUTTON, 0.f, 1.f, 0.f, "Stage 2");

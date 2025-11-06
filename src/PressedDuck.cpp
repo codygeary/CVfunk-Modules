@@ -350,22 +350,22 @@ struct PressedDuck : Module {
 
         // Configure inputs for each channel
 #ifdef METAMODULE    
-        configInput(AUDIO_1L_INPUT, "Chan. 1 L In");
-        configInput(AUDIO_1R_INPUT, "Chan. 1 R In");
+        configInput(AUDIO_1L_INPUT, "Chan. 1 L");
+        configInput(AUDIO_1R_INPUT, "Chan. 1 R");
 #else
-        configInput(AUDIO_1L_INPUT, "Chan. 1 L / Poly In");
-        configInput(AUDIO_1R_INPUT, "Chan. 1 R / Poly In");
+        configInput(AUDIO_1L_INPUT, "Chan. 1 L / Poly");
+        configInput(AUDIO_1R_INPUT, "Chan. 1 R / Poly");
 #endif
-        configInput(AUDIO_2L_INPUT, "Chan. 2 L In");
-        configInput(AUDIO_2R_INPUT, "Chan. 2 R In");
-        configInput(AUDIO_3L_INPUT, "Chan. 3 L In");
-        configInput(AUDIO_3R_INPUT, "Chan. 3 R In");
-        configInput(AUDIO_4L_INPUT, "Chan. 4 L In");
-        configInput(AUDIO_4R_INPUT, "Chan. 4 R In");
-        configInput(AUDIO_5L_INPUT, "Chan. 5 L In");
-        configInput(AUDIO_5R_INPUT, "Chan. 5 R In");
-        configInput(AUDIO_6L_INPUT, "Chan. 6 L In");
-        configInput(AUDIO_6R_INPUT, "Chan. 6 R In");
+        configInput(AUDIO_2L_INPUT, "Chan. 2 L");
+        configInput(AUDIO_2R_INPUT, "Chan. 2 R");
+        configInput(AUDIO_3L_INPUT, "Chan. 3 L");
+        configInput(AUDIO_3R_INPUT, "Chan. 3 R");
+        configInput(AUDIO_4L_INPUT, "Chan. 4 L");
+        configInput(AUDIO_4R_INPUT, "Chan. 4 R");
+        configInput(AUDIO_5L_INPUT, "Chan. 5 L");
+        configInput(AUDIO_5R_INPUT, "Chan. 5 R");
+        configInput(AUDIO_6L_INPUT, "Chan. 6 L");
+        configInput(AUDIO_6R_INPUT, "Chan. 6 R");
 
 #ifdef METAMODULE    
         configInput(VCA_CV1_INPUT, "Chan. 1 VCA CV");

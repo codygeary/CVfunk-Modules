@@ -120,9 +120,9 @@ struct Rat : Module {
         config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
         configParam(RATIO_PARAM, -16.0f, 16.0f, 1.0f, "Ratio");
         configParam(RATIO_ATT_PARAM, -1.0f, 1.0f, 1.0f, "Ratio Att.");
-        configInput(OSCI_INPUT, "Osc I V/Oct In");
-        configInput(RATIO_INPUT, "Ratio In");
-        configOutput(OSCII_OUTPUT, "Osc II V/Oct Out");
+        configInput(OSCI_INPUT, "Osc I V/Oct");
+        configInput(RATIO_INPUT, "Ratio");
+        configOutput(OSCII_OUTPUT, "Osc II V/Oct");
         configParam(LOCK_BUTTON, 0.0, 1.0, 0.0, "Lock-on Ratio" );
      }
 

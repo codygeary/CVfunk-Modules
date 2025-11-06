@@ -235,22 +235,22 @@ struct Arrange : Module {
         configInput(FORWARD_INPUT, "Forward");
         configInput(BACKWARDS_INPUT, "Backward");
         configInput(REC_INPUT, "Record");
-        configInput(CHAN_1_INPUT, "Chan. 1 In");
-        configInput(CHAN_2_INPUT, "Chan. 2 In");
-        configInput(CHAN_3_INPUT, "Chan. 3 In");
-        configInput(CHAN_4_INPUT, "Chan. 4 In");
-        configInput(CHAN_5_INPUT, "Chan. 5 In");
-        configInput(CHAN_6_INPUT, "Chan. 6 In");
-        configInput(CHAN_7_INPUT, "Chan. 7 In");
+        configInput(CHAN_1_INPUT, "Chan. 1");
+        configInput(CHAN_2_INPUT, "Chan. 2");
+        configInput(CHAN_3_INPUT, "Chan. 3");
+        configInput(CHAN_4_INPUT, "Chan. 4");
+        configInput(CHAN_5_INPUT, "Chan. 5");
+        configInput(CHAN_6_INPUT, "Chan. 6");
+        configInput(CHAN_7_INPUT, "Chan. 7");
     
         // Configure outputs
-        configOutput(CHAN_1_OUTPUT, "Chan. 1 Out");
-        configOutput(CHAN_2_OUTPUT, "Chan. 2 Out");
-        configOutput(CHAN_3_OUTPUT, "Chan. 3 Out");
-        configOutput(CHAN_4_OUTPUT, "Chan. 4 Out");
-        configOutput(CHAN_5_OUTPUT, "Chan. 5 Out");
-        configOutput(CHAN_6_OUTPUT, "Chan. 6 Out");
-        configOutput(CHAN_7_OUTPUT, "Chan. 7 Out");
+        configOutput(CHAN_1_OUTPUT, "Chan. 1");
+        configOutput(CHAN_2_OUTPUT, "Chan. 2");
+        configOutput(CHAN_3_OUTPUT, "Chan. 3");
+        configOutput(CHAN_4_OUTPUT, "Chan. 4");
+        configOutput(CHAN_5_OUTPUT, "Chan. 5");
+        configOutput(CHAN_6_OUTPUT, "Chan. 6");
+        configOutput(CHAN_7_OUTPUT, "Chan. 7");
 
         isShiftHeld.store(false);
 
