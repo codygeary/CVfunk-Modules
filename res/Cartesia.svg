@@ -780,9 +780,9 @@
      borderopacity="1.0"
      inkscape:pageopacity="0.0"
      inkscape:pageshadow="2"
-     inkscape:zoom="1.1009789"
-     inkscape:cx="274.75549"
-     inkscape:cy="207.99671"
+     inkscape:zoom="1.5570193"
+     inkscape:cx="284.19686"
+     inkscape:cy="305.71233"
      inkscape:document-units="mm"
      inkscape:current-layer="svg8"
      showgrid="false"
@@ -900,13 +900,13 @@
    id="path173" />
                 </g><path
      d="m 158.84424,110.44055 v 7.88345 c 0,1.98444 -1.61288,3.59556 -3.59549,3.59556 H 82.709439 c -1.984452,0 -3.595954,-1.61112 -3.595954,-3.59556 v -7.88345 c 0,-1.98444 1.611502,-3.59556 3.595954,-3.59556 h 72.539311 c 1.98261,0 3.59549,1.61112 3.59549,3.59556 z"
-     style="clip-rule:evenodd;fill:#666666;fill-rule:evenodd;stroke:#ce8650;stroke-width:0.110774px;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:1.5;fill-opacity:1"
+     style="clip-rule:evenodd;fill:#666666;fill-rule:evenodd;stroke:#000000;stroke-width:0.35277778;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:1.5;fill-opacity:1;stroke-dasharray:none"
      id="path180" /><path
      d="m 63.258796,53.638904 v 7.297282"
      style="clip-rule:evenodd;fill:none;fill-rule:evenodd;stroke:#ce8650;stroke-width:0.141517px;stroke-linecap:butt;stroke-linejoin:round;stroke-miterlimit:1.5"
      id="path184" /><path
      d="M 149.83347,112.97637 H 115.27359"
-     style="clip-rule:evenodd;fill:none;fill-rule:evenodd;stroke:#ffffff;stroke-width:0.286976px;stroke-linecap:butt;stroke-linejoin:round;stroke-miterlimit:1.5"
+     style="clip-rule:evenodd;fill:none;fill-rule:evenodd;stroke:#ffffff;stroke-width:0.28222222;stroke-linecap:butt;stroke-linejoin:round;stroke-miterlimit:1.5;stroke-dasharray:none"
      id="path188" /><path
      d="m 74.235534,13.649572 v 32.670686 c 0,1.836769 -1.491547,3.327709 -3.327585,3.327709 H 7.5603246 c -1.8366461,0 -3.3277075,-1.49094 -3.3277075,-3.327709 V 13.649572 c 0,-1.836511 1.4910614,-3.32771 3.3277075,-3.32771 H 70.907949 c 1.836038,0 3.327585,1.491199 3.327585,3.32771 z"
      style="clip-rule:evenodd;fill:#212121;fill-rule:evenodd;stroke:#000000;stroke-width:0.310378px;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:1.5"

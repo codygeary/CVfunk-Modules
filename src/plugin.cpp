@@ -46,6 +46,7 @@ void init(Plugin* p) {
     p->addModel(modelTuner);
     p->addModel(modelAlloy);
     p->addModel(modelOnion);
+    p->addModel(modelStrata);
 
     
     // Any other plugin initialization may go here.
