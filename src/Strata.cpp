@@ -449,7 +449,7 @@ struct Strata : Module {
             configParam(SEQ_1_KNOB + i, -2.f, 2.f, 0.f, string::f("Left Stage %d Pitch (V/Oct)", i + 1) );
         }
         for (int i = 0; i < 4; i++) {
-            configParam(SEQ_4_KNOB + i, -2.f, 2.f, 0.f, string::f("Right Stage %d Pitch (V/Oct)", i + 1) );
+            configParam(SEQ_5_KNOB + i, -2.f, 2.f, 0.f, string::f("Right Stage %d Pitch (V/Oct)", i + 1) );
         }
     
         // === MAIN SEQUENCER BUTTONS ===
@@ -457,7 +457,7 @@ struct Strata : Module {
             configButton(SEQ_1_BUTTON + i, string::f("Left Stage %d Enable", i + 1));
         }
         for (int i = 0; i < 4; i++) { 
-            configButton(SEQ_4_BUTTON + i, string::f("Right Stage %d Enable", i + 1));
+            configButton(SEQ_5_BUTTON + i, string::f("Right Stage %d Enable", i + 1));
         }
     
         // === SEMITONE KNOBS (–12..12 semitones) ===
@@ -1669,33 +1669,27 @@ struct StrataWidget : ModuleWidget {
         for (int i = 0; i < 8; i++) {
             if (noteDisplays[i]) {
                 float pitchVoltage = module->finalNotes[i];
-            
+        
                 // Convert to semitones
                 float exactSemi = pitchVoltage * 12.f;
                 int totalSemi   = std::roundf(exactSemi);
-            
-                // Base octave and semitone before normalization
-                int baseOct = totalSemi / 12;          // This truncates toward 0 — OK once corrected
-                int baseSemi = totalSemi % 12;
-            
-                // Normalize semitone to 0..11
-                int semitone = (baseSemi + 12) % 12;
-            
-                // Adjust octave if modulo wrapped
-                int octave = baseOct;
-                if (baseSemi < 0 && semitone > baseSemi + 12) octave--;  // negative wrap
-                if (baseSemi > 11 && semitone < baseSemi - 12) octave++; // positive wrap
-            
+        
+                // Correct octave using mathematical floor
+                int octave = std::floor(totalSemi / 12.f);
+        
+                // Semitone normalized to 0..11
+                int semitone = ((totalSemi % 12) + 12) % 12;
+        
                 // Shift to your reference (0V = C4)
                 octave += 4;
-            
+        
                 // Note names
                 static const char* names[12] =
                     { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
-            
+        
                 char buf[8];
                 snprintf(buf, sizeof(buf), "%s%d", names[semitone], octave);
-            
+        
                 noteDisplays[i]->text = buf;
             }
         }
@@ -1727,33 +1721,27 @@ struct StrataWidget : ModuleWidget {
         //Output Note display
         if (outputDisplay) {
             float pitchVoltage = module->outputs[Strata::MAIN_OUTPUT].getVoltage();
-        
+    
             // Convert to semitones
             float exactSemi = pitchVoltage * 12.f;
-            int totalSemi   = std::roundf(exactSemi);
-        
-            // Base octave and semitone before normalization
-            int baseOct = totalSemi / 12;          // This truncates toward 0 — OK once corrected
-            int baseSemi = totalSemi % 12;
-        
-            // Normalize semitone to 0..11
-            int semitone = (baseSemi + 12) % 12;
-        
-            // Adjust octave if modulo wrapped
-            int octave = baseOct;
-            if (baseSemi < 0 && semitone > baseSemi + 12) octave--;  // negative wrap
-            if (baseSemi > 11 && semitone < baseSemi - 12) octave++; // positive wrap
-        
-            // Shift to your reference (0V = C4)
+
+            int totalSemi = std::roundf(exactSemi);
+            
+            // True mathematical floor for octave:
+            int octave = std::floor(totalSemi / 12.f);
+            
+            // Semitone as 0–11:
+            int semitone = ((totalSemi % 12) + 12) % 12;
+            
+            // Reference shift (0V = C4)
             octave += 4;
-        
-            // Note names
+            
             static const char* names[12] =
                 { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
-        
+            
             char buf[8];
             snprintf(buf, sizeof(buf), "%s%d", names[semitone], octave);
-        
+            
             outputDisplay->text = buf;
         }
 
