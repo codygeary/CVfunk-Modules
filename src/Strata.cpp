@@ -23,6 +23,10 @@ using namespace rack;
 const int STAGES=8; 
 const int PATTERNS=24;  
 
+static inline int randomInt(int minVal, int maxVal) {
+    return minVal + (random::u32() % (maxVal - minVal + 1));
+}
+
 struct Strata : Module {
     // Parameters
     enum ParamId {
@@ -239,6 +243,7 @@ struct Strata : Module {
     bool StageSample = false;
     
     float sequenceDir = 1.f;
+    bool initializing = true; //load Knob positions from JSON.
 
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
@@ -283,7 +288,6 @@ struct Strata : Module {
             json_array_append_new(buttonStatesJ, rowJ);
         }
         json_object_set_new(rootJ, "buttonStates", buttonStatesJ);
-
     
         json_t* patternJ = json_array();
         for (int i = 0; i < PATTERNS; i++) {
@@ -292,6 +296,11 @@ struct Strata : Module {
         json_object_set_new(rootJ, "patternState", patternJ);
     
         json_object_set_new(rootJ, "currentStage", json_integer(currentStage));
+        json_object_set_new(rootJ, "leftStage", json_integer(leftStage));
+        json_object_set_new(rootJ, "rightStage", json_integer(rightStage));
+        json_object_set_new(rootJ, "semiStage", json_integer(semiStage));
+        json_object_set_new(rootJ, "octStage", json_integer(octStage));
+        json_object_set_new(rootJ, "strataLayer", json_integer(strataLayer));
     
         json_object_set_new(rootJ, "endPulseAtStage", json_boolean(endPulseAtStage));
         json_object_set_new(rootJ, "patternReset", json_boolean(patternReset));
@@ -397,6 +406,27 @@ struct Strata : Module {
         json_t* selStageJ = json_object_get(rootJ, "selectedStage");
         if (selStageJ && json_is_integer(selStageJ)) {
             selectedStage = json_integer_value(selStageJ);
+        }
+
+        json_t* leftStageJ = json_object_get(rootJ, "leftStage");
+        if (leftStageJ && json_is_integer(leftStageJ)) {
+            leftStage = json_integer_value(leftStageJ);
+        }
+        json_t* rightStageJ = json_object_get(rootJ, "rightStage");
+        if (rightStageJ && json_is_integer(rightStageJ)) {
+            rightStage = json_integer_value(rightStageJ);
+        }
+        json_t* semiStageJ = json_object_get(rootJ, "semiStage");
+        if (semiStageJ && json_is_integer(semiStageJ)) {
+            semiStage = json_integer_value(semiStageJ);
+        }
+        json_t* octStageJ = json_object_get(rootJ, "octStage");
+        if (octStageJ && json_is_integer(octStageJ)) {
+            octStage = json_integer_value(octStageJ);
+        }
+        json_t* strataLayerJ = json_object_get(rootJ, "strataLayer");
+        if (strataLayerJ && json_is_integer(strataLayerJ)) {
+            strataLayer = json_integer_value(strataLayerJ);
         }
     
         json_t* endPulseAtStageJ = json_object_get(rootJ, "endPulseAtStage");
@@ -569,6 +599,13 @@ struct Strata : Module {
             }
         }
 
+        // Reset switchStates
+        for (int z = 0; z < 4; z++) {
+            switchStates[0][z] = 0.0f;
+            switchStates[1][z] = 0.0f;
+            switchStates[2][z] = 1.0f;
+        }
+
         // Reset finalNotes to all zeros
         for (int i = 0; i < 19; i++) {
             finalNotes[i] = 0.0f;
@@ -582,95 +619,76 @@ struct Strata : Module {
     }
     
     void onRandomize(const RandomizeEvent& e) override {
-
-        params[PATTERN_KNOB].setValue(PATTERNS*random::uniform());
-
-        // Randomize custom state variables
-        for (int i = 0; i < STAGES; ++i) {
-            multiply[i] = random::uniform() * 12.0f;     // 0–32
-            divide[i] = random::uniform() * 8.0f + 1.0;        // 1–9
+        
+        // --- PATTERN_KNOB (int 1…24) ---
+        {
+            int p = 1 + (random::u32() % PATTERNS);   // PATTERNS = 24
+            params[PATTERN_KNOB].setValue((float)p);
         }
     
-        for (int i = 0; i < PATTERNS; ++i) {
-            patternState[i] = random::u32() % 3;         // 0, 1, or 2
+        // --- MULTIPLY / DIVIDE (10 entries each) ---
+        for (int i = 0; i < 10; ++i) {
+            float m = random::uniform() * 12.f;       // 0…12
+            float d = 1.f + random::uniform() * 8.f;  // 1…9
+            multiply[i] = m;
+            divide[i]   = d;
         }
-        
-        // --- Randomize KNOBS with set ranges and quantization ---
-        for (int i = 0; i < 19; i++) {
-        
-            float v = 0.f;
-        
-            // --- GROUP 0–7: base note knobs, range -2..2 V, quantized to semitone (1/12 V) ---
-            if (i >= 0 && i < 8) {
-                float raw = random::uniform() * 4.f - 2.f;     // -2 .. +2 V
-                int steps = std::roundf(raw * 12.f);           // quantize to semitone
-                v = steps / 12.f;
-            }
-        
-            // --- GROUP 8–14: semitone offset knobs, range -12..12 V, quantized to 1-volt steps ---
-            else if (i >= 8 && i < 15) {
-                float raw = random::uniform() * 24.f - 12.f;   // -12 .. +12 V
-                int steps = std::roundf(raw);                  // quantize to integer volts
-                v = steps;
-            }
-        
-            // --- GROUP 15–18: octave knobs, range -2..2 V, quantized to 1-volt steps ---
-            else if (i >= 15 && i < 19) {
-                float raw = random::uniform() * 4.f - 2.f;     // -2 .. +2 V
-                int steps = std::roundf(raw);                  // quantize to integer volts
-                v = steps;
-            }
-        
+    
+        // --- PATTERN STATES (0,1,2) ---
+        for (int i = 0; i < PATTERNS; ++i)
+            patternState[i] = (int)(random::u32() % 3);
+    
+        // --- SEQ_1…SEQ_8_KNOB  (–2…2 V in 1/12 increments) ---
+        for (int i = 0; i < 8; ++i) {
+            int steps = randomInt(-24, 24);          // -24…24 semitones
+            float v = steps / 12.f;
             params[SEQ_1_KNOB + i].setValue(v);
         }
-
-
-        // Randomize buttonStates for the current strataLayer
+    
+        // --- SEMI_1…SEMI_7_KNOB  (int –12…12) ---
+        for (int i = 0; i < 7; ++i) {
+            int v = randomInt(-12, 12);
+            params[SEMI_1_KNOB + i].setValue((float)v);
+        }
+    
+        // --- OCT_1…OCT_4_KNOB (int –2…2) ---
+        for (int i = 0; i < 4; ++i) {
+            int v = randomInt(-2, 2);
+            params[OCT_1_KNOB + i].setValue((float)v);
+        }
+    
+        // --- SWITCHES (MAIN / SEMI / OCT) (0…2) ---
+        params[MAIN_SWITCH].setValue((float)randomInt(0,2));
+        params[SEMI_SWITCH].setValue((float)randomInt(0,2));
+        params[OCT_SWITCH].setValue((float)randomInt(0,2));
+        
+        //Button randomization with at least one active button per group        
+        // Randomize all buttons first
         for (int i = 0; i < 19; i++) {
             buttonStates[i][strataLayer] = (random::uniform() < 0.5f);
         }
-        
-        {        // ---- GROUP 0–3 ----
+    
+        // Then force each group to have at least one true:
+        auto ensureOne = [&](int start, int count) {
             bool any = false;
-            for (int j = 0; j < 4; j++)
-                if (buttonStates[j][strataLayer]) any = true;
-        
+            for (int i = 0; i < count; i++) {
+                if (buttonStates[start + i][strataLayer]) {
+                    any = true;
+                    break;
+                }
+            }
             if (!any) {
-                int pick = random::u32() % 4;
+                int pick = start + (random::u32() % count);
                 buttonStates[pick][strataLayer] = true;
             }
-        }        
-        {        // ---- GROUP 4–7 ----
-            bool any = false;
-            for (int j = 4; j < 8; j++)
-                if (buttonStates[j][strataLayer]) any = true;
-        
-            if (!any) {
-                int pick = 4 + (random::u32() % 4);
-                buttonStates[pick][strataLayer] = true;
-            }
-        }       
-        {        // ---- GROUP 8–15 ----
-            bool any = false;
-            for (int j = 8; j < 16; j++)
-                if (buttonStates[j][strataLayer]) any = true;
-        
-            if (!any) {
-                int pick = 8 + (random::u32() % 8);
-                buttonStates[pick][strataLayer] = true;
-            }
-        }        
-        {        // ---- GROUP 16–19 ----
-            bool any = false;
-            for (int j = 16; j < 20; j++)
-                if (buttonStates[j][strataLayer]) any = true;
-        
-            if (!any) {
-                int pick = 16 + (random::u32() % 4);
-                buttonStates[pick][strataLayer] = true;
-            }
-        }        
-    } 
+        };
+    
+        ensureOne(0, 4);   // Group 0–3
+        ensureOne(4, 4);   // Group 4–7
+        ensureOne(8, 8);   // Group 8–15
+        ensureOne(16, 3);  // Group 16–18        
+                
+    }
 
     void process(const ProcessArgs& args) override {
     
@@ -692,7 +710,20 @@ struct Strata : Module {
         float mainSwitch = params[MAIN_SWITCH].getValue();
         float semiSwitch = params[SEMI_SWITCH].getValue();
         float octSwitch = params[OCT_SWITCH].getValue();
-        
+
+        if (initializing){
+            //Update Knob Ranges
+            for (int i = 0; i < 19; i++) {
+                    paramQuantities[SEQ_1_KNOB + i]->setValue( knobStates[i][strataLayer] );  // Recall stored knob value    
+                    // Apply clamping to avoid out-of-bounds values
+                    finalNotes[i] = clamp(params[SEQ_1_KNOB + i].getValue(), -10.f, 10.f);
+            }  
+            for (int i = 0; i < 3; i++) {
+                    paramQuantities[MAIN_SWITCH + i]->setValue( switchStates[i][strataLayer] );  // Recall stored switch value    
+            }                        
+            initializing = false;
+        } 
+
         // Clock handling logic
         syncPoint = false; // reset syncing flag
         bool externalClockConnected = inputs[CLOCK_INPUT].isConnected();
@@ -744,7 +775,7 @@ struct Strata : Module {
                     subBeatCount_semi = 0;
                     subBeatCount_oct = 0;
                 
-                    // optional: produce the first beat now
+                    // produce the first beat now
                     if (playMode > 0.f) {
                         patternIndex = 0;  // always start from step 1
                         if (patternState[patternIndex] == 0) {DonPulse.trigger(beatInterval/2); DonSample = true; noteSampled = true;}
@@ -869,42 +900,38 @@ struct Strata : Module {
                 beatCountSemi = 0;
                 beatTimer_semi.reset();
             
-                if (!(divide[8] > 0.f && multiply[8] > 0.f && playMode > 0.f))
-                    return;
-            
                 // --- Build list of active semitone steps ---
                 int active[7];
                 int activeCount = 0;
                 for (int s = 0; s < 7; s++)
-                    if (buttonStates[s + 8][strataLayer] >= 1)
+                    if (buttonStates[s + 8][strataLayer])
                         active[activeCount++] = s;
             
                 if (activeCount == 0)
-                    return;         // all OFF → stay put
+                    return;
             
-                // Find current index within active list
+                // Find current index
                 int idx = 0;
                 for (int i = 0; i < activeCount; i++)
                     if (active[i] == semiStage) { idx = i; break; }
             
-                // --- Determine direction rules ---
-                if (semiSwitch == 0)        sequenceDir = +1;  // forward
-                else if (semiSwitch == 2)   sequenceDir = -1;  // reverse
-                // ping-pong keeps sequenceDir as-is
+                // Determine direction
+                if (semiSwitch == 0) sequenceDir = +1;
+                else if (semiSwitch == 2) sequenceDir = -1;
             
-                // --- Advance index depending on mode ---
+                // Advance the sequence (main beat)
                 if (semiSwitch == 1) { // ping-pong
                     idx += sequenceDir;
                     if (idx >= activeCount) { idx = activeCount - 2; sequenceDir = -1; }
-                    else if (idx < 0)        { idx = 1;              sequenceDir = +1; }
+                    else if (idx < 0)      { idx = 1; sequenceDir = +1; }
                 }
-                else { // forward or reverse (wrap)
+                else {  // forward/reverse wrap
                     idx += sequenceDir;
                     if (idx >= activeCount) idx = 0;
                     if (idx < 0)            idx = activeCount - 1;
                 }
             
-                semiStage = active[idx];
+                if (divide[8]>0 && multiply[8]>0) semiStage = active[idx];
             }
           
             if (beatCountOct >= static_cast<int>(divide[9])) {
@@ -1230,6 +1257,9 @@ struct Strata : Module {
             } else if (octSwitch ==2){ //right sequencer only
                 if (activeStage<4) octOffset = 0.f;
             }
+ 
+            if (!(divide[8] > 0.f )) offsetSeq = 0.f;
+            if (!(divide[9] > 0.f )) octOffset = 0.f;
             
             float finalValue = clamp(rootNote + offsetSeq + offsetCV + octOffset + globalOffset, -10.f, 10.f );
             float quantizedNote = std::roundf(finalValue * 12.f) / 12.f;  // Quantize to nearest semitone
@@ -1311,11 +1341,10 @@ struct StrataWidget : ModuleWidget {
         addParam(createParamCentered<TL1105>(Vec(posX, posY + 1.666*yUnit), module, Strata::LAYER_2_BUTTON));        
         addParam(createParamCentered<TL1105>(Vec(posX, posY + 3.083*yUnit), module, Strata::LAYER_3_BUTTON));        
         addParam(createParamCentered<TL1105>(Vec(posX, posY + 4.5*yUnit), module, Strata::LAYER_4_BUTTON));        
-        addChild(createLightCentered<LargeLight<RedLight>>   (Vec(posX, posY + .25*yUnit )           , module, Strata::LAYER_1_LIGHT));
-        addChild(createLightCentered<LargeLight<GreenLight>> (Vec(posX, posY + 1.666*yUnit), module, Strata::LAYER_2_LIGHT));
-        addChild(createLightCentered<LargeLight<BlueLight>>  (Vec(posX, posY + 3.083*yUnit), module, Strata::LAYER_3_LIGHT));
-        addChild(createLightCentered<LargeLight<YellowLight>>(Vec(posX, posY + 4.5*yUnit), module, Strata::LAYER_4_LIGHT));
-
+        addChild(createLightCentered<LargeLight<BlueLight>>   (Vec(posX, posY + .25*yUnit )           , module, Strata::LAYER_1_LIGHT));
+        addChild(createLightCentered<LargeLight<YellowLight>> (Vec(posX, posY + 1.666*yUnit), module, Strata::LAYER_2_LIGHT));
+        addChild(createLightCentered<LargeLight<RedLight>>  (Vec(posX, posY + 3.083*yUnit), module, Strata::LAYER_3_LIGHT));
+        addChild(createLightCentered<LargeLight<GreenLight>>(Vec(posX, posY + 4.5*yUnit), module, Strata::LAYER_4_LIGHT));
         // Layer CV
         posX = xStart + xGap + leftPad;
         posY = yStart + 10.5*yUnit;
@@ -1582,27 +1611,26 @@ struct StrataWidget : ModuleWidget {
         // Sequencer Lights
         for (int i=0; i<19; i++){       
             if (module->strataLayer==0){
-                module->lights[Strata::SEQ_1_LIGHT_R + i].setBrightness(module->buttonStates[i][0] ? 1.f : 0.f);
+                module->lights[Strata::SEQ_1_LIGHT_R + i].setBrightness(0);
                 module->lights[Strata::SEQ_1_LIGHT_G + i].setBrightness(0);
-                module->lights[Strata::SEQ_1_LIGHT_B + i].setBrightness(0);
+                module->lights[Strata::SEQ_1_LIGHT_B + i].setBrightness(module->buttonStates[i][0] ? 1.f : 0.f);
                 module->lights[Strata::SEQ_1_LIGHT_Y + i].setBrightness(0);
             } else if (module->strataLayer==1){
                 module->lights[Strata::SEQ_1_LIGHT_R + i].setBrightness(0);
-                module->lights[Strata::SEQ_1_LIGHT_G + i].setBrightness(module->buttonStates[i][1] ? 1.f : 0.f);
-                module->lights[Strata::SEQ_1_LIGHT_B + i].setBrightness(0);
-                module->lights[Strata::SEQ_1_LIGHT_Y + i].setBrightness(0);
-            } else if (module->strataLayer==2){
-                module->lights[Strata::SEQ_1_LIGHT_R + i].setBrightness(0);
                 module->lights[Strata::SEQ_1_LIGHT_G + i].setBrightness(0);
-                module->lights[Strata::SEQ_1_LIGHT_B + i].setBrightness(module->buttonStates[i][2] ? 1.f : 0.f);
+                module->lights[Strata::SEQ_1_LIGHT_B + i].setBrightness(0);
+                module->lights[Strata::SEQ_1_LIGHT_Y + i].setBrightness(module->buttonStates[i][1] ? 1.f : 0.f);
+            } else if (module->strataLayer==2){
+                module->lights[Strata::SEQ_1_LIGHT_R + i].setBrightness(module->buttonStates[i][2] ? 1.f : 0.f);
+                module->lights[Strata::SEQ_1_LIGHT_G + i].setBrightness(0);
+                module->lights[Strata::SEQ_1_LIGHT_B + i].setBrightness(0);
                 module->lights[Strata::SEQ_1_LIGHT_Y + i].setBrightness(0);
             } else {
                 module->lights[Strata::SEQ_1_LIGHT_R + i].setBrightness(0);
-                module->lights[Strata::SEQ_1_LIGHT_G + i].setBrightness(0);
+                module->lights[Strata::SEQ_1_LIGHT_G + i].setBrightness(module->buttonStates[i][3] ? 1.f : 0.f);
                 module->lights[Strata::SEQ_1_LIGHT_B + i].setBrightness(0);
-                module->lights[Strata::SEQ_1_LIGHT_Y + i].setBrightness(module->buttonStates[i][3] ? 1.f : 0.f);
-            } 
-            
+                module->lights[Strata::SEQ_1_LIGHT_Y + i].setBrightness(0);
+            }             
             float brightness = 0.f;
             if (i<4){ //left sequencer
                 if (i==module->activeStage){
