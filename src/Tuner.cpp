@@ -705,14 +705,21 @@ struct TunerWidget : ModuleWidget {
         if (module->displayMode) {
             freqDisp->setFontSize(36.f);
             freqDisp->box.pos.y = baseFreqY1 - 40.f;
-    
+            freqDisp->fgColor = nvgRGBAf(0.0, 0.7, 1.0, 0.9);
+
             freqDisp2->setFontSize(36.f);
             freqDisp2->box.pos.y = baseFreqY2 - 40.f;
+            freqDisp2->fgColor = nvgRGBAf(0.0, 0.7, 1.0, 0.9);
+
         } else {
             freqDisp->setFontSize(18.f);
             freqDisp->box.pos.y = baseFreqY1;
+            freqDisp->fgColor = nvgRGB(208, 140, 89);
+            
             freqDisp2->setFontSize(18.f);
             freqDisp2->box.pos.y = baseFreqY2;
+            freqDisp2->fgColor = nvgRGB(208, 140, 89);
+
         }
         ModuleWidget::step(); 
     }

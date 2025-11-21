@@ -575,7 +575,7 @@ struct Strata : Module {
         Module::onReset(e);
     
         // Reset custom state variables
-        for (int i = 0; i < STAGES; ++i) {
+        for (int i = 0; i < STAGES+2; ++i) {
             multiply[i] = 1.0f;
             divide[i] = 1.0f;
         }
