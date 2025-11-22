@@ -5,6 +5,7 @@
 //   written by Cody Geary
 //   Copyright 2025, MIT License
 //
+//   A layered step sequencer with rhythmic generator
 //
 ////////////////////////////////////////////////////////////
 
@@ -92,6 +93,13 @@ struct Strata : Module {
         GATE_OUTPUT, INV_GATE_OUTPUT, MAIN_OUTPUT,
         OUTPUTS_LEN
     };
+    enum class PasteMode {
+        KnobsAndBeats,  // copy knobs + beats
+        BeatsOnly,      // copy beats only
+        KnobsOnly       // copy knobs only
+    };
+    
+    PasteMode copyMode = PasteMode::KnobsAndBeats; // default
 
     // Lights
     enum LightId {
@@ -156,10 +164,20 @@ struct Strata : Module {
         LIGHTS_LEN
     };
 
-    dsp::SchmittTrigger clockTrigger, resetTrigger, resetButtonTrigger, layerTrigger[5];
+    dsp::SchmittTrigger clockTrigger, resetTrigger, resetButtonTrigger, layerTrigger[6];
     dsp::SchmittTrigger xDownTriggers[STAGES+2], xUpTriggers[STAGES+2], yDownTriggers[STAGES+2], yUpTriggers[STAGES+2];
     dsp::SchmittTrigger patternTrigger[PATTERNS];
-    int patternState[PATTERNS] = {0,0,0,0,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}; //0=left 1=right 2=off
+    int patternState[PATTERNS][4] = {
+        {0,0,0,0}, {0,0,0,0}, {0,0,0,0}, {0,0,0,0},
+        {1,1,1,1}, {1,1,1,1}, {1,1,1,1}, {1,1,1,1},
+        {0,0,0,0}, {0,0,0,0}, {0,0,0,0}, {0,0,0,0},
+        {0,0,0,0}, {0,0,0,0}, {0,0,0,0}, {0,0,0,0},
+        {0,0,0,0}, {0,0,0,0}, {0,0,0,0}, {0,0,0,0},
+        {0,0,0,0}, {0,0,0,0}, {0,0,0,0}, {0,0,0,0}
+    };
+    int copiedPatternState[PATTERNS] = {0,0,0,0,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+    float patternKnob[4] = {8.f, 8.f, 8.f, 8.f};
+    float copiedPatternKnob = 8.f;
     int patternStages = PATTERNS; //total number of stages
     int patternIndex = 0; //stage in the pattern loop of 10 steps
 
@@ -172,9 +190,17 @@ struct Strata : Module {
     bool firstSync = true;
     int currentStage = 0;
     int selectedStage = 0; //button-stage selector
-    float multiply[STAGES+2] = {1.0f,1.0f,1.0f,1.0f,1.0f,1.0f,1.0f,1.0f,1.0f,1.0f};
-    float divide[STAGES+2] = {1.0f,1.0f,1.0f,1.0f,1.0f,1.0f,1.0f,1.0f,1.0f,1.0f};
-    bool resyncFlag[STAGES+2] = {false,false,false,false,false,false,false,false,false,false}; 
+    float multiply[10][4] = {{1.f,1.f,1.f,1.f},{1.f,1.f,1.f,1.f},{1.f,1.f,1.f,1.f},{1.f,1.f,1.f,1.f},
+                                {1.f,1.f,1.f,1.f},{1.f,1.f,1.f,1.f},{1.f,1.f,1.f,1.f},{1.f,1.f,1.f,1.f},
+                                {1.f,1.f,1.f,1.f},{1.f,1.f,1.f,1.f}};
+    float divide[10][4] = {{1.f,1.f,1.f,1.f},{1.f,1.f,1.f,1.f},{1.f,1.f,1.f,1.f},{1.f,1.f,1.f,1.f},
+                                {1.f,1.f,1.f,1.f},{1.f,1.f,1.f,1.f},{1.f,1.f,1.f,1.f},{1.f,1.f,1.f,1.f},
+                                {1.f,1.f,1.f,1.f},{1.f,1.f,1.f,1.f}};
+
+    float copiedMultiply[10] = {1.0f,1.0f,1.0f,1.0f,1.0f,1.0f,1.0f,1.0f,1.0f,1.0f};
+    float copiedDivide[10] = {1.0f,1.0f,1.0f,1.0f,1.0f,1.0f,1.0f,1.0f,1.0f,1.0f};
+
+    bool resyncFlag[10] = {false,false,false,false,false,false,false,false,false,false}; 
     int beatCount = 0;
     int beatCountSemi = 0;
     int beatCountOct = 0;
@@ -191,7 +217,6 @@ struct Strata : Module {
     int subBeatCount = 0;
     int subBeatCount_semi = 0;
     int subBeatCount_oct = 0;
-
 
     int inputSkipper = 0;
     int inputSkipsTotal = 100; //only process button presses every 1/100 steps as it takes way too much CPU
@@ -243,6 +268,8 @@ struct Strata : Module {
     bool StageSample = false;
     
     float sequenceDir = 1.f;
+    bool layerCVmode = false;
+    bool copyCVonly = false;
     bool initializing = true; //load Knob positions from JSON.
 
     json_t* dataToJson() override {
@@ -289,9 +316,14 @@ struct Strata : Module {
         }
         json_object_set_new(rootJ, "buttonStates", buttonStatesJ);
     
+        // Save patternState[PATTERNS][4]
         json_t* patternJ = json_array();
         for (int i = 0; i < PATTERNS; i++) {
-            json_array_append_new(patternJ, json_integer(patternState[i]));
+            json_t* rowJ = json_array();
+            for (int z = 0; z < 4; z++) {
+                json_array_append_new(rowJ, json_integer(patternState[i][z]));
+            }
+            json_array_append_new(patternJ, rowJ);
         }
         json_object_set_new(rootJ, "patternState", patternJ);
     
@@ -304,24 +336,38 @@ struct Strata : Module {
     
         json_object_set_new(rootJ, "endPulseAtStage", json_boolean(endPulseAtStage));
         json_object_set_new(rootJ, "patternReset", json_boolean(patternReset));
+        json_object_set_new(rootJ, "layerCVmode", json_boolean(layerCVmode));
+        json_object_set_new(rootJ, "copyCVonly", json_boolean(copyCVonly));
     
         json_object_set_new(rootJ, "selectedStage", json_integer(selectedStage));
-    
-        json_t* multiplyJ = json_array();
-        for (int i = 0; i < STAGES+2; i++) {
-            json_array_append_new(multiplyJ, json_real(multiply[i]));
-        }
-        json_object_set_new(rootJ, "multiply", multiplyJ);
-    
-        json_t* divideJ = json_array();
-        for (int i = 0; i < STAGES+2; i++) {
-            json_array_append_new(divideJ, json_real(divide[i]));
-        }
-        json_object_set_new(rootJ, "divide", divideJ);
+
+        json_object_set_new(rootJ, "copyMode", json_integer(static_cast<int>(copyMode)));
 
         json_object_set_new(rootJ, "playMode", json_real(playMode));
         json_object_set_new(rootJ, "lastPlayMode", json_real(lastPlayMode));
-    
+
+        // --- Save multiply[10][4] ---
+        json_t* multiplyJ = json_array();
+        for (int i = 0; i < 10; i++) {
+            json_t* rowJ = json_array();
+            for (int z = 0; z < 4; z++) {
+                json_array_append_new(rowJ, json_real(multiply[i][z]));
+            }
+            json_array_append_new(multiplyJ, rowJ);
+        }
+        json_object_set_new(rootJ, "multiply", multiplyJ);
+        
+        // --- Save divide[10][4] ---
+        json_t* divideJ = json_array();
+        for (int i = 0; i < 10; i++) {
+            json_t* rowJ = json_array();
+            for (int z = 0; z < 4; z++) {
+                json_array_append_new(rowJ, json_real(divide[i][z]));
+            }
+            json_array_append_new(divideJ, rowJ);
+        }
+        json_object_set_new(rootJ, "divide", divideJ);
+
         return rootJ;
     }
     
@@ -387,15 +433,50 @@ struct Strata : Module {
             }
         }
 
-        // Load patternState
+        // Load patternState with backward compatibility
         json_t* patternJ = json_object_get(rootJ, "patternState");
         if (patternJ && json_is_array(patternJ)) {
-            for (size_t i = 0; i < json_array_size(patternJ) && i < PATTERNS; i++) {
-                json_t* val = json_array_get(patternJ, i);
-                if (json_is_integer(val)) {
-                    patternState[i] = json_integer_value(val);
+        
+            json_t* first = json_array_get(patternJ, 0);
+        
+            bool oldFormat = first && json_is_integer(first);     // OLD: [PATTERNS]
+            bool newFormat = first && json_is_array(first);        // NEW: [PATTERNS][4]
+        
+            if (oldFormat) {
+                // OLD FORMAT: patternState[PATTERNS]
+                for (size_t i = 0; i < json_array_size(patternJ) && i < PATTERNS; i++) {
+                    json_t* valJ = json_array_get(patternJ, i);
+                    if (json_is_integer(valJ)) {
+                        int v = json_integer_value(valJ);
+                        // Copy same value to all 4 layers
+                        for (int z = 0; z < 4; z++) {
+                            patternState[i][z] = v;
+                        }
+                    }
+                }
+        
+            } else if (newFormat) {
+                // NEW FORMAT: patternState[PATTERNS][4]
+                for (size_t i = 0; i < json_array_size(patternJ) && i < PATTERNS; i++) {
+                    json_t* rowJ = json_array_get(patternJ, i);
+                    if (rowJ && json_is_array(rowJ)) {
+                        for (size_t z = 0; z < json_array_size(rowJ) && z < 4; z++) {
+                            json_t* valJ = json_array_get(rowJ, z);
+                            if (json_is_integer(valJ)) {
+                                patternState[i][z] = json_integer_value(valJ);
+                            }
+                        }
+                    }
                 }
             }
+        }
+
+        //Load PasteMode enum
+        json_t* copyModeJ = json_object_get(rootJ, "copyMode");
+        if (copyModeJ && json_is_integer(copyModeJ)) {
+            int v = json_integer_value(copyModeJ);
+            if (v >= 0 && v <= 2)
+                copyMode = static_cast<PasteMode>(v);
         }
     
         json_t* curStageJ = json_object_get(rootJ, "currentStage");
@@ -438,24 +519,87 @@ struct Strata : Module {
         if (patternResetJ) {
             patternReset = json_boolean_value(patternResetJ);
         }
-    
+
+        json_t* layerCVmodeJ = json_object_get(rootJ, "layerCVmode");
+        if (layerCVmodeJ) {
+            layerCVmode = json_boolean_value(layerCVmodeJ);
+        }
+
+        json_t* copyCVonlyJ = json_object_get(rootJ, "copyCVonly");
+        if (copyCVonlyJ) {
+            copyCVonly = json_boolean_value(copyCVonlyJ);
+        }
+   
+        // --- Load multiply with backward compatibility ---
         json_t* multiplyJ = json_object_get(rootJ, "multiply");
         if (multiplyJ && json_is_array(multiplyJ)) {
-            for (size_t i = 0; i < json_array_size(multiplyJ) && i < STAGES+2; i++) {
-                json_t* val = json_array_get(multiplyJ, i);
-                if (json_is_number(val)) {
-                    multiply[i] = json_number_value(val);
+        
+            // Detect OLD format: multiply[10]
+            json_t* first = json_array_get(multiplyJ, 0);
+            bool oldFormat = first && json_is_number(first);
+        
+            if (oldFormat) {
+                // OLD FORMAT: multiply[10]
+                for (size_t i = 0; i < json_array_size(multiplyJ) && i < 10; i++) {
+                    json_t* valJ = json_array_get(multiplyJ, i);
+                    if (json_is_number(valJ)) {
+                        float v = json_number_value(valJ);
+                        // Fill ALL 4 layers with the same value
+                        for (int z = 0; z < 4; z++) {
+                            multiply[i][z] = v;
+                        }
+                    }
+                }
+        
+            } else {
+                // NEW FORMAT: multiply[10][4]
+                for (size_t i = 0; i < json_array_size(multiplyJ) && i < 10; i++) {
+                    json_t* rowJ = json_array_get(multiplyJ, i);
+                    if (rowJ && json_is_array(rowJ)) {
+                        for (size_t z = 0; z < json_array_size(rowJ) && z < 4; z++) {
+                            json_t* valJ = json_array_get(rowJ, z);
+                            if (json_is_number(valJ)) {
+                                multiply[i][z] = json_number_value(valJ);
+                            }
+                        }
+                    }
                 }
             }
         }
-    
-        // Load divide[7]
+ 
+         // --- Load divide with backward compatibility ---
         json_t* divideJ = json_object_get(rootJ, "divide");
         if (divideJ && json_is_array(divideJ)) {
-            for (size_t i = 0; i < json_array_size(divideJ) && i < STAGES+2; i++) {
-                json_t* val = json_array_get(divideJ, i);
-                if (json_is_number(val)) {
-                    divide[i] = json_number_value(val);
+            
+            // Detect OLD format: divide[10]
+            json_t* first = json_array_get(divideJ, 0);
+            bool oldFormat = first && json_is_number(first);
+        
+            if (oldFormat) {
+                // OLD FORMAT: divide[10]
+                for (size_t i = 0; i < json_array_size(divideJ) && i < 10; i++) {
+                    json_t* valJ = json_array_get(divideJ, i);
+                    if (json_is_number(valJ)) {
+                        float v = json_number_value(valJ);
+                        // Fill all 4 layers
+                        for (int z = 0; z < 4; z++) {
+                            divide[i][z] = v;
+                        }
+                    }
+                }
+            } 
+            else {
+                // NEW FORMAT: divide[10][4]
+                for (size_t i = 0; i < json_array_size(divideJ) && i < 10; i++) {
+                    json_t* rowJ = json_array_get(divideJ, i);
+                    if (rowJ && json_is_array(rowJ)) {
+                        for (size_t z = 0; z < json_array_size(rowJ) && z < 4; z++) {
+                            json_t* valJ = json_array_get(rowJ, z);
+                            if (json_is_number(valJ)) {
+                                divide[i][z] = json_number_value(valJ);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -476,18 +620,18 @@ struct Strata : Module {
     
         // === MAIN SEQUENCER KNOBS (–2..2 V/oct) ===
         for (int i = 0; i < 4; i++) {
-            configParam(SEQ_1_KNOB + i, -2.f, 2.f, 0.f, string::f("Left Stage %d Pitch (V/Oct)", i + 1) );
+            configParam(SEQ_1_KNOB + i, -2.f, 2.f, 0.f, string::f("Stage L%d Pitch (V)", i + 1) );
         }
         for (int i = 0; i < 4; i++) {
-            configParam(SEQ_5_KNOB + i, -2.f, 2.f, 0.f, string::f("Right Stage %d Pitch (V/Oct)", i + 1) );
+            configParam(SEQ_5_KNOB + i, -2.f, 2.f, 0.f, string::f("Stage L%d Pitch (V)", i + 1) );
         }
     
         // === MAIN SEQUENCER BUTTONS ===
         for (int i = 0; i < 4; i++) { 
-            configButton(SEQ_1_BUTTON + i, string::f("Left Stage %d Enable", i + 1));
+            configButton(SEQ_1_BUTTON + i, string::f("Stage L%d Enable", i + 1));
         }
         for (int i = 0; i < 4; i++) { 
-            configButton(SEQ_5_BUTTON + i, string::f("Right Stage %d Enable", i + 1));
+            configButton(SEQ_5_BUTTON + i, string::f("Stage R%d Enable", i + 1));
         }
     
         // === SEMITONE KNOBS (–12..12 semitones) ===
@@ -551,22 +695,22 @@ struct Strata : Module {
         configButton(RESET_BUTTON, "Reset Button");
     
         for (int i = 0; i < 4; i++)
-            configButton(LAYER_1_BUTTON + i, string::f("Layer %d Select", i + 1));
+            configButton(LAYER_1_BUTTON + i, string::f("Layer %d Sel.", i + 1));
         configButton(LAYER_NEXT_BUTTON, "Next Layer");
     
         // === OFFSET PARAMETER ===
-        configParam(OFFSET_PARAM,  -5.f, 5.f, 0.f,  "Global Offset");
+        configParam(OFFSET_PARAM,  -2.f, 2.f, 0.f,  "Global Offset");
     
         // === INPUTS ===
         configInput(CLOCK_INPUT, "Clock");
         configInput(RESET_INPUT, "Reset");
         configInput(OFFSET_INPUT, "Offset CV");
         configInput(LAYER_INPUT, "Layer CV");
-        configInput(PATTERN_INPUT, "Pattern Length CV");
+        configInput(PATTERN_INPUT, "Pattern Len. CV");
     
         // === OUTPUTS ===
         configOutput(GATE_OUTPUT, "Gate");
-        configOutput(INV_GATE_OUTPUT, "Inverted Gate");
+        configOutput(INV_GATE_OUTPUT, "Inv. Gate");
         configOutput(MAIN_OUTPUT, "Main Output");
     }
 
@@ -575,16 +719,20 @@ struct Strata : Module {
         Module::onReset(e);
     
         // Reset custom state variables
-        for (int i = 0; i < STAGES+2; ++i) {
-            multiply[i] = 1.0f;
-            divide[i] = 1.0f;
+        for (int i = 0; i < 10; i++) {
+            for (int z = 0; z < 4; z++) {    
+                multiply[i][z] = 1.0f;
+                divide[i][z] = 1.0f;
+            }
         }
     
-        for (int i = 0; i < PATTERNS; ++i) {
-            patternState[i] = 0;
-            if (i>3 && i<=7) patternState[i] = 1;
-        }
-        
+        for (int i = 0; i < PATTERNS; i++) {
+            int v = (i >= 4 && i <= 7) ? 1 : 0;
+            for (int z = 0; z < 4; z++) {
+                patternState[i][z] = v;
+            }
+        }        
+
         // Reset knobStates to all zeros
         for (int x = 0; x < 19; x++) {
             for (int z = 0; z < 4; z++) {
@@ -627,32 +775,32 @@ struct Strata : Module {
         }
     
         // --- MULTIPLY / DIVIDE (10 entries each) ---
-        for (int i = 0; i < 10; ++i) {
+        for (int i = 0; i < 10; i++) {
             float m = random::uniform() * 12.f;       // 0…12
             float d = 1.f + random::uniform() * 8.f;  // 1…9
-            multiply[i] = m;
-            divide[i]   = d;
+            multiply[i][strataLayer] = m;
+            divide[i][strataLayer]   = d;
         }
     
         // --- PATTERN STATES (0,1,2) ---
-        for (int i = 0; i < PATTERNS; ++i)
-            patternState[i] = (int)(random::u32() % 3);
+        for (int i = 0; i < PATTERNS; i++)
+            patternState[i][strataLayer] = (int)(random::u32() % 3);
     
         // --- SEQ_1…SEQ_8_KNOB  (–2…2 V in 1/12 increments) ---
-        for (int i = 0; i < 8; ++i) {
+        for (int i = 0; i < 8; i++) {
             int steps = randomInt(-24, 24);          // -24…24 semitones
             float v = steps / 12.f;
             params[SEQ_1_KNOB + i].setValue(v);
         }
     
         // --- SEMI_1…SEMI_7_KNOB  (int –12…12) ---
-        for (int i = 0; i < 7; ++i) {
+        for (int i = 0; i < 7; i++) {
             int v = randomInt(-12, 12);
             params[SEMI_1_KNOB + i].setValue((float)v);
         }
     
         // --- OCT_1…OCT_4_KNOB (int –2…2) ---
-        for (int i = 0; i < 4; ++i) {
+        for (int i = 0; i < 4; i++) {
             int v = randomInt(-2, 2);
             params[OCT_1_KNOB + i].setValue((float)v);
         }
@@ -778,8 +926,8 @@ struct Strata : Module {
                     // produce the first beat now
                     if (playMode > 0.f) {
                         patternIndex = 0;  // always start from step 1
-                        if (patternState[patternIndex] == 0) {DonPulse.trigger(beatInterval/2); DonSample = true; noteSampled = true;}
-                        if (patternState[patternIndex] == 1) {KaPulse.trigger(beatInterval/2); KaSample = true; noteSampled = true;}
+                        if (patternState[patternIndex][strataLayer] == 0) {DonPulse.trigger(beatInterval/2); DonSample = true; noteSampled = true;}
+                        if (patternState[patternIndex][strataLayer] == 1) {KaPulse.trigger(beatInterval/2); KaSample = true; noteSampled = true;}
                     }
                 
                 } else if (!firstPulseReceived) {
@@ -820,20 +968,20 @@ struct Strata : Module {
         if (inputSkipper > inputSkipsTotal){ //Process button inputs infrequently to reduce CPU load. 
         
             for (int i = 0; i < STAGES+2; i++) {
-                if (xDownTriggers[i].process(params[STAGE_1_BEATS_DOWN + i].getValue())) { multiply[i] -= 1.f; resyncFlag[i]=true;}
-                if (xUpTriggers[i].process(params[STAGE_1_BEATS_UP + i].getValue()))   { multiply[i] += 1.f; resyncFlag[i]=true;}
-                if (yDownTriggers[i].process(params[STAGE_1_STEPS_DOWN + i].getValue())) { divide[i] -= 1.f; resyncFlag[i]=true;}
-                if (yUpTriggers[i].process(params[STAGE_1_STEPS_UP + i].getValue()))   { divide[i] += 1.f; resyncFlag[i]=true;}
-                multiply[i] = clamp(multiply[i],0.0f,99.0f);
-                divide[i] = clamp(divide[i],0.0f, 99.0f); // divide[i] can be zero! So we have to be careful to actually de-activate the stage when we set it to zero.
+                if (xDownTriggers[i].process(params[STAGE_1_BEATS_DOWN + i].getValue())) { multiply[i][strataLayer] -= 1.f; resyncFlag[i]=true;}
+                if (xUpTriggers[i].process(params[STAGE_1_BEATS_UP + i].getValue()))   { multiply[i][strataLayer] += 1.f; resyncFlag[i]=true;}
+                if (yDownTriggers[i].process(params[STAGE_1_STEPS_DOWN + i].getValue())) { divide[i][strataLayer] -= 1.f; resyncFlag[i]=true;}
+                if (yUpTriggers[i].process(params[STAGE_1_STEPS_UP + i].getValue()))   { divide[i][strataLayer] += 1.f; resyncFlag[i]=true;}
+                multiply[i][strataLayer] = clamp(multiply[i][strataLayer],0.0f,99.0f);
+                divide[i][strataLayer] = clamp(divide[i][strataLayer],0.0f, 99.0f); // divide[i][strataLayer] can be zero! So we have to be careful to actually de-activate the stage when we set it to zero.
     
             }
             
             inputSkipper = 0;            
         }
-        divide[0] = clamp(divide[0],1.f,99.f); // The top stage cannot be turned off, limited to 1 instead of 0.
-                                              // if (divide[i]==0.f) the stage is OFF
-                                              // if (multiply[i]==0.f) the stage is muted.
+        divide[0][strataLayer] = clamp(divide[0][strataLayer],1.f,99.f); // The top stage cannot be turned off, limited to 1 instead of 0.
+                                              // if (divide[i][strataLayer]==0.f) the stage is OFF
+                                              // if (multiply[i][strataLayer]==0.f) the stage is muted.
 
         // Stage Advancing
         if (syncPoint && playMode > 0.f){
@@ -846,7 +994,7 @@ struct Strata : Module {
                 beatCountSemi = 0;
                 beatCountOct = 0;    
             }
-            int stageLength = static_cast<int>(divide[currentStage]);
+            int stageLength = static_cast<int>(divide[currentStage][strataLayer]);
             
 
             if (beatCount >= stageLength ){
@@ -866,7 +1014,7 @@ struct Strata : Module {
                             lastPlayMode = 2.0;
                         }
                     }
-                    if (divide[currentStage] == 0) currentStage++; //skip stages that are off
+                    if (divide[currentStage][strataLayer] == 0) currentStage++; //skip stages that are off
                 }
                 // Keep selectedStage in sync
                 selectedStage = currentStage;
@@ -875,20 +1023,20 @@ struct Strata : Module {
                 blinkEND = true; 
                 StageSample = true;
 
-                if (multiply[currentStage]>0){
-                    beatInterval = (divide[currentStage] * syncInterval) / multiply[currentStage];
+                if (multiply[currentStage][strataLayer]>0){
+                    beatInterval = (divide[currentStage][strataLayer] * syncInterval) / multiply[currentStage][strataLayer];
                     beatInterval = fmax(0.001f, beatInterval); //minimum pulsewidth
                 } 
 
                 patternIndex++;
                 if (patternReset) patternIndex=0;
                 if (patternIndex >= patternStages) patternIndex = 0;
-                if (patternState[patternIndex]==0) {
+                if (patternState[patternIndex][strataLayer]==0) {
                     DonPulse.trigger(beatInterval); 
                     DonSample = true;
                     noteSampled = true;
                 }
-                if (patternState[patternIndex]==1) {
+                if (patternState[patternIndex][strataLayer]==1) {
                     KaPulse.trigger(beatInterval); 
                     KaSample = true;
                     noteSampled = true;
@@ -896,7 +1044,7 @@ struct Strata : Module {
 
             } 
             
-            if (beatCountSemi >= static_cast<int>(divide[8])) {
+            if (beatCountSemi >= static_cast<int>(divide[8][strataLayer])) {
                 beatCountSemi = 0;
                 beatTimer_semi.reset();
             
@@ -931,25 +1079,25 @@ struct Strata : Module {
                     if (idx < 0)            idx = activeCount - 1;
                 }
             
-                if (divide[8]>0 && multiply[8]>0) semiStage = active[idx];
+                if (divide[8][strataLayer]>0 && multiply[8][strataLayer]>0) semiStage = active[idx];
             }
           
-            if (beatCountOct >= static_cast<int>(divide[9])) {
+            if (beatCountOct >= static_cast<int>(divide[9][strataLayer])) {
                 beatCountOct = 0;
                 beatTimer_oct.reset();
                 
-                if (divide[9] > 0.f && multiply[9] > 0.f && playMode > 0.f) { octStage++; }//advance octave sequencer  
+                if (divide[9][strataLayer] > 0.f && multiply[9][strataLayer] > 0.f && playMode > 0.f) { octStage++; }//advance octave sequencer  
                 if (octStage>3) octStage = 0;      
             }
         }
         
         // Beat Computing (sub-beats within each stage)
-        if (divide[currentStage] > 0.f && multiply[currentStage] > 0.f && playMode > 0.f) {
+        if (divide[currentStage][strataLayer] > 0.f && multiply[currentStage][strataLayer] > 0.f && playMode > 0.f) {
         
             if ((syncPoint && beatCount == 0) || resyncFlag[currentStage]) {
                 resyncFlag[currentStage] = false;
                 // Total duration of this stage / number of sub-beats
-                beatInterval = (divide[currentStage] * syncInterval) / multiply[currentStage];
+                beatInterval = (divide[currentStage][strataLayer] * syncInterval) / multiply[currentStage][strataLayer];
                 beatInterval = fmax(0.001f, beatInterval);
                 
                 beatTimer.reset();
@@ -961,17 +1109,17 @@ struct Strata : Module {
                 subBeatCount++;
         
                 // Only produce sub-beats for intermediate positions — the last sub-beat is skipped so the stage advance triggers
-                if (subBeatCount < multiply[currentStage]) {
+                if (subBeatCount < multiply[currentStage][strataLayer]) {
                     if (mainSwitch >= 1 ) patternIndex++; //increment patternIndex based on the mode setting
                     if (patternIndex >= patternStages)
                         patternIndex = 0;
         
-                    if (patternState[patternIndex] == 0){
+                    if (patternState[patternIndex][strataLayer] == 0){
                         DonPulse.trigger(beatInterval); 
                         if (mainSwitch == 2) DonSample = true;
                         noteSampled = true;
                     }
-                    if (patternState[patternIndex] == 1){
+                    if (patternState[patternIndex][strataLayer] == 1){
                         KaPulse.trigger(beatInterval); 
                         if (mainSwitch == 2) KaSample = true;
                         noteSampled = true;
@@ -981,11 +1129,11 @@ struct Strata : Module {
         }
 
         // Beat Computing for Semi and Oct Sequencers
-        if (divide[8] > 0.f && multiply[8] > 0.f && playMode > 0.f) {
+        if (divide[8][strataLayer] > 0.f && multiply[8][strataLayer] > 0.f && playMode > 0.f) {
             if ((syncPoint && beatCountSemi == 0) || resyncFlag[8]) {
                 resyncFlag[8] = false;
                 // Total duration of this stage / number of sub-beats
-                beatInterval_semi = (divide[8] * syncInterval) / multiply[8];
+                beatInterval_semi = (divide[8][strataLayer] * syncInterval) / multiply[8][strataLayer];
                 beatTimer_semi.reset();
                 subBeatCount_semi = 0;
             }
@@ -993,18 +1141,18 @@ struct Strata : Module {
             if (beatTimer_semi.time >= beatInterval_semi && playMode > 0.f && externalClockConnected) {
                 beatTimer_semi.reset();
                 subBeatCount_semi++;
-                if (subBeatCount_semi < multiply[8]) {                    
+                if (subBeatCount_semi < multiply[8][strataLayer]) {                    
                     semiStage++; //advance semitone sequencer  
                     if (semiStage>6) semiStage = 0;     
                 } 
             }
         }
 
-        if (divide[9] > 0.f && multiply[9] > 0.f && playMode > 0.f) {        
+        if (divide[9][strataLayer] > 0.f && multiply[9][strataLayer] > 0.f && playMode > 0.f) {        
             if ((syncPoint && beatCountOct == 0) || resyncFlag[9]) {
                 resyncFlag[9] = false;
                 // Total duration of this stage / number of sub-beats
-                beatInterval_oct = (divide[9] * syncInterval) / multiply[9];
+                beatInterval_oct = (divide[9][strataLayer] * syncInterval) / multiply[9][strataLayer];
                 beatTimer_oct.reset();
                 subBeatCount_oct = 0;
             }
@@ -1012,7 +1160,7 @@ struct Strata : Module {
             if (beatTimer_oct.time >= beatInterval_oct && playMode > 0.f && externalClockConnected) {
                 beatTimer_oct.reset();
                 subBeatCount_oct++;
-                if (subBeatCount_oct < multiply[9]) {               
+                if (subBeatCount_oct < multiply[9][strataLayer]) {               
                     octStage++; //advance oct sequencer      
                     if (octStage>3) octStage = 0;  
                 }
@@ -1081,7 +1229,7 @@ struct Strata : Module {
         
         bool BeatActive = DonActive || KaActive;
 
-        if (divide[currentStage]>0.f && multiply[currentStage]>0.f && playMode > 0.f ){
+        if (divide[currentStage][strataLayer]>0.f && multiply[currentStage][strataLayer]>0.f && playMode > 0.f ){
             outputs[GATE_OUTPUT].setVoltage(BeatActive ? 10.f : 0.f);
             outputs[INV_GATE_OUTPUT].setVoltage(BeatActive ? 0.f : 10.f);
         } else {
@@ -1118,7 +1266,7 @@ struct Strata : Module {
             activeStage = 0;
             semiStage = 0;
             octStage =  0;        
-            strataLayer = 0;
+            //strataLayer = 0; //Don't reset the layer, as sometimes we don't want that.
         
             if (lastPlayMode == 2.0f) {   
                 if (playMode > 0.f) {
@@ -1134,15 +1282,33 @@ struct Strata : Module {
         // Handle Pattern Buttons
         for (int i = 0; i < PATTERNS; i++){
             if(patternTrigger[i].process( params[PATTERN_1_BUTTON+i].getValue())){
-                patternState[i]++;
-                if (patternState[i]>2) patternState[i]=0;
+                patternState[i][strataLayer]++;
+                if (patternState[i][strataLayer]>2) patternState[i][strataLayer]=0;
             }            
         }
  
         // Handle Layer Buttons
         if(inputs[LAYER_INPUT].isConnected()){
-            strataLayer = (int)roundf(clamp(inputs[LAYER_INPUT].getVoltage(), 0.f, 10.f) );
-            strataLayer = (strataLayer + 4) % 4;
+            if (layerCVmode){
+                strataLayer = (int)roundf(clamp(inputs[LAYER_INPUT].getVoltage(), 0.f, 10.f) );
+                strataLayer = (strataLayer + 4) % 4;
+            } else {
+                for (int i = 0; i < 4; i++){
+                    if(layerTrigger[i].process( params[LAYER_1_BUTTON+i].getValue())){
+                        strataLayer = i;
+                    }            
+                }
+                
+                if(layerTrigger[4].process(params[LAYER_NEXT_BUTTON].getValue())){
+                    strataLayer++;
+                    if (strataLayer>3) strataLayer=0;
+                }
+
+                if(layerTrigger[5].process(inputs[LAYER_INPUT].getVoltage())){ //Also advance on CV trigger
+                    strataLayer++;
+                    if (strataLayer>3) strataLayer=0;
+                }
+            }
         } else {
             for (int i = 0; i < 4; i++){
                 if(layerTrigger[i].process( params[LAYER_1_BUTTON+i].getValue())){
@@ -1237,7 +1403,14 @@ struct Strata : Module {
                 switchStates[i][strataLayer] = params[MAIN_SWITCH + i].getValue();  // Save current knob state
             }
         }
-
+        
+        //Save and Recall Pattern knob
+        if (displayUpdate) {
+            paramQuantities[PATTERN_KNOB]->setValue( patternKnob[strataLayer] );  // Recall stored knob value
+        } else {
+            patternKnob[strataLayer] = params[PATTERN_KNOB].getValue();  // Save current knob state
+        }
+        
         // Reset display update flag after processing
         if (displayUpdate) {
             displayUpdate = false;
@@ -1258,8 +1431,8 @@ struct Strata : Module {
                 if (activeStage<4) octOffset = 0.f;
             }
  
-            if (!(divide[8] > 0.f )) offsetSeq = 0.f;
-            if (!(divide[9] > 0.f )) octOffset = 0.f;
+            if (!(divide[8][strataLayer] > 0.f )) offsetSeq = 0.f;
+            if (!(divide[9][strataLayer] > 0.f )) octOffset = 0.f;
             
             float finalValue = clamp(rootNote + offsetSeq + offsetCV + octOffset + globalOffset, -10.f, 10.f );
             float quantizedNote = std::roundf(finalValue * 12.f) / 12.f;  // Quantize to nearest semitone
@@ -1519,8 +1692,8 @@ struct StrataWidget : ModuleWidget {
                 stagesDisp->fgColor = isCurrent ? goldColor : dimColor;
         
                 // Read values
-                int num = static_cast<int>(module->multiply[i]);
-                int den = static_cast<int>(module->divide[i]);
+                int num = static_cast<int>(module->multiply[i][module->strataLayer]);
+                int den = static_cast<int>(module->divide[i][module->strataLayer]);
         
                 // Assign text
                 if (den != 0) {
@@ -1543,7 +1716,7 @@ struct StrataWidget : ModuleWidget {
         // Handle LIGHTS
         for (int i = 0; i < PATTERNS; i++){
             if (i < module->patternStages){
-                if (module->patternState[i] == 0){ //state=0 left
+                if (module->patternState[i][module->strataLayer] == 0){ //state=0 left
                     module->lights[Strata::PATTERN_1_LIGHT_Y + i].setBrightness( 0.f); 
                     module->lights[Strata::PATTERN_1_LIGHT_B + i].setBrightness( 0.f); 
                     module->lights[Strata::PATTERN_1_LIGHT_W + i].setBrightness( 0.f); 
@@ -1554,7 +1727,7 @@ struct StrataWidget : ModuleWidget {
                         module->lights[Strata::PATTERN_1_LIGHT_Y + i].setBrightness( 0.5f);
                         module->lights[Strata::PATTERN_1_LIGHT_W + i].setBrightness( 0.2f);
                     }
-                } else if (module->patternState[i] == 1){ //state=1 right
+                } else if (module->patternState[i][module->strataLayer] == 1){ //state=1 right
                     module->lights[Strata::PATTERN_1_LIGHT_Y + i].setBrightness( 0.f); 
                     module->lights[Strata::PATTERN_1_LIGHT_B + i].setBrightness( 0.f); 
                     module->lights[Strata::PATTERN_1_LIGHT_W + i].setBrightness( 0.f); 
@@ -1656,7 +1829,7 @@ struct StrataWidget : ModuleWidget {
                 } else {
                     brightness = 0.f;
                 }
-                if (module->divide[8]==0) brightness = 0;
+                if (module->divide[8][module->strataLayer]==0) brightness = 0;
                 module->lights[Strata::SEQ_1_LIGHT_W + i].setBrightness( brightness );                 
             } else {  //octaves
                 if (i-15 == module->octStage){
@@ -1664,7 +1837,7 @@ struct StrataWidget : ModuleWidget {
                 } else {
                     brightness = 0.f;
                 }
-                if ( module->divide[9]==0) brightness = 0;
+                if ( module->divide[9][module->strataLayer]==0) brightness = 0;
                 module->lights[Strata::SEQ_1_LIGHT_W + i].setBrightness( brightness );                 
             
             }            
@@ -1803,11 +1976,20 @@ struct StrataWidget : ModuleWidget {
             void onAction(const event::Action& e) override {
                 for (int i = 0; i < 19; i++) {
                     strataModule->copiedKnobStates[i] = strataModule->knobStates[i][strataModule->strataLayer];
-                    strataModule->copiedButtonStates[i] = strataModule->buttonStates[i][strataModule->strataLayer];
+                    strataModule->copiedButtonStates[i] = strataModule->buttonStates[i][strataModule->strataLayer];                    
                 }
                 for (int i = 0; i < 3; i++) {                
                     strataModule->copiedSwitchStates[i] = strataModule->switchStates[i][strataModule->strataLayer];
-                }                
+                }
+                
+                for (int i = 0; i < 10; i++) { //always copy everything, even if we don't paste all layers
+                    strataModule->copiedDivide[i] = strataModule->divide[i][strataModule->strataLayer];
+                    strataModule->copiedMultiply[i] = strataModule->multiply[i][strataModule->strataLayer];
+                } 
+                for (int i=0; i<PATTERNS; i++){
+                    strataModule->copiedPatternState[i] = strataModule->patternState[i][strataModule->strataLayer];
+                }
+                strataModule->copiedPatternKnob = strataModule->patternKnob[strataModule->strataLayer];                              
                 strataModule->copyBufferFilled = true;
             }
             void step() override {
@@ -1826,13 +2008,47 @@ struct StrataWidget : ModuleWidget {
             Strata* strataModule;
             void onAction(const event::Action& e) override {
                 if (!strataModule->copyBufferFilled) return;
-                for (int i = 0; i < 19; i++) {
-                    strataModule->knobStates[i][strataModule->strataLayer] = strataModule->copiedKnobStates[i];
-                    strataModule->buttonStates[i][strataModule->strataLayer] = strataModule->copiedButtonStates[i];
+                switch (strataModule->copyMode) {
+                    case Strata::PasteMode::KnobsAndBeats:
+                        for (int i = 0; i < 19; i++) { //KNOBS
+                            strataModule->knobStates[i][strataModule->strataLayer] = strataModule->copiedKnobStates[i];
+                            strataModule->buttonStates[i][strataModule->strataLayer] = strataModule->copiedButtonStates[i];
+                        }
+                        for (int i = 0; i < 3; i++) { //KNOBS-SWITCHES
+                            strataModule->switchStates[i][strataModule->strataLayer] = strataModule->copiedSwitchStates[i];
+                        }                                
+                        for (int i = 0; i < 10; i++) { //BEATS
+                            strataModule->divide[i][strataModule->strataLayer] = strataModule->copiedDivide[i];
+                            strataModule->multiply[i][strataModule->strataLayer] = strataModule->copiedMultiply[i];
+                        }  
+                        for (int i = 0; i < PATTERNS; i++) { //BEATS-PATTERNS
+                            strataModule->patternState[i][strataModule->strataLayer] = strataModule->copiedPatternState[i];
+                        }
+                        strataModule->patternKnob[strataModule->strataLayer] = strataModule->copiedPatternKnob;
+                        break;
+                
+                    case Strata::PasteMode::KnobsOnly:
+                        for (int i = 0; i < 19; i++) { //KNOBS
+                            strataModule->knobStates[i][strataModule->strataLayer] = strataModule->copiedKnobStates[i];
+                            strataModule->buttonStates[i][strataModule->strataLayer] = strataModule->copiedButtonStates[i];
+                        }
+                        for (int i = 0; i < 3; i++) { //KNOBS-SWITCHES
+                            strataModule->switchStates[i][strataModule->strataLayer] = strataModule->copiedSwitchStates[i];
+                        }                                
+                        break;
+                
+                    case Strata::PasteMode::BeatsOnly:
+                        for (int i = 0; i < 10; i++) { //BEATS
+                            strataModule->divide[i][strataModule->strataLayer] = strataModule->copiedDivide[i];
+                            strataModule->multiply[i][strataModule->strataLayer] = strataModule->copiedMultiply[i];
+                        }  
+                        for (int i = 0; i < PATTERNS; i++) { //BEATS-PATTERNS
+                            strataModule->patternState[i][strataModule->strataLayer] = strataModule->copiedPatternState[i];
+                        }  
+                        strataModule->patternKnob[strataModule->strataLayer] = strataModule->copiedPatternKnob;
+                        break;
                 }
-                for (int i = 0; i < 3; i++) {                
-                    strataModule->switchStates[i][strataModule->strataLayer] = strataModule->copiedSwitchStates[i];
-                }                                
+
                 strataModule->displayUpdate = true;
             }
             void step() override {
@@ -1846,22 +2062,58 @@ struct StrataWidget : ModuleWidget {
         pasteLayerItem->strataModule = strataModule;
         menu->addChild(pasteLayerItem);
 
-        // Paste to All Layers menu item
+        // Paste to All Layers menu item (updated to use PasteMode)
         struct PasteAllLayersMenuItem : MenuItem {
             Strata* strataModule;
             void onAction(const event::Action& e) override {
                 if (!strataModule->copyBufferFilled) return;
+        
                 for (int z = 0; z < 4; z++) {
-                    for (int i = 0; i < 19; i++) {
-                        strataModule->knobStates[i][z] = strataModule->copiedKnobStates[i];
-                        strataModule->buttonStates[i][z] = strataModule->copiedButtonStates[i];
-                    }
-                    for (int i = 0; i < 3; i++) {
-                        strataModule->switchStates[i][z] = strataModule->copiedSwitchStates[i];
+                    switch (strataModule->copyMode) {
+                        case Strata::PasteMode::KnobsAndBeats:
+                            for (int i = 0; i < 19; i++) {
+                                strataModule->knobStates[i][z] = strataModule->copiedKnobStates[i];
+                                strataModule->buttonStates[i][z] = strataModule->copiedButtonStates[i];
+                            }
+                            for (int i = 0; i < 3; i++) {
+                                strataModule->switchStates[i][z] = strataModule->copiedSwitchStates[i];
+                            }
+                            for (int i = 0; i < 10; i++) {
+                                strataModule->divide[i][z] = strataModule->copiedDivide[i];
+                                strataModule->multiply[i][z] = strataModule->copiedMultiply[i];
+                            }
+                            for (int i = 0; i < PATTERNS; i++) {
+                                strataModule->patternState[i][z] = strataModule->copiedPatternState[i];
+                            }
+                            strataModule->patternKnob[z] = strataModule->copiedPatternKnob;
+                            break;
+        
+                        case Strata::PasteMode::KnobsOnly:
+                            for (int i = 0; i < 19; i++) {
+                                strataModule->knobStates[i][z] = strataModule->copiedKnobStates[i];
+                                strataModule->buttonStates[i][z] = strataModule->copiedButtonStates[i];
+                            }
+                            for (int i = 0; i < 3; i++) {
+                                strataModule->switchStates[i][z] = strataModule->copiedSwitchStates[i];
+                            }
+                            break;
+        
+                        case Strata::PasteMode::BeatsOnly:
+                            for (int i = 0; i < 10; i++) {
+                                strataModule->divide[i][z] = strataModule->copiedDivide[i];
+                                strataModule->multiply[i][z] = strataModule->copiedMultiply[i];
+                            }
+                            for (int i = 0; i < PATTERNS; i++) {
+                                strataModule->patternState[i][z] = strataModule->copiedPatternState[i];
+                            }
+                            strataModule->patternKnob[z] = strataModule->copiedPatternKnob;
+                            break;
                     }
                 }
+        
                 strataModule->displayUpdate = true;
             }
+        
             void step() override {
                 rightText = strataModule->copyBufferFilled ? "Ready" : "Empty";
                 MenuItem::step();
@@ -1872,6 +2124,68 @@ struct StrataWidget : ModuleWidget {
         pasteAllLayersItem->text = "Paste to All Layers";
         pasteAllLayersItem->strataModule = strataModule;
         menu->addChild(pasteAllLayersItem);
+
+
+        // --- Separator for the new toggles ---
+        menu->addChild(new MenuSeparator());
+        
+        struct PasteModeMenuItem : MenuItem {
+            Strata* strataModule;
+            Strata::PasteMode mode;
+        
+            void onAction(const event::Action& e) override {
+                strataModule->copyMode = mode;
+            }
+        
+            void step() override {
+                rightText = (strataModule->copyMode == mode) ? "✔" : "";
+                MenuItem::step();
+            }
+        };
+        
+        // Add to menu
+        menu->addChild(new MenuSeparator());
+        MenuLabel* label = new MenuLabel();
+        label->text = "Paste Mode";
+        menu->addChild(label);
+        
+        PasteModeMenuItem* knobsAndBeatsItem = new PasteModeMenuItem();
+        knobsAndBeatsItem->text = "Knobs + Beats";
+        knobsAndBeatsItem->strataModule = strataModule;
+        knobsAndBeatsItem->mode = Strata::PasteMode::KnobsAndBeats;
+        menu->addChild(knobsAndBeatsItem);
+        
+        PasteModeMenuItem* knobsOnlyItem = new PasteModeMenuItem();
+        knobsOnlyItem->text = "Knobs Only";
+        knobsOnlyItem->strataModule = strataModule;
+        knobsOnlyItem->mode = Strata::PasteMode::KnobsOnly;
+        menu->addChild(knobsOnlyItem);
+        
+        PasteModeMenuItem* beatsOnlyItem = new PasteModeMenuItem();
+        beatsOnlyItem->text = "Beats Only";
+        beatsOnlyItem->strataModule = strataModule;
+        beatsOnlyItem->mode = Strata::PasteMode::BeatsOnly;
+        menu->addChild(beatsOnlyItem);
+
+        // --- Separator ---
+        menu->addChild(new MenuSeparator());
+
+        // Toggle: Layer CV Mode
+        struct LayerCVModeMenuItem : MenuItem {
+            Strata* strataModule;
+            void onAction(const event::Action& e) override {
+                strataModule->layerCVmode = !strataModule->layerCVmode;
+            }
+            void step() override {
+                rightText = strataModule->layerCVmode ? "✔" : "";
+                MenuItem::step();
+            }
+        };
+        
+        auto* layerCVmodeItem = new LayerCVModeMenuItem();
+        layerCVmodeItem->text = "Layer Advance by CV (1V/layer)";
+        layerCVmodeItem->strataModule = strataModule;
+        menu->addChild(layerCVmodeItem);
         
     } 
           
