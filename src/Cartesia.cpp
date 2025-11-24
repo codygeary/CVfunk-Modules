@@ -1062,12 +1062,19 @@ struct CartesiaWidget : ModuleWidget {
                     // Compute the note name of the note and the octave
                     float pitchVoltage = module->finalNotes[i];
 
-                    int totalSemitones = std::roundf(pitchVoltage * 12.0f);
-                    int semitone = (totalSemitones % 12 + 12) % 12;
-                    int octave = totalSemitones / 12 + 4;  // Adjust to match 0V = C4
-
-                    semitone = (semitone % 12 + 12) % 12;  // Ensure it's a valid semitone (0 to 11)
-
+                    // Convert to semitones
+                    float exactSemi = pitchVoltage * 12.f;
+                    int totalSemi   = std::roundf(exactSemi);
+            
+                    // Correct octave using mathematical floor
+                    int octave = std::floor(totalSemi / 12.f);
+            
+                    // Semitone normalized to 0..11
+                    int semitone = ((totalSemi % 12) + 12) % 12;
+            
+                    // Shift to your reference (0V = C4)
+                    octave += 4;
+                    
                     // Define the note names
                     const char* noteNames[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
                     const char* noteName = noteNames[semitone];
@@ -1090,12 +1097,19 @@ struct CartesiaWidget : ModuleWidget {
             if (module->quantize){
                 // Compute the note name of the note and the octave
                 float pitchVoltage = module->knobMin;
-                int octave = static_cast<int>(std::roundf(pitchVoltage) + 4);  // The integer part represents the octave
 
-                // Calculate the semitone
-                double fractionalPart = fmod(pitchVoltage, 1.0);
-                int semitone = std::roundf(fractionalPart * 12);
-                semitone = (semitone % 12 + 12) % 12;  // Ensure it's a valid semitone (0 to 11)
+                // Convert to semitones
+                float exactSemi = pitchVoltage * 12.f;
+                int totalSemi   = std::roundf(exactSemi);
+        
+                // Correct octave using mathematical floor
+                int octave = std::floor(totalSemi / 12.f);
+        
+                // Semitone normalized to 0..11
+                int semitone = ((totalSemi % 12) + 12) % 12;
+        
+                // Shift to your reference (0V = C4)
+                octave += 4;
 
                 // Define the note names
                 const char* noteNames[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
@@ -1117,13 +1131,20 @@ struct CartesiaWidget : ModuleWidget {
             if (module->quantize){
                 // Compute the note name of the note and the octave
                 float pitchVoltage = fmin(module->knobMin + module->knobRange, 10.f);
-                int octave = static_cast<int>(std::roundf(pitchVoltage) + 4);  // The integer part represents the octave
 
-                // Calculate the semitone
-                double fractionalPart = fmod(pitchVoltage, 1.0);
-                int semitone = std::roundf(fractionalPart * 12);
-                semitone = (semitone % 12 + 12) % 12;  // Ensure it's a valid semitone (0 to 11)
-
+                // Convert to semitones
+                float exactSemi = pitchVoltage * 12.f;
+                int totalSemi   = std::roundf(exactSemi);
+        
+                // Correct octave using mathematical floor
+                int octave = std::floor(totalSemi / 12.f);
+        
+                // Semitone normalized to 0..11
+                int semitone = ((totalSemi % 12) + 12) % 12;
+        
+                // Shift to your reference (0V = C4)
+                octave += 4;
+                
                 // Define the note names
                 const char* noteNames[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
                 const char* noteName = noteNames[semitone];
