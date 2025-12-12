@@ -763,8 +763,8 @@ struct PreeeeeeeeeeessedDuck : Module {
 			inputL[i] *= fadeLevel[i];
 			inputR[i] *= fadeLevel[i];
 		
-			if (inputActive && fadeLevel[i] > 0.f) {
-				inputCount += 1.f; // only count channels contributing signal
+			if (inputActive ) {
+				inputCount += 1.f; 
 			}
 		
 			// -----------------------------
