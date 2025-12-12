@@ -208,6 +208,10 @@ struct Strata : Module {
     float beatInterval_semi = 1.f;
     float beatInterval_oct = 1.f;
     
+    float mainSwitch = 0.f;
+    float semiSwitch = 0.f;
+    float octSwitch = 0.f;
+    
     bool endPulseAtStage = true;
     bool patternReset = false;
     bool resetCondition = false;
@@ -219,7 +223,7 @@ struct Strata : Module {
     int subBeatCount_oct = 0;
 
     int inputSkipper = 0;
-    int inputSkipsTotal = 100; //only process button presses every 1/100 steps as it takes way too much CPU
+    int inputSkipsTotal = 300; //only process button presses every 1/100 steps as it takes way too much CPU
     float playMode = 0.f;
     float lastPlayMode = 1.0f;
     bool resetArmed = false;
@@ -271,6 +275,9 @@ struct Strata : Module {
     bool layerCVmode = false;
     bool copyCVonly = false;
     bool initializing = true; //load Knob positions from JSON.
+    
+    int processSkipper = 0;
+    int processSkips = 300;
 
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
@@ -315,6 +322,13 @@ struct Strata : Module {
             json_array_append_new(buttonStatesJ, rowJ);
         }
         json_object_set_new(rootJ, "buttonStates", buttonStatesJ);
+
+        // patternKnob[4]
+        json_t* pattJ = json_array();
+        for (int i = 0; i < 4; i++) {
+            json_array_append_new(pattJ, json_real(patternKnob[i]));
+        }
+        json_object_set_new(rootJ, "patternKnob", pattJ);
     
         // Save patternState[PATTERNS][4]
         json_t* patternJ = json_array();
@@ -430,6 +444,15 @@ struct Strata : Module {
                         }
                     }
                 }
+            }
+        }
+
+        json_t* pattJ = json_object_get(rootJ, "patternKnob");
+        if (pattJ && json_is_array(pattJ)) {
+            for (int i = 0; i < 4; i++) {
+                json_t* v = json_array_get(pattJ, i);
+                if (v)
+                    patternKnob[i] = json_number_value(v);
             }
         }
 
@@ -855,9 +878,12 @@ struct Strata : Module {
         beatTimer_semi.process(deltaTime);
         beatTimer_oct.process(deltaTime);
 
-        float mainSwitch = params[MAIN_SWITCH].getValue();
-        float semiSwitch = params[SEMI_SWITCH].getValue();
-        float octSwitch = params[OCT_SWITCH].getValue();
+        processSkipper++;
+        if (processSkipper > processSkips) {  
+            mainSwitch = params[MAIN_SWITCH].getValue();
+            semiSwitch = params[SEMI_SWITCH].getValue();
+            octSwitch = params[OCT_SWITCH].getValue();
+        }
 
         if (initializing){
             //Update Knob Ranges
@@ -869,7 +895,9 @@ struct Strata : Module {
             for (int i = 0; i < 3; i++) {
                     paramQuantities[MAIN_SWITCH + i]->setValue( switchStates[i][strataLayer] );  // Recall stored switch value    
             }                        
-            initializing = false;
+            paramQuantities[PATTERN_KNOB]->setValue( patternKnob[strataLayer] );  // Recall stored knob value
+
+            initializing = false;            
         } 
 
         // Clock handling logic
@@ -1014,7 +1042,20 @@ struct Strata : Module {
                             lastPlayMode = 2.0;
                         }
                     }
-                    if (divide[currentStage][strataLayer] == 0) currentStage++; //skip stages that are off
+
+                    // Skip inactive stages (loop until a valid stage is found)
+                    while (divide[currentStage][strataLayer] == 0.f) {
+                        currentStage++;
+                        if (currentStage >= STAGES) {
+                            currentStage = 0;
+                            if (playMode == 2.0) {
+                                paramQuantities[ON_SWITCH]->setDisplayValue(0.0f);
+                                playMode = 0.f;
+                                lastPlayMode = 2.0;
+                            }
+                        }
+                    }
+
                 }
                 // Keep selectedStage in sync
                 selectedStage = currentStage;
@@ -1051,14 +1092,16 @@ struct Strata : Module {
                 // --- Build list of active semitone steps ---
                 int active[7];
                 int activeCount = 0;
-                for (int s = 0; s < 7; s++)
-                    if (buttonStates[s + 8][strataLayer])
-                        active[activeCount++] = s;
+                
+                for (int s = 0; s < 7; s++) {
+                    if (buttonStates[s + 8][strataLayer]) {
+                        active[activeCount++] = s;  // Store the actual index
+                    }
+                }
+                
+                if (activeCount == 0) return;   // never allow zero active
             
-                if (activeCount == 0)
-                    return;
-            
-                // Find current index
+                // Find current index in active list
                 int idx = 0;
                 for (int i = 0; i < activeCount; i++)
                     if (active[i] == semiStage) { idx = i; break; }
@@ -1067,7 +1110,7 @@ struct Strata : Module {
                 if (semiSwitch == 0) sequenceDir = +1;
                 else if (semiSwitch == 2) sequenceDir = -1;
             
-                // Advance the sequence (main beat)
+                // Advance the sequence
                 if (semiSwitch == 1) { // ping-pong
                     idx += sequenceDir;
                     if (idx >= activeCount) { idx = activeCount - 2; sequenceDir = -1; }
@@ -1079,7 +1122,9 @@ struct Strata : Module {
                     if (idx < 0)            idx = activeCount - 1;
                 }
             
-                if (divide[8][strataLayer]>0 && multiply[8][strataLayer]>0) semiStage = active[idx];
+                if (divide[8][strataLayer]>0 && multiply[8][strataLayer]>0) {
+                    semiStage = active[idx];
+                }
             }
           
             if (beatCountOct >= static_cast<int>(divide[9][strataLayer])) {
@@ -1132,7 +1177,6 @@ struct Strata : Module {
         if (divide[8][strataLayer] > 0.f && multiply[8][strataLayer] > 0.f && playMode > 0.f) {
             if ((syncPoint && beatCountSemi == 0) || resyncFlag[8]) {
                 resyncFlag[8] = false;
-                // Total duration of this stage / number of sub-beats
                 beatInterval_semi = (divide[8][strataLayer] * syncInterval) / multiply[8][strataLayer];
                 beatTimer_semi.reset();
                 subBeatCount_semi = 0;
@@ -1141,32 +1185,73 @@ struct Strata : Module {
             if (beatTimer_semi.time >= beatInterval_semi && playMode > 0.f && externalClockConnected) {
                 beatTimer_semi.reset();
                 subBeatCount_semi++;
-                if (subBeatCount_semi < multiply[8][strataLayer]) {                    
-                    semiStage++; //advance semitone sequencer  
-                    if (semiStage>6) semiStage = 0;     
-                } 
+                
+                // Only advance on intermediate sub-beats (not the last one)
+                if (subBeatCount_semi < multiply[8][strataLayer]) {
+                    // --- Build list of active semitone steps ---
+                    int active[7];
+                    int activeCount = 0;
+                    
+                    for (int s = 0; s < 7; s++) {
+                        if (buttonStates[s + 8][strataLayer]) {
+                            active[activeCount++] = s;
+                        }
+                    }
+                    
+                    if (activeCount > 0) {
+                        // Find current index in active list
+                        int idx = 0;
+                        for (int i = 0; i < activeCount; i++)
+                            if (active[i] == semiStage) { idx = i; break; }
+        
+                        // Determine direction
+                        int dir = (semiSwitch == 2) ? -1 : +1;
+        
+                        // Advance the sequence
+                        if (semiSwitch == 1) { // ping-pong
+                            idx += sequenceDir;
+                            if (idx >= activeCount) { idx = activeCount - 2; sequenceDir = -1; }
+                            else if (idx < 0)      { idx = 1; sequenceDir = +1; }
+                        }
+                        else {  // forward/reverse wrap
+                            idx += dir;
+                            if (idx >= activeCount) idx = 0;
+                            if (idx < 0)            idx = activeCount - 1;
+                        }
+        
+                        semiStage = active[idx];
+                    }
+                }
             }
         }
-
+        
         if (divide[9][strataLayer] > 0.f && multiply[9][strataLayer] > 0.f && playMode > 0.f) {        
             if ((syncPoint && beatCountOct == 0) || resyncFlag[9]) {
                 resyncFlag[9] = false;
-                // Total duration of this stage / number of sub-beats
                 beatInterval_oct = (divide[9][strataLayer] * syncInterval) / multiply[9][strataLayer];
                 beatTimer_oct.reset();
                 subBeatCount_oct = 0;
             }
-       
+        
             if (beatTimer_oct.time >= beatInterval_oct && playMode > 0.f && externalClockConnected) {
                 beatTimer_oct.reset();
                 subBeatCount_oct++;
-                if (subBeatCount_oct < multiply[9][strataLayer]) {               
-                    octStage++; //advance oct sequencer      
-                    if (octStage>3) octStage = 0;  
+                
+                // Only advance on intermediate sub-beats (not the last one)
+                if (subBeatCount_oct < multiply[9][strataLayer]) {
+                    octStage++;
+                    
+                    // Advance to next active octave stage with proper wrapping
+                    int safety = 0;
+                    while (safety < 4) {
+                        if (octStage >= 4) octStage = 0;
+                        if (buttonStates[octStage + 15][strataLayer] >= 1) break;
+                        octStage++;
+                        safety++;
+                    }
                 }
             }
         }
-
         // Advance to next active octave stage
         for (int i = 0; i < 4; i++) { 
             if (octStage >= 4) { //Stage Wrap-Around Point
@@ -1280,11 +1365,13 @@ struct Strata : Module {
         }
 
         // Handle Pattern Buttons
-        for (int i = 0; i < PATTERNS; i++){
-            if(patternTrigger[i].process( params[PATTERN_1_BUTTON+i].getValue())){
-                patternState[i][strataLayer]++;
-                if (patternState[i][strataLayer]>2) patternState[i][strataLayer]=0;
-            }            
+        if(processSkipper > processSkips){
+            for (int i = 0; i < PATTERNS; i++){
+                if(patternTrigger[i].process( params[PATTERN_1_BUTTON+i].getValue())){
+                    patternState[i][strataLayer]++;
+                    if (patternState[i][strataLayer]>2) patternState[i][strataLayer]=0;
+                }            
+            }
         }
  
         // Handle Layer Buttons
@@ -1330,10 +1417,9 @@ struct Strata : Module {
         
         // Deal with knob parameter saving and recall
         for (int i= 0; i < 19; i++) {
-
             if (displayUpdate) {
                 paramQuantities[SEQ_1_KNOB + i]->setValue( knobStates[i][strataLayer] );  // Recall stored knob value
-            } else {
+            } else if (processSkipper>processSkips) {
                 knobStates[i][strataLayer] = params[SEQ_1_KNOB + i].getValue();  // Save current knob state
             }
 
@@ -1365,10 +1451,10 @@ struct Strata : Module {
                     }
                 }
             
-                // ----- GROUP 8-15 -----
-                else if (i >= 8 && i <= 15) {
+                // ----- GROUP 8-14 -----
+                else if (i >= 8 && i <= 14) {
                     int active = 0;
-                    for (int j = 8; j < 16; j++)
+                    for (int j = 8; j < 15; j++)
                         if (buttonStates[j][strataLayer]) active++;
             
                     if (buttonStates[i][strataLayer] && active == 1) {
@@ -1378,10 +1464,10 @@ struct Strata : Module {
                     }
                 }
             
-                // ----- GROUP 16-19 -----
-                else if (i >= 16 && i <= 19) {
+                // ----- GROUP 15-18 -----
+                else if (i >= 15 && i <= 18) {
                     int active = 0;
-                    for (int j = 16; j < 20; j++)
+                    for (int j = 15; j < 19; j++)
                         if (buttonStates[j][strataLayer]) active++;
             
                     if (buttonStates[i][strataLayer] && active == 1) {
@@ -1399,7 +1485,7 @@ struct Strata : Module {
         for (int i= 0; i < 3; i++) {
             if (displayUpdate) {
                 paramQuantities[MAIN_SWITCH + i]->setValue( switchStates[i][strataLayer] );  // Recall stored knob value
-            } else {
+            } else if (processSkipper>processSkips) {
                 switchStates[i][strataLayer] = params[MAIN_SWITCH + i].getValue();  // Save current knob state
             }
         }
@@ -1407,14 +1493,14 @@ struct Strata : Module {
         //Save and Recall Pattern knob
         if (displayUpdate) {
             paramQuantities[PATTERN_KNOB]->setValue( patternKnob[strataLayer] );  // Recall stored knob value
-        } else {
+        } else if (processSkipper>processSkips){
             patternKnob[strataLayer] = params[PATTERN_KNOB].getValue();  // Save current knob state
         }
         
         // Reset display update flag after processing
         if (displayUpdate) {
             displayUpdate = false;
-        }
+        }      
         
         if (noteSampled){
             float rootNote = params[SEQ_1_KNOB + activeStage].getValue();
@@ -1441,6 +1527,8 @@ struct Strata : Module {
                         
             outputs[MAIN_OUTPUT].setVoltage(quantizedNote);
         }
+        
+        if (processSkipper>processSkips) processSkipper = 0;
                 
     }//end process
 };
