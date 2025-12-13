@@ -964,7 +964,7 @@ struct PreeeeeeeeeeessedDuck : Module {
 
         float pressAmount = cachedPress;
         if(inputs[PRESS_CV_INPUT].isConnected()){
-            pressAmount += inputs[PRESS_CV_INPUT].getVoltage()*params[PRESS_ATT].getValue();
+            pressAmount += inputs[PRESS_CV_INPUT].getVoltage()*cachedPressAtt;
         }
         pressAmount = clamp(pressAmount, 0.0f, 1.0f);
 
@@ -1013,7 +1013,7 @@ struct PreeeeeeeeeeessedDuck : Module {
         }
 
         // Apply volume control from the parameters
-        float sideVol = params[SIDECHAIN_VOLUME_PARAM].getValue();
+        float sideVol = cachedSidechainVolume;
         sideL *= sideVol;
         sideR *= sideVol;
 
@@ -1055,7 +1055,7 @@ struct PreeeeeeeeeeessedDuck : Module {
             // Calculate ducking based on the side envelope
             float duckAmount = cachedDuck;
             if (inputs[DUCK_CV].isConnected()) {
-                duckAmount += clamp(inputs[DUCK_CV].getVoltage() / 5.0f, 0.f, 1.f) * params[DUCK_ATT].getValue();
+                duckAmount += clamp(inputs[DUCK_CV].getVoltage() / 5.0f, 0.f, 1.f) * cachedDuckAtt;
             }
             float duckingFactorL = fmax(0.0f, 1.f - duckAmount * (filteredSideEnvelopeL / 5.0f));
             float duckingFactorR = fmax(0.0f, 1.f - duckAmount * (filteredSideEnvelopeR / 5.0f));
@@ -1079,7 +1079,7 @@ struct PreeeeeeeeeeessedDuck : Module {
 
         float feedbackSetting = cachedFeedback;
         if(inputs[FEEDBACK_CV].isConnected()){
-            feedbackSetting += inputs[FEEDBACK_CV].getVoltage()*params[FEEDBACK_ATT].getValue();
+            feedbackSetting += inputs[FEEDBACK_CV].getVoltage()*cachedFeedbackAtt;
         }
 
         feedbackSetting = 11.0f*pow(feedbackSetting/11.0f, 3.0f);
@@ -1110,7 +1110,7 @@ struct PreeeeeeeeeeessedDuck : Module {
         // Set outputs
         float masterVol = cachedMasterVol;
         if (inputs[MASTER_VOL_CV].isConnected()){
-            masterVol += inputs[MASTER_VOL_CV].getVoltage()*params[MASTER_VOL_ATT].getValue()/10.f;
+            masterVol += inputs[MASTER_VOL_CV].getVoltage()*cachedMasterVolAtt/10.f;
         }
         masterVol = clamp(masterVol, 0.0f, 2.0f);
 

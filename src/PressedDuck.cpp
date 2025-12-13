@@ -793,7 +793,7 @@ struct PressedDuck : Module {
 				}
 			}
 
-            float vol = params[VOLUME1_PARAM + i].getValue();
+            float vol = cachedVolume[i];
             inputL[i] *= vol;
             inputR[i] *= vol;
 
@@ -813,7 +813,7 @@ struct PressedDuck : Module {
             compressionAmountR += filteredEnvelopeR[i];
 
             // Apply panning
-            float pan = params[PAN1_PARAM + i].getValue();
+            float pan = cachedPan[i];
 
             if (activePanChannel[i]==i) {
                 pan += inputs[PAN_CV1_INPUT + i].getPolyVoltage(0) / 5.f;
@@ -861,9 +861,9 @@ struct PressedDuck : Module {
         compressionAmountL = compressionAmountL/((inputCount+sideChain)*5.0f); //divide by the expected ceiling
         compressionAmountR = compressionAmountR/((inputCount+sideChain)*5.0f); //process L and R separately
 
-        float pressAmount = params[PRESS_PARAM].getValue();
+        float pressAmount = cachedPress;
         if(inputs[PRESS_CV_INPUT].isConnected()){
-            pressAmount += inputs[PRESS_CV_INPUT].getVoltage()*params[PRESS_ATT].getValue();
+            pressAmount += inputs[PRESS_CV_INPUT].getVoltage()*cachedPressAtt;
         }
         pressAmount = clamp(pressAmount, 0.0f, 1.0f);
 
@@ -901,11 +901,83 @@ struct PressedDuck : Module {
         if (!isSideConnectedR && isSideConnectedL) {
             sideR = sideL;
         }
-        processSide(sideL, sideR, decayRate, mixL, mixR);
 
-        float feedbackSetting = params[FEEDBACK_PARAM].getValue();
+        // Apply VCA control if connected
+        if (inputs[VCA_SIDECHAIN_INPUT].isConnected()) {
+            float vcaVoltage = inputs[VCA_SIDECHAIN_INPUT].getVoltage() / 10.f;
+            float vcaLevel = clamp(vcaVoltage, 0.f, 2.f);
+            sideL *= vcaLevel;
+            sideR *= vcaLevel;
+        }
+
+        // Apply volume control from the parameters
+        float sideVol = cachedSidechainVolume;
+        sideL *= sideVol;
+        sideR *= sideVol;
+
+        if (transitionCount[6] > 0) {
+            float fadeStep = (muteState[6] ? -1.0f : 1.0f) / transitionSamples;
+            fadeLevel[6] += fadeStep;
+            if ((muteState[6] && fadeLevel[6] < 0.0f) || (!muteState[6] && fadeLevel[6] > 1.0f)) {
+                fadeLevel[6] = muteState[6] ? 0.0f : 1.0f;
+                transitionCount[6] = 0;  // End transition
+            }
+            transitionCount[6]--;
+        } else {
+            fadeLevel[6] = muteState[6] ? 0.0f : 1.0f;
+        }
+
+        if (!mutedSideDucks){    //only fade out the sound if mixing it
+            sideL *= fadeLevel[6];
+            sideR *= fadeLevel[6];
+        }
+
+        if (!isSideConnectedL && !isSideConnectedR) {
+            // Reset envelope if sidechain inputs are not connected
+            sidePeakL = 0.0f;
+            sidePeakR = 0.0f;
+            filteredSideEnvelopeL = 0.0f;
+            filteredSideEnvelopeR = 0.0f;
+            sideEnvelope = 0.0f;
+        } else {
+            // Calculate the envelope for the side signals
+            sidePeakL = fmax(sidePeakL * decayRate, fabs(sideL));
+            sidePeakR = fmax(sidePeakR * decayRate, fabs(sideR));
+            filteredSideEnvelopeL = alpha * sidePeakL + (1 - alpha) * filteredSideEnvelopeL;
+            filteredSideEnvelopeR = alpha * sidePeakR + (1 - alpha) * filteredSideEnvelopeR;
+
+            // Apply the envelope to the side signals
+            sideL *= filteredSideEnvelopeL;
+            sideR *= filteredSideEnvelopeR;
+
+            // Calculate ducking based on the side envelope
+            float duckAmount = cachedDuck;
+            if (inputs[DUCK_CV].isConnected()) {
+                duckAmount += clamp(inputs[DUCK_CV].getVoltage() / 5.0f, 0.f, 1.f) * cachedDuckAtt;
+            }
+            float duckingFactorL = fmax(0.0f, 1.f - duckAmount * (filteredSideEnvelopeL / 5.0f));
+            float duckingFactorR = fmax(0.0f, 1.f - duckAmount * (filteredSideEnvelopeR / 5.0f));
+            sideEnvelope = (filteredSideEnvelopeL + filteredSideEnvelopeR) / 2.0f;
+
+            if (!mutedSideDucks){
+                // Apply ducking to the main mix and add the processed side signals
+                mixL = (mixL * duckingFactorL) + sideL;
+                mixR = (mixR * duckingFactorR) + sideR;
+            } else {
+                if (muteState[6]) {
+                    mixL = (mixL * duckingFactorL) ;
+                    mixR = (mixR * duckingFactorR) ;
+
+                } else {
+                    mixL = (mixL * duckingFactorL) + sideL;
+                    mixR = (mixR * duckingFactorR) + sideR;
+                }
+            }
+        }
+
+        float feedbackSetting = cachedFeedback;
         if(inputs[FEEDBACK_CV].isConnected()){
-            feedbackSetting += inputs[FEEDBACK_CV].getVoltage()*params[FEEDBACK_ATT].getValue();
+            feedbackSetting += inputs[FEEDBACK_CV].getVoltage()*cachedFeedbackAtt;
         }
 
         feedbackSetting = 11.0f*pow(feedbackSetting/11.0f, 3.0f);
@@ -921,8 +993,8 @@ struct PressedDuck : Module {
             mixR = hpfR.process(mixR);
         }
 
-//         distortTotalL = distortTotalL * decayRate + log1p(fmax(mixL-35.f, 0.0f)) * (35.0f / log1p(35)) * (1.0f - decayRate);
-//         distortTotalR = distortTotalR * decayRate +log1p(fmax(mixR-35.f, 0.0f)) * (35.0f / log1p(35)) * (1.0f - decayRate);
+        distortTotalL = distortTotalL * decayRate + log1p(fmax(mixL-35.f, 0.0f)) * (35.0f / log1p(35)) * (1.0f - decayRate);
+        distortTotalR = distortTotalR * decayRate +log1p(fmax(mixR-35.f, 0.0f)) * (35.0f / log1p(35)) * (1.0f - decayRate);
 
 
         // Apply ADAA
@@ -935,9 +1007,9 @@ struct PressedDuck : Module {
         lastOutputR = mixR;
 
         // Set outputs
-        float masterVol = params[MASTER_VOL].getValue();
+        float masterVol = cachedMasterVol;
         if (inputs[MASTER_VOL_CV].isConnected()){
-            masterVol += inputs[MASTER_VOL_CV].getVoltage()*params[MASTER_VOL_ATT].getValue()/10.f;
+            masterVol += inputs[MASTER_VOL_CV].getVoltage()*cachedMasterVolAtt/10.f;
         }
         masterVol = clamp(masterVol, 0.0f, 2.0f);
 
@@ -989,85 +1061,6 @@ struct PressedDuck : Module {
 		float x2 = x * x;
 		return 1.0f - x2 * (0.5f - x2 * (1.0f/24.0f - x2 / 720.0f));
 	}
-
-    void processSide(float &sideL, float &sideR, float decayRate, float &mixL, float &mixR) {
-        // Apply VCA control if connected
-        if (inputs[VCA_SIDECHAIN_INPUT].isConnected()) {
-            float vcaVoltage = inputs[VCA_SIDECHAIN_INPUT].getVoltage() / 10.f;
-            float vcaLevel = clamp(vcaVoltage, 0.f, 2.f);
-            sideL *= vcaLevel;
-            sideR *= vcaLevel;
-        }
-
-        // Apply volume control from the parameters
-        float sideVol = params[SIDECHAIN_VOLUME_PARAM].getValue();
-        sideL *= sideVol;
-        sideR *= sideVol;
-
-        if (transitionCount[6] > 0) {
-            float fadeStep = (muteState[6] ? -1.0f : 1.0f) / transitionSamples;
-            fadeLevel[6] += fadeStep;
-            if ((muteState[6] && fadeLevel[6] < 0.0f) || (!muteState[6] && fadeLevel[6] > 1.0f)) {
-                fadeLevel[6] = muteState[6] ? 0.0f : 1.0f;
-                transitionCount[6] = 0;  // End transition
-            }
-            transitionCount[6]--;
-        } else {
-            fadeLevel[6] = muteState[6] ? 0.0f : 1.0f;
-        }
-
-        if (!mutedSideDucks){    //only fade out the sound if mixing it
-            sideL *= fadeLevel[6];
-            sideR *= fadeLevel[6];
-        }
-
-        // Check sidechain connection
-        bool isSideConnectedL = inputs[SIDECHAIN_INPUT_L].isConnected();
-        bool isSideConnectedR = inputs[SIDECHAIN_INPUT_R].isConnected();
-
-        if (!isSideConnectedL && !isSideConnectedR) {
-            // Reset envelope if sidechain inputs are not connected
-            sidePeakL = 0.0f;
-            sidePeakR = 0.0f;
-            filteredSideEnvelopeL = 0.0f;
-            filteredSideEnvelopeR = 0.0f;
-            sideEnvelope = 0.0f;
-        } else {
-            // Calculate the envelope for the side signals
-            sidePeakL = fmax(sidePeakL * decayRate, fabs(sideL));
-            sidePeakR = fmax(sidePeakR * decayRate, fabs(sideR));
-            filteredSideEnvelopeL = alpha * sidePeakL + (1 - alpha) * filteredSideEnvelopeL;
-            filteredSideEnvelopeR = alpha * sidePeakR + (1 - alpha) * filteredSideEnvelopeR;
-
-            // Apply the envelope to the side signals
-            sideL *= filteredSideEnvelopeL;
-            sideR *= filteredSideEnvelopeR;
-
-            // Calculate ducking based on the side envelope
-            float duckAmount = params[DUCK_PARAM].getValue();
-            if (inputs[DUCK_CV].isConnected()) {
-                duckAmount += clamp(inputs[DUCK_CV].getVoltage() / 5.0f, 0.f, 1.f) * params[DUCK_ATT].getValue();
-            }
-            float duckingFactorL = fmax(0.0f, 1.f - duckAmount * (filteredSideEnvelopeL / 5.0f));
-            float duckingFactorR = fmax(0.0f, 1.f - duckAmount * (filteredSideEnvelopeR / 5.0f));
-            sideEnvelope = (filteredSideEnvelopeL + filteredSideEnvelopeR) / 2.0f;
-
-            if (!mutedSideDucks){
-                // Apply ducking to the main mix and add the processed side signals
-                mixL = (mixL * duckingFactorL) + sideL;
-                mixR = (mixR * duckingFactorR) + sideR;
-            } else {
-                if (muteState[6]) {
-                    mixL = (mixL * duckingFactorL) ;
-                    mixR = (mixR * duckingFactorR) ;
-
-                } else {
-                    mixL = (mixL * duckingFactorL) + sideL;
-                    mixR = (mixR * duckingFactorR) + sideR;
-                }
-            }
-        }
-    }//end process side
 
 };
 
