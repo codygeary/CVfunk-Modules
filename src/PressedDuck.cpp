@@ -687,18 +687,6 @@ struct PressedDuck : Module {
 				muteStatePrevious[i] = muteState[i];
 				transitionCount[i] = transitionSamples;
 			}
-
-			// OPTIMIZATION: Skip channels with no connections AND no polyphonic audio
-			if (!channelNeedsProcessing[i] && activeAudio[i] == -1) {
-				// Completely skip this channel - no processing needed
-				inputL[i] = inputR[i] = 0.0f;
-				filteredEnvelopeL[i] = filteredEnvelopeR[i] = filteredEnvelope[i] = 0.0f;
-				fadeLevel[i] = muteState[i] ? 0.0f : 1.0f;
-				transitionCount[i] = 0;
-				initialized[i] = false;
-				lastPan[i] = 0.f;				
-				continue;
-			}
 		
 			// Check if the channel has an active audio source
 			bool hasSource = false;
