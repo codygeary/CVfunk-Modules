@@ -181,12 +181,17 @@ struct PreeeeeeeeeeessedDuck : Module {
     float fadeLevel[17] = {1.0f};
     int transitionCount[17] = {0};  // Array to track transition progress for each channel
     float targetFadeLevel[17] = {0.0f};
+    bool muteCVToggle = true;
 
     alignas(std::atomic<bool>) std::atomic<bool> isShifted[16]; // For shift modified detection on the mute buttons
 
     // Serialization method to save module state
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
+
+        // Save the state of muteCVToggle as a boolean
+        json_object_set_new(rootJ, "muteCVToggle", json_boolean(muteCVToggle));
+
 
         // Save the state of applyFilters as a boolean
         json_object_set_new(rootJ, "applyFilters", json_boolean(applyFilters));
@@ -226,6 +231,12 @@ struct PreeeeeeeeeeessedDuck : Module {
 
     // Deserialization method to load module state
     void dataFromJson(json_t* rootJ) override {
+        // Load the state of muteCVToggle
+        json_t* muteCVToggleJ = json_object_get(rootJ, "muteCVToggle");
+        if (muteCVToggleJ) {
+            muteCVToggle = json_is_true(muteCVToggleJ);
+        }
+
         // Load the state of applyFilters
         json_t* applyFiltersJ = json_object_get(rootJ, "applyFilters");
         if (applyFiltersJ) {
@@ -758,7 +769,7 @@ struct PreeeeeeeeeeessedDuck : Module {
 			bool muteInput = false;
 			
 			// Only read mute CV if connected
-			if (inputs[MUTE_1_INPUT + i].isConnected()) {
+			if (muteCVToggle && inputs[MUTE_1_INPUT + i].isConnected()) {
 				muteInput = muteButtonInput[i].process(inputs[MUTE_1_INPUT + i].getVoltage());
 			}
 			
@@ -793,6 +804,11 @@ struct PreeeeeeeeeeessedDuck : Module {
 			if (muteStatePrevious[i] != muteState[i]) {
 				muteStatePrevious[i] = muteState[i];
 				transitionCount[i] = transitionSamples;
+			}
+
+			// Override with CV signal if in this mode
+			if (!muteCVToggle && inputs[MUTE_1_INPUT + i].isConnected()) {
+				muteState[i] = (inputs[MUTE_1_INPUT + i].getVoltage() > 0.f);
 			}
 		
 			// Check if the channel has an active audio source
@@ -1474,7 +1490,6 @@ struct PreeeeeeeeeeessedDuckWidget : ModuleWidget {
         mutedSideDucksItem->PreeeeeeeeeeessedDuckModule = PreeeeeeeeeeessedDuckModule;
         menu->addChild(mutedSideDucksItem);
 
-
         // Supersampling menu item
         struct SupersamplingMenuItem : MenuItem {
             PreeeeeeeeeeessedDuck* PreeeeeeeeeeessedDuckModule;
@@ -1496,6 +1511,29 @@ struct PreeeeeeeeeeessedDuckWidget : ModuleWidget {
         supersamplingItem->text = "Enable Supersampling";
         supersamplingItem->PreeeeeeeeeeessedDuckModule = PreeeeeeeeeeessedDuckModule;
         menu->addChild(supersamplingItem);
+
+        // Separator for new section
+        menu->addChild(new MenuSeparator);
+
+        // muteCVToggle menu item
+        struct MuteCVToggleMenuItem : MenuItem {
+            PreeeeeeeeeeessedDuck* PreeeeeeeeeeessedDuckModule;
+            void onAction(const event::Action& e) override {
+                // Toggle the "Muted Side Ducks" mode
+                PreeeeeeeeeeessedDuckModule->muteCVToggle = !PreeeeeeeeeeessedDuckModule->muteCVToggle;
+            }
+            void step() override {
+                // Update the display to show a checkmark when the mode is active
+                rightText = PreeeeeeeeeeessedDuckModule->muteCVToggle ? "✔" : "";
+                MenuItem::step();
+            }
+        };
+
+        // Create the MutedSideDucks menu item and add it to the menu
+        MuteCVToggleMenuItem* mutedCVToggleItem = new MuteCVToggleMenuItem();
+        mutedCVToggleItem->text = "Mute CVs function as Toggle";
+        mutedCVToggleItem->PreeeeeeeeeeessedDuckModule = PreeeeeeeeeeessedDuckModule;
+        menu->addChild(mutedCVToggleItem);
 
         // Separator for new section
         menu->addChild(new MenuSeparator);
