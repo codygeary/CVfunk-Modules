@@ -693,15 +693,15 @@ struct PressedDuck : Module {
 			} else {
 				muteLatch[i] = false;
 			}
-	
-			if (muteStatePrevious[i] != muteState[i]) {
-				muteStatePrevious[i] = muteState[i];
-				transitionCount[i] = transitionSamples;
-			}
-			
+				
 			// Override with CV signal if in this mode
 			if (!muteCVToggle && inputs[MUTE_1_INPUT + i].isConnected()) {
 				muteState[i] = (inputs[MUTE_1_INPUT + i].getVoltage() > 0.f);
+			}
+
+			if (muteStatePrevious[i] != muteState[i]) {
+				muteStatePrevious[i] = muteState[i];
+				transitionCount[i] = transitionSamples;
 			}
 			
 			// Check if the channel has an active audio source
