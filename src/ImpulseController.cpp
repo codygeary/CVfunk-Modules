@@ -146,6 +146,8 @@ struct ImpulseController : Module {
         configParam(SPREAD_ATT_PARAM, -1.0f, 1.0f, 0.0f, "Spread Att.");
         configParam(DECAY_ATT_PARAM, -1.0f, 1.0f, 0.0f, "Decay Att.");
 
+        configParam(TRIGGER_BUTTON, 0.f, 1.f, 0.f, "Impulse Trig.");
+
         configInput(_00_INPUT, "Impulse");
         configInput(LAG_INPUT, "Lag CV");
         configInput(SPREAD_INPUT, "Spread CV");

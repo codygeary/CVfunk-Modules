@@ -176,6 +176,7 @@ struct Alloy : Module {
         OVERDRIVE_PARAM, OVERDRIVE_ATT,
         PITCH_PARAM,
         STRIKE_BUTTON,
+        VOLUME_PARAM,
         NUM_PARAMS
     };
     enum InputIds {
@@ -270,6 +271,7 @@ struct Alloy : Module {
         configParam(SHAPE_PARAM, -1.f, 1.f, 0.0f, "Shape");
         configParam(IMPULSE_PARAM, 0.f, 1.f, 0.25f, "Impulse Length");
         configParam(OVERDRIVE_PARAM, 0.f, 1.f, 0.0f, "Overdrive Distortion");
+        configParam(VOLUME_PARAM, 0.f, 5.f, 5.0f, "Volume");
 
         configParam(TEMPER_ATT, -1.f, 1.f, 0.0f, "Temper Att.");
         configParam(RESONANCE_ATT, -1.f, 1.f, 0.0f, "Resonance Att.");
@@ -465,6 +467,8 @@ struct Alloy : Module {
             skipCounter = 0;
         }
 
+        float volume = params[VOLUME_PARAM].getValue()* 0.2f;
+
         // Per-voice processing
         for (int c = 0; c < channels; ++c) {
             // detect strike per voice (uses per-voice jack input; button is global)
@@ -543,8 +547,11 @@ struct Alloy : Module {
             lastOutputL[c] = outL;
             lastOutputR[c] = outR;
 
-            outL = clamp(outL * 6.9f, -12.f, 12.f);
+            outL = clamp(outL * 6.9f, -12.f, 12.f); //volume actually ranges +- 5V at this stage.
             outR = clamp(outR * 6.9f, -12.f, 12.f);
+            
+            outL *= volume;
+            outR *= volume;
 
             outputs[AUDIO_OUTPUT_L].setVoltage(outL, c);
             outputs[AUDIO_OUTPUT_R].setVoltage(outR, c);
@@ -609,8 +616,9 @@ struct AlloyWidget : ModuleWidget {
         addParam(createParamCentered<Trimpot>(knobStartPos.plus(Vec(center+offset, 6.25*knobSpacingY)), module, Alloy::NOISE_ATT));
         addInput(createInputCentered<ThemedPJ301MPort>(knobStartPos.plus(Vec(center, 6.25*knobSpacingY )), module, Alloy::NOISE_IN));
 
-        addOutput(createOutputCentered<ThemedPJ301MPort>(knobStartPos.plus(Vec(center+2*offset, 2.5*knobSpacingY)), module, Alloy::AUDIO_OUTPUT_L));
-        addOutput(createOutputCentered<ThemedPJ301MPort>(knobStartPos.plus(Vec(center+2*offset, 3.5*knobSpacingY)), module, Alloy::AUDIO_OUTPUT_R));
+        addParam(createParamCentered<RoundBlackKnob>(knobStartPos.plus(Vec(center+2*offset, 1.9*knobSpacingY)), module, Alloy::VOLUME_PARAM));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(knobStartPos.plus(Vec(center+2*offset, 3.0*knobSpacingY)), module, Alloy::AUDIO_OUTPUT_L));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(knobStartPos.plus(Vec(center+2*offset, 4.0*knobSpacingY)), module, Alloy::AUDIO_OUTPUT_R));
     }
 
     void step() override {
