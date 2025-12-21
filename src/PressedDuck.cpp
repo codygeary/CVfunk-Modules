@@ -536,7 +536,6 @@ struct PressedDuck : Module {
 		// OPTIMIZATION: First pass - quickly identify which channels need processing
 		bool channelNeedsProcessing[6] = {false};
 		int firstConnectedChannel = -1;
-		int lastConnectedChannel = -1;
 		
 		for (int i = 0; i < 6; i++) {
 			bool hasL = inputs[AUDIO_1L_INPUT + 2 * i].isConnected();
@@ -548,7 +547,6 @@ struct PressedDuck : Module {
 			if (hasL || hasR || hasVCA || hasPan || hasMute) {
 				channelNeedsProcessing[i] = true;
 				if (firstConnectedChannel == -1) firstConnectedChannel = i;
-				lastConnectedChannel = i;
 			}
 		}
 
@@ -662,9 +660,11 @@ struct PressedDuck : Module {
 			bool muteInput = false;
 			
 			// Only read mute CV if connected
-			if (muteCVToggle && inputs[MUTE_1_INPUT + i].isConnected()) {
-				muteInput = muteButtonInput[i].process(inputs[MUTE_1_INPUT + i].getVoltage());
-			}
+			if (muteCVToggle && activeMuteChannel[i]>-1) {
+				muteInput = muteButtonInput[i].process(
+				    inputs[ MUTE_1_INPUT + activeMuteChannel[i] ].getPolyVoltage( i-activeMuteChannel[i] )
+				);
+			} 
 			
 			bool shiftHeld = !isShifted[i].load();
 			
@@ -695,8 +695,10 @@ struct PressedDuck : Module {
 			}
 				
 			// Override with CV signal if in this mode
-			if (!muteCVToggle && inputs[MUTE_1_INPUT + i].isConnected()) {
-				muteState[i] = (inputs[MUTE_1_INPUT + i].getVoltage() > 0.f);
+			if (!muteCVToggle && activeMuteChannel[i]>-1) {
+				muteState[i] = (
+				    inputs[MUTE_1_INPUT + activeMuteChannel[i]].getPolyVoltage(i-activeMuteChannel[i]) > 0.f
+				);
 			}
 
 			if (muteStatePrevious[i] != muteState[i]) {
