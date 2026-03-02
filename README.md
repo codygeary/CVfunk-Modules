@@ -10,7 +10,7 @@ With over 40 modules and ongoing development, CV funk emphasizes macro-driven mo
 
 ## Documentation
 
-> **[CV funk User Manual Website](https://codygeary.github.io/CV-Funk-Manual/)
+> **[CV funk User Manual Website](https://codygeary.github.io/CV-Funk-Manual/)**
 > 
 > **[CV funk User Manual (PDF)](/img/CV_funk_Manual.pdf)**
 
