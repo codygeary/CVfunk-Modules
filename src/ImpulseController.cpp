@@ -247,7 +247,7 @@ struct ImpulseController : Module {
                 // Check if the node is active
                 if (activeNodes[node]) {
                     // Increment the elapsed time for each active node
-                    groupElapsedTime[node] += accumulatedTime;  // This ensures the elapsed time is updated every cycle
+                    groupElapsedTime[node] += baseSampleTime;  // This ensures the elapsed time is updated every cycle
 
                     // Check if the output voltage is below the propagation threshold
                     if (outputs[_01_OUTPUT + node].getVoltage() < propagate_thresh && groupElapsedTime[node]>0.8*lag[node]) {
@@ -273,7 +273,7 @@ struct ImpulseController : Module {
             // Map OUT light brightness to OUTPUT voltages
             for (int i = 0; i < MAX_NODES; ++i) {
                 // Directly map the light brightness to output voltage
-                float brightness = lightGroupVals[i]; // Get the brightness of the corresponding light
+                float brightness = lightGroupVals[lightGroups[i][0]]; // Get the brightness of the corresponding light
                 float current_out = outputs[_01_OUTPUT + i].getVoltage(); // Get the voltage of the current output
                 float difference = (brightness * 10.0f) - current_out;
                 float voltageChange = difference;
@@ -310,6 +310,7 @@ struct ImpulseController : Module {
         for (int i=0; i<MAX_NODES; i++){
             float currentOutput = outputs[_01_OUTPUT+i].getVoltage();
             currentOutput += nextChunk[i]* 1/ChunkLength;
+            currentOutput = (currentOutput < 0.0001f) ? 0.0f : currentOutput;   //round to 0.0 if below threshold.         
             outputs[_01_OUTPUT + i].setVoltage( currentOutput );     
         }
                 
