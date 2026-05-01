@@ -101,6 +101,13 @@ struct Syncro : Module {
     int fillGlobal = 0;
     int masterClockCycle = 0;
 
+    // sample-based master clocking (mirrors Hammer precision)
+    uint64_t masterSampleCounter  = 0;
+    uint64_t processSampleCounter = 0;
+    uint64_t masterClockLength    =
+        (uint64_t)std::round(APP->engine->getSampleRate() * 0.5); // default 120 BPM
+    double   masterClockError     = 0.0;
+
     bool fill[9] = {false}; // Array to track the fill state for each channel
     bool resyncFlag[9] = {false};
     bool firstClockPulse = true;
@@ -226,6 +233,9 @@ struct Syncro : Module {
     }
 
     void process(const ProcessArgs &args) override {
+        masterSampleCounter++;
+        processSampleCounter++;
+
         swing = params[SWING_KNOB].getValue() + (inputs[SWING_INPUT].isConnected() ? 10.f * inputs[SWING_INPUT].getVoltage() * params[SWING_ATT].getValue() : 0.0f);
         swing = clamp(swing, -99.f, 99.f);
         float width = params[WIDTH_KNOB].getValue() + (inputs[WIDTH_INPUT].isConnected() ? 0.1f * inputs[WIDTH_INPUT].getVoltage() * params[WIDTH_ATT].getValue() : 0.0f);
@@ -239,16 +249,25 @@ struct Syncro : Module {
 
             if (SyncTrigger.process(SyncInputVoltage)) {
                 if (!firstClockPulse) {
-                     SyncInterval = SyncTimer.time; // Get the accumulated time since the last reset
+                     SyncInterval = SyncTimer.time; // kept for bpm display fallback
+                     if (masterSampleCounter > 0) {
+                         bpm = static_cast<float>((args.sampleRate * 60.0)
+                               / static_cast<double>(masterSampleCounter));
+                         masterClockLength = masterSampleCounter;
+                     }
                 }
+                masterSampleCounter = 0;
                 SyncTimer.reset(); // Reset the timer for the next trigger interval measurement
                 phases[0] = 0.0f;
                 ClockTimer[0].reset();
+                processSampleCounter = 0; // align sample counter to ext sync edge
                 resetPulse = true;
 
                 firstClockPulse = false;
             }
-            bpm = (SyncInterval > 0) ? (60.f / SyncInterval) : 120.f; // Use default 120 BPM if SyncInterval is zero
+            // bpm updated above from sample count; fallback on very first pulse
+            if (firstClockPulse)
+                bpm = (SyncInterval > 0) ? (60.f / SyncInterval) : 120.f;
 
         } else {
             // Calculate phase increment
@@ -258,6 +277,15 @@ struct Syncro : Module {
                 bpm = 120.f * powf(2.f, input_v_oct);
             } else {
                 bpm = params[CLOCK_KNOB].getValue() + (inputs[CLOCK_INPUT].isConnected() ? 10.f * inputs[CLOCK_INPUT].getVoltage() * params[CLOCK_ATT].getValue() : 0.0f);
+
+                // compute sample-accurate master clock length with fractional error accumulation
+                double exactSamples = (args.sampleRate * 60.0) / static_cast<double>(bpm);
+                double intPart;
+                double fracPart = modf(exactSamples, &intPart);
+                masterClockError += fracPart;
+                if (masterClockError >= 1.0) { intPart += 1.0; masterClockError -= 1.0; }
+                else if (masterClockError <= -1.0) { intPart -= 1.0; masterClockError += 1.0; }
+                masterClockLength = static_cast<uint64_t>(intPart);
             }
         }
 
@@ -360,49 +388,52 @@ struct Syncro : Module {
 				}
 			}
 
-			if (ClockTimer[i].time >= (60.0f / (bpm * ratio[i]))) {
-			
+			// Child clocks: timer-based (swing-modulated deltaTime applies correctly here)
+			if ((ClockTimer[i].time >= (60.0f / (bpm * ratio[i]))) && i > 0)
 				ClockTimer[i].reset();
-				
-				if (i < 1) {  // Master clock reset point
-					masterClockCycle++;
-					// Rotate phases
-					for (int k = 1; k < 9; k++) {
-						int newIndex = (k + clockRotate) % 8;
-						if (newIndex < 0) {
-							newIndex += 8; // Adjust for negative values to wrap around correctly
-						}
-						tempPhases[newIndex + 1] = phases[k];
+
+			// Master clock: sample-counter-based for sub-sample precision
+			if (i == 0 && (processSampleCounter >= masterClockLength)) {
+				processSampleCounter = 0;
+				ClockTimer[0].reset();
+
+				masterClockCycle++;
+				// Rotate phases
+				for (int k = 1; k < 9; k++) {
+					int newIndex = (k + clockRotate) % 8;
+					if (newIndex < 0) {
+						newIndex += 8; // Adjust for negative values to wrap around correctly
 					}
-					for (int k = 1; k < 9; k++) {
-						phases[k] = tempPhases[k];
+					tempPhases[newIndex + 1] = phases[k];
+				}
+				for (int k = 1; k < 9; k++) {
+					phases[k] = tempPhases[k];
+				}
+
+				for (int j = 1; j < 9; j++) {
+					if (masterClockCycle % lcmWithMaster[j] == 0) {
+					   ClockTimer[j].reset();
 					}
 
-					for (int j = 1; j < 9; j++) {
-						if (masterClockCycle % lcmWithMaster[j] == 0) {
-						   ClockTimer[j].reset();
-						}
+					if (resyncFlag[j]) {
+					   ClockTimer[j].reset();
+					   resyncFlag[j] = false;
+					}
 
-						if (resyncFlag[j]) {
-						   ClockTimer[j].reset();
-						   resyncFlag[j] = false;
-						}
+					int index = (clockRotate + j - 1) % 8;
+					if (index < 0) {
+					   index += 8; // Adjust for negative values to wrap around correctly
+					}
 
-						int index = (clockRotate + j - 1) % 8;
-						if (index < 0) {
-						   index += 8; // Adjust for negative values to wrap around correctly
-						}
+					multiply[j] = std::roundf(params[MULTIPLY_KNOB_1 + index].getValue()) + (fill[j-1] ? fillGlobal : 0);
+					divide[j] = std::roundf(params[DIVIDE_KNOB_1 + index].getValue());
+					if (divide[j] <= 0) {
+						divide[j] = 1.0f; // Now safe to use divide[j] for divisions
+					}
+					ratio[j] = multiply[j] / divide[j]; 
 
-						multiply[j] = std::roundf(params[MULTIPLY_KNOB_1 + index].getValue()) + (fill[j-1] ? fillGlobal : 0);
-						divide[j] = std::roundf(params[DIVIDE_KNOB_1 + index].getValue());
-						if (divide[j] <= 0) {
-							divide[j] = 1.0f; // Now safe to use divide[j] for divisions
-						}
-						ratio[j] = multiply[j] / divide[j]; 
-
-						if (fill[j] || ratio[j] != multiply[j] / divide[j]) {
-							resyncFlag[j] = true;
-						}
+					if (fill[j] || ratio[j] != multiply[j] / divide[j]) {
+						resyncFlag[j] = true;
 					}
 				}
 			}

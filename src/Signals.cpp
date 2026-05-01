@@ -269,8 +269,57 @@ struct WaveformDisplay : TransparentWidget {
 
     WaveformDisplay(NVGcolor color) : waveformColor(color) {}
 
+    // Draws a static preview waveform when no module is loaded (library / browser).
+    // Each channel gets a distinct waveform shape so the display looks lively.
+    void drawDummyWaveform(const DrawArgs& args) {
+        const int N = 128;
+        const float w = box.size.x;
+        const float h = box.size.y;
+        const float cy = h * 0.5f;
+        const float amp = h * 0.38f;
+
+        nvgBeginPath(args.vg);
+        for (int i = 0; i <= N; i++) {
+            float t = (float)i / N;
+            float v = 0.f;
+
+            switch (channelId) {
+                case 0: // sine, 2 cycles
+                    v = std::sin(t * 2.f * float(M_PI) * 2.f);
+                    break;
+                case 1: // sawtooth, 2 cycles
+                    v = 2.f * std::fmod(t * 2.f, 1.f) - 1.f;
+                    break;
+                case 2: // square, 2 cycles
+                    v = std::sin(t * 2.f * float(M_PI) * 2.f) >= 0.f ? 1.f : -1.f;
+                    break;
+                case 3: // triangle, 2 cycles
+                    v = 1.f - 4.f * std::abs(std::fmod(t * 2.f + 0.25f, 1.f) - 0.5f);
+                    break;
+                case 4: // damped sine (envelope-like)
+                    v = std::sin(t * 2.f * float(M_PI) * 3.f) * std::exp(-t * 3.5f);
+                    break;
+                case 5: // slow sine, offset phase
+                    v = std::sin(t * 2.f * float(M_PI) * 1.5f + 1.f);
+                    break;
+                default:
+                    v = 0.f;
+            }
+
+            float x = t * w;
+            float y = cy - v * amp;
+            i == 0 ? nvgMoveTo(args.vg, x, y) : nvgLineTo(args.vg, x, y);
+        }
+        nvgStrokeWidth(args.vg, 1.5f);
+        nvgStrokeColor(args.vg, waveformColor);
+        nvgStroke(args.vg);
+    }
+
     void drawWaveform(const DrawArgs& args) {
-        if (!module) return;
+        if (!module) {
+            drawDummyWaveform(args);
+            return;
+        }
 
         // Always show last valid waveform if available
         const auto& buffer = module->displayBuffers[channelId];
@@ -322,7 +371,9 @@ struct WaveformDisplay : TransparentWidget {
     }
 
     void draw(const DrawArgs& args) override {
-        // Only drawing in the self-illuminating layer
+        // Draw dummy waveform in the base layer when there is no module
+        // (library / browser preview). Live waveforms render in drawLayer(1).
+        if (!module) drawDummyWaveform(args);
     }
 };
 

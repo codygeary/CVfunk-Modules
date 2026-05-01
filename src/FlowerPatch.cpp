@@ -153,6 +153,22 @@ struct FlowerPatch : Module {
         configParam(FFT_ATT_PARAM, -1.0, 1.0, 0.0, "FFT Att.");
         configInput(FFT_INPUT, "FFT CV");
 
+        // ── Seed waveBuffer with a C4 sine so the display shows in the library
+        // before any audio cable is connected.
+        {
+            const float c4Freq = 261.63f;
+            const float sr     = 44100.f;
+            const float twoPi  = 2.0f * float(M_PI);
+            for (size_t i = 0; i < BUFFER_SIZE; i++)
+                waveBuffer[i] = 0.5f * std::sin(twoPi * c4Freq * (float)i / sr);
+            maxVal     = 0.5f;
+            sampleRate = sr;
+            // Mark C4 bin (octave index 2, note 0 = 261.63 Hz) as dominant
+            // so FFT intensity highlights the C column on first display.
+            intensityValues[24] = 1.0f;
+            FFTknob = 0.2f; // matches FFT_PARAM default (1.0) * 0.2 scale
+        }
+
 #ifdef METAMODULE
         configOutput(FREQUENCY_OUTPUT, "Main Frequency");
         configOutput(AMPLITUDE_OUTPUT, "Amplitude");
@@ -383,11 +399,85 @@ struct FlowerDisplay : TransparentWidget {
     FlowerPatch* module;
 
     void draw(const DrawArgs& args) override {
-        // Handle any non-illuminating drawing here if necessary
+        if (!module) drawDummy(args);
+    }
+
+    // Self-contained flower preview — mirrors the live FLOWER_MODE draw loop
+    // exactly, but uses locally-computed C4 sine data instead of module state.
+    void drawDummy(const DrawArgs& args) {
+        const float twoPi      = 2.0f * float(M_PI);
+        const float padding    = 20.0f;
+        const float totalWidth = box.size.x - 2.0f * padding;
+        const float totalHeight= box.size.y - 2.0f * padding;
+        const float spaceX     = totalWidth  / 12.0f;
+        const float spaceY     = totalHeight / 6.0f;
+        const float sr         = 44100.f;
+        const float c4Freq     = 261.63f;
+        const float maxVal     = 0.5f;
+        const float FFTknob    = 0.2f;
+
+        // Precompute one period of C4 sine (enough for the largest cell)
+        const int WAVE_SIZE = 4096;
+        static float wave[WAVE_SIZE] = {};
+        static bool  waveReady = false;
+        if (!waveReady) {
+            for (int i = 0; i < WAVE_SIZE; i++)
+                wave[i] = 0.5f * std::sin(twoPi * c4Freq * (float)i / sr);
+            waveReady = true;
+        }
+
+        // intensityValues: only C4 bin (index 24) is lit
+        float intensity[72] = {};
+        intensity[24] = 1.0f;
+
+        for (int scale = 0; scale < 6; scale++) {
+            for (int note = 0; note < 12; note++) {
+                float centerX  = padding + spaceX * note + spaceX / 2.0f;
+                float centerY  = padding + spaceY * scale + spaceY / 2.0f;
+                float maxRadius= std::min(spaceX, spaceY) * 0.6f;
+                float freq     = Scales[scale][note];
+                int   lastSample = static_cast<int>(2.f * (sr / freq));
+                lastSample = std::min(lastSample, WAVE_SIZE);
+                int   flowerIdx  = scale * 12 + note;
+
+                nvgBeginPath(args.vg);
+                for (int i = 0; i < lastSample; i++) {
+                    int   bi     = i % lastSample;
+                    float sample = wave[bi % WAVE_SIZE];
+                    float angle  = twoPi * ((float)i / (sr / freq));
+                    float radius = maxRadius * (0.5f + 0.5f * sample * (0.5f / maxVal));
+
+                    // FFT intensity — same formula as live code
+                    float fftI = (1.f - FFTknob) + FFTknob * clamp(intensity[flowerIdx], 0.f, 1.f);
+                    radius = std::min(radius * fftI, maxRadius);
+
+                    float px = centerX + radius * std::cos(angle);
+                    float py = centerY + radius * std::sin(angle);
+                    i == 0 ? nvgMoveTo(args.vg, px, py) : nvgLineTo(args.vg, px, py);
+                }
+
+                // Replicate colorFromMagnitude at default param values:
+                // HUE_PARAM=0 → hue1=0.5 (cyan), FILL_PARAM=0 → fillKnob=0
+                // → white-to-cyan gradient, matching the live default look
+                float mag_c    = clamp(intensity[flowerIdx], 0.f, 1.f);
+                float hue1     = 0.5f;   // cyan
+                float blend    = mag_c;  // lowPoint=1 when fillKnob=0
+                NVGcolor color = nvgHSLA(hue1, blend, 1.0f - 0.5f * blend, 220);
+                float strokeW = 0.10f * (scale + 3.0f);
+                nvgStrokeColor(args.vg, color);
+                nvgStrokeWidth(args.vg, strokeW);
+                nvgStroke(args.vg);
+            }
+        }
     }
 
     void drawLayer(const DrawArgs& args, int layer) override {
-        if (!module || !module->audioConnected) return;
+        if (layer == 1 && !module) {
+            drawDummy(args);
+            Widget::drawLayer(args, layer);
+            return;
+        }
+        if (!module || (!module->audioConnected && module->maxVal == 0.f)) return;
 
         if (layer == 1) {  // Only draw on the self-illuminating layer
             const float padding = 20.0f;

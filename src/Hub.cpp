@@ -69,12 +69,14 @@ struct Hub : Module {
     float scaledValue_I = 0.f;
     float displayValue_I = 0.0f;
     int numChannelsI = 1;
+    float lightValues_I[16] = {};   // computed output voltages, always written
 
     // Channel II state
     float inputValue_II = 0.f;
     float scaledValue_II = 0.f;
     float displayValue_II = 0.0f;
     int numChannelsII = 1;
+    float lightValues_II[16] = {};  // computed output voltages, always written
 
     Hub() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
@@ -113,6 +115,7 @@ struct Hub : Module {
             int numChannelsI = std::max(inputs[VCA_CV_INPUT_I].getChannels(), inputs[MAIN_INPUT_I].getChannels());
             if (numChannelsI == 0) numChannelsI = 1;
             outputs[MAIN_OUTPUT_I].setChannels(numChannelsI);
+            this->numChannelsI = numChannelsI;
 
             bool isRangeCV_Mono = inputs[VCA_CV_INPUT_I].isConnected() && (inputs[VCA_CV_INPUT_I].getChannels() == 1);
             float rangeCV_MonoValue = isRangeCV_Mono ? inputs[VCA_CV_INPUT_I].getVoltage(0) : 0.0f;
@@ -156,6 +159,7 @@ struct Hub : Module {
                     chanValue = params[MASTER_KNOB_I].getValue()*VCA_AMP;
                 }
                 outputs[MAIN_OUTPUT_I].setVoltage(chanValue , c);
+                lightValues_I[c] = chanValue;
             }
         }
 
@@ -164,7 +168,6 @@ struct Hub : Module {
             numChannelsII = std::max(inputs[VCA_CV_INPUT_II].getChannels(), inputs[MAIN_INPUT_II].getChannels());
             if (numChannelsII== 0) numChannelsII = 1;
             outputs[MAIN_OUTPUT_II].setChannels(numChannelsII);
-
             bool isRangeCV_Mono = inputs[VCA_CV_INPUT_II].isConnected() && (inputs[VCA_CV_INPUT_II].getChannels() == 1);
             float rangeCV_MonoValue = isRangeCV_Mono ? inputs[VCA_CV_INPUT_II].getVoltage(0) : 0.0f;
 
@@ -207,6 +210,7 @@ struct Hub : Module {
                     chanValue = params[MASTER_KNOB_II].getValue()*VCA_AMP;
                 }
                 outputs[MAIN_OUTPUT_II].setVoltage(chanValue , c);
+                lightValues_II[c] = chanValue;
             }
         }
     }
@@ -330,17 +334,17 @@ struct HubWidget : ModuleWidget {
             module->lights[Hub::HUB_IIB_1+i].setBrightness(0.f);                    
         }       
                
-        for (int i=0; i<module->outputs[Hub::MAIN_OUTPUT_I].getChannels(); i++){
-            float val1 = module->outputs[Hub::MAIN_OUTPUT_I].getVoltage(i)*0.1f;
+        for (int i=0; i<module->numChannelsI; i++){
+            float val1 = module->lightValues_I[i]*0.1f;
             if (val1>0){
-                module->lights[Hub::HUB_I_1+i].setBrightness(val1); //for positive vals
+                module->lights[Hub::HUB_I_1+i].setBrightness(val1);
             } else {
-                module->lights[Hub::HUB_IB_1+i].setBrightness(-val1); //for negative vals
+                module->lights[Hub::HUB_IB_1+i].setBrightness(-val1);
             }
         }
 
-        for (int i=0; i<module->outputs[Hub::MAIN_OUTPUT_II].getChannels(); i++){
-            float val2 = module->outputs[Hub::MAIN_OUTPUT_II].getVoltage(i)*0.1f;
+        for (int i=0; i<module->numChannelsII; i++){
+            float val2 = module->lightValues_II[i]*0.1f;
             if (val2>0){
                 module->lights[Hub::HUB_II_1+i].setBrightness(val2);
             } else {

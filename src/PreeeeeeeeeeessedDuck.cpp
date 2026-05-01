@@ -584,12 +584,16 @@ struct PreeeeeeeeeeessedDuck : Module {
         }
 
         sampleRate = APP->engine->getSampleRate();
-        transitionSamples = transitionTime * 0.001f * sampleRate; // 10 ms * sample rate
+        transitionSamples = transitionTime * 0.001f * sampleRate;
+        hpfL.setCutoffFrequency(sampleRate, 30.0f);
+        hpfR.setCutoffFrequency(sampleRate, 30.0f);
      }
 
     void onSampleRateChange() override {
          sampleRate = APP->engine->getSampleRate();
-         transitionSamples = transitionTime * 0.001f * sampleRate; // 10 ms * sample rate
+         transitionSamples = transitionTime * 0.001f * sampleRate;
+         hpfL.setCutoffFrequency(sampleRate, 30.0f);
+         hpfR.setCutoffFrequency(sampleRate, 30.0f);
     }
 
     void onReset(const ResetEvent& e) override {
@@ -620,16 +624,12 @@ struct PreeeeeeeeeeessedDuck : Module {
 			cachedFeedbackAtt = params[FEEDBACK_ATT].getValue();
 			cachedMasterVol = params[MASTER_VOL].getValue();
 			cachedMasterVolAtt = params[MASTER_VOL_ATT].getValue();
+			transitionSamples = transitionTime * 0.001f * sampleRate;
 		}
 		uiUpdateCounter = (uiUpdateCounter + 1) % UI_UPDATE_DIVIDER;
 
         float mixL = 0.0f;
         float mixR = 0.0f;
-        transitionSamples = transitionTime * 0.001f * sampleRate; //transitionTime in ms
-
-        // Setup filters
-        hpfL.setCutoffFrequency(args.sampleRate, 30.0f); // Set cutoff frequency
-        hpfR.setCutoffFrequency(args.sampleRate, 30.0f);
 
         // Calculate scale factor based on the current sample rate
         float scaleFactor = sampleRate / 96000.0f; // Reference sample rate (96 kHz)
@@ -697,15 +697,11 @@ struct PreeeeeeeeeeessedDuck : Module {
 			for (int i = 0; i < 16; i++) {
 				if (channelNeedsProcessing[i]) {
 	
-					// Check if L input is connected and get its number of channels
-					if (inputs[AUDIO_1L_INPUT + 2 * i].isConnected()) {
-						lChannels[i] = inputs[AUDIO_1L_INPUT + 2 * i].getChannels();
-					}
-		
-					// Check if R input is connected and get its number of channels
-					if (inputs[AUDIO_1R_INPUT + 2 * i].isConnected()) {
-						rChannels[i] = inputs[AUDIO_1R_INPUT + 2 * i].getChannels();
-					}
+					// Check if L/R inputs are connected and get channel counts (reset to 0 if unplugged)
+					lChannels[i] = inputs[AUDIO_1L_INPUT + 2 * i].isConnected()
+						? inputs[AUDIO_1L_INPUT + 2 * i].getChannels() : 0;
+					rChannels[i] = inputs[AUDIO_1R_INPUT + 2 * i].isConnected()
+						? inputs[AUDIO_1R_INPUT + 2 * i].getChannels() : 0;
 		
 					// Determine the maximum number of channels between L and R
 					audioChannels[i] = std::max(lChannels[i], rChannels[i]);
@@ -716,22 +712,19 @@ struct PreeeeeeeeeeessedDuck : Module {
 					} 
 		
 					// Update the VCA CV channels
-					if (inputs[VCA_CV1_INPUT + i].isConnected()) {
-						vcaChannels[i] = inputs[VCA_CV1_INPUT + i].getChannels();
-						activeVcaChannel[i] = i;
-					}
+					vcaChannels[i] = inputs[VCA_CV1_INPUT + i].isConnected()
+						? inputs[VCA_CV1_INPUT + i].getChannels() : 0;
+					if (vcaChannels[i] > 0) activeVcaChannel[i] = i;
 		
 					// Update the PAN CV channels
-					if (inputs[PAN_CV1_INPUT + i].isConnected()) {
-						panChannels[i] = inputs[PAN_CV1_INPUT + i].getChannels();
-						activePanChannel[i] = i;
-					} 
+					panChannels[i] = inputs[PAN_CV1_INPUT + i].isConnected()
+						? inputs[PAN_CV1_INPUT + i].getChannels() : 0;
+					if (panChannels[i] > 0) activePanChannel[i] = i;
 		
 					// Update the MUTE channels
-					if (inputs[MUTE_1_INPUT + i].isConnected()) {
-						muteChannels[i] = inputs[MUTE_1_INPUT + i].getChannels();
-						activeMuteChannel[i] = i;
-					} 
+					muteChannels[i] = inputs[MUTE_1_INPUT + i].isConnected()
+						? inputs[MUTE_1_INPUT + i].getChannels() : 0;
+					if (muteChannels[i] > 0) activeMuteChannel[i] = i;
 				}
 				// Propagate polyphony forward (must be done after all channels scanned)
 				if (i > 0) {
@@ -844,8 +837,8 @@ struct PreeeeeeeeeeessedDuck : Module {
 				int baseChannels = audioChannels[base];
 				if (diff >= 0 && diff < baseChannels) {
 					inputActive = true;
-					baseHasL = (lChannels[base] > 0);
-					baseHasR = (rChannels[base] > 0);
+					baseHasL = inputs[AUDIO_1L_INPUT + 2 * base].isConnected();
+					baseHasR = inputs[AUDIO_1R_INPUT + 2 * base].isConnected();
 		
 					if (baseHasL && baseHasR) {
 						inputL[i] = inputs[AUDIO_1L_INPUT + 2 * base].getPolyVoltage(diff);
@@ -983,13 +976,15 @@ struct PreeeeeeeeeeessedDuck : Module {
         }
 
         // MIX the channels scaled by compression
-        for (int i=0; i<16; i++){
-            if (compressionAmountL > 0.0f && inputCount>0.0f){ //avoid div by zero
-                    mixL += inputL[i]*pressTotalL;
-            } else { mixL = 0.0f;}
-            if (compressionAmountR > 0.0f && inputCount>0.0f){ //avoid div by zero
-                    mixR += inputR[i]*pressTotalR;
-            } else { mixR = 0.0f;}
+        if (compressionAmountL > 0.0f && inputCount > 0.0f) {
+            for (int i = 0; i < 16; i++) {
+                mixL += inputL[i] * pressTotalL;
+            }
+        }
+        if (compressionAmountR > 0.0f && inputCount > 0.0f) {
+            for (int i = 0; i < 16; i++) {
+                mixR += inputR[i] * pressTotalR;
+            }
         }
 
         //////////////
@@ -1053,10 +1048,6 @@ struct PreeeeeeeeeeessedDuck : Module {
             sidePeakR = fmax(sidePeakR * decayRate, fabs(sideR));
             filteredSideEnvelopeL = alpha * sidePeakL + (1 - alpha) * filteredSideEnvelopeL;
             filteredSideEnvelopeR = alpha * sidePeakR + (1 - alpha) * filteredSideEnvelopeR;
-
-            // Apply the envelope to the side signals
-            sideL *= filteredSideEnvelopeL;
-            sideR *= filteredSideEnvelopeR;
 
             // Calculate ducking based on the side envelope
             float duckAmount = cachedDuck;

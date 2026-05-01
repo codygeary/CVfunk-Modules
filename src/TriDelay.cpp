@@ -173,7 +173,7 @@ struct TriDelay : Module {
         buffer[0].resize(bufferSize, 0.f);
         buffer[1].resize(bufferSize, 0.f);
 
-        configSwitch(DELAY_SELECT, 0.0, 2.0, 1.0, "Buffer Length (ms)", {"36", "360", "3600"});
+        configSwitch(DELAY_SELECT, 0.0, 2.0, 2.0, "Buffer Length (ms)", {"36", "360", "3600"});
 
         // Global Delay
         configParam(GLOBAL_DELAY, 0.f, 1.f, 0.138888f, "Global Delay Time", " msec");
@@ -182,7 +182,6 @@ struct TriDelay : Module {
         // Global WetDry
         configParam(GLOBAL_WETDRY, 0.f, 100.0f, 50.f, "Dry/Wet", "% Wet");
         configParam(GLOBAL_WETDRY_ATT, -10.f, 10.f, 0.f, "Dry/Wet Att.");
-
     
         // Per-tap Delay Offsets
         configParam(TAP_1_DELAY, -1.f, 1.f, 0.f, "Tap 1 Delay Offset", " msec");

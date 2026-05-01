@@ -20,38 +20,44 @@
 class OverSamplingShaper {
 public:
     OverSamplingShaper() {
-        // Configure 6-pole filters for oversampling / decimation
-        interpolatingFilter.setCutoffFreq(1.f / (OVERSAMPLING_FACTOR * 4));
-        decimatingFilter.setCutoffFreq(1.f / (OVERSAMPLING_FACTOR * 4));
+        // Post-decimation low-pass: cut at original Nyquist relative to the
+        // oversampled rate, i.e. 0.5 / OVERSAMPLING_FACTOR.
+        postFilter.setCutoffFreq(0.5f / OVERSAMPLING_FACTOR);
     }
 
     float process(float input, float clipValue, bool symmetric, bool oversamplingEnabled) {
         if (!oversamplingEnabled) {
-            lastClipValue = clipValue;
+            prevInput   = input;
+            prevClip    = clipValue;
+            initialized = true;
             return processShape(input, clipValue, symmetric);
         }
 
-        // Linear interpolation of clip CV over the oversampled block
-        float clipStep = (clipValue - lastClipValue) / OVERSAMPLING_FACTOR;
-        float currentClip = lastClipValue;
-
-        // Upsample into a temporary buffer
-        float buffer[OVERSAMPLING_FACTOR];
-        for (int i = 0; i < OVERSAMPLING_FACTOR; ++i) {
-            float oversampledInput = (i == 0) ? input * OVERSAMPLING_FACTOR : 0.f;
-            oversampledInput = interpolatingFilter.process(oversampledInput);
-
-            currentClip += clipStep;
-            buffer[i] = processShape(oversampledInput, currentClip, symmetric);
+        // Seed history on first call to avoid a ramp-from-zero artifact.
+        if (!initialized) {
+            prevInput   = input;
+            prevClip    = clipValue;
+            initialized = true;
         }
 
-        // Decimate the buffer back to single output sample
-        float out = 0.f;
-        for (int i = 0; i < OVERSAMPLING_FACTOR; ++i) {
-            out = decimatingFilter.process(buffer[i]);
+        // Evaluate the nonlinear shaper at OVERSAMPLING_FACTOR evenly-spaced
+        // sub-steps between the previous and current sample.
+        // Both the audio input *and* the clip CV are linearly interpolated so
+        // that fast-moving CV is also properly anti-aliased.
+        float acc = 0.f;
+        for (int s = 0; s < OVERSAMPLING_FACTOR; ++s) {
+            float frac     = (float)(s + 1) / (float)OVERSAMPLING_FACTOR;
+            float subInput = prevInput + frac * (input     - prevInput);
+            float subClip  = prevClip  + frac * (clipValue - prevClip);
+            acc += processShape(subInput, subClip, symmetric);
         }
+        float shapeVal = acc / (float)OVERSAMPLING_FACTOR;
 
-        lastClipValue = clipValue;
+        // Post-filter removes aliasing products folded in by the nonlinearity.
+        float out = postFilter.process(shapeVal);
+
+        prevInput = input;
+        prevClip  = clipValue;
         return out;
     }
 
@@ -84,9 +90,10 @@ private:
         return 1.f + x*(1.f + x*(0.499705f + x*(0.1687389f + x*(0.0366899f + x*0.0061537f))));
     }
 
-    Filter6PButter interpolatingFilter;
-    Filter6PButter decimatingFilter;
-    float lastClipValue = 0.f; // Clip CV memory for interpolation
+    Filter6PButter postFilter;   // single post-decimation anti-aliasing filter
+    float prevInput   = 0.f;
+    float prevClip    = 0.f;
+    bool  initialized = false;
 };
 
 struct Clpy : Module {
@@ -114,27 +121,49 @@ struct Clpy : Module {
     bool symmetric = false;
     static constexpr float fourDivPiSqrd = 4.0f / (3.14159265f * 3.14159265f);
 
-    // Initialize Butterworth filter for oversampling
-    OverSamplingShaper shaperL[16];  // Instance of the oversampling and shaping processor
-    OverSamplingShaper shaperR[16];  // Instance of the oversampling and shaping processor
-    Filter6PButter butterworthFilter;  // Butterworth filter instance
-    bool isSupersamplingEnabled = false;  // Enable supersampling is off by default
+    OverSamplingShaper shaperL[16];
+    OverSamplingShaper shaperR[16];
+
+    // Per-channel output bandlimit filters (6-pole Butterworth), one per poly voice per side
+    Filter6PButter butterworthFilterL[16];
+    Filter6PButter butterworthFilterR[16];
+    float filterCutoff = 0.4f;          // normalised cutoff [0.01, 0.49]
+    bool  isBandlimitEnabled = false;
+
+    bool isSupersamplingEnabled = false;
+
+    void initFilters() {
+        for (int i = 0; i < 16; i++) {
+            butterworthFilterL[i].setCutoffFreq(filterCutoff);
+            butterworthFilterR[i].setCutoffFreq(filterCutoff);
+        }
+    }
 
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
-        json_object_set_new(rootJ, "symmetric", json_boolean(symmetric));
+        json_object_set_new(rootJ, "symmetric",              json_boolean(symmetric));
         json_object_set_new(rootJ, "isSupersamplingEnabled", json_boolean(isSupersamplingEnabled));
+        json_object_set_new(rootJ, "isBandlimitEnabled",     json_boolean(isBandlimitEnabled));
+        json_object_set_new(rootJ, "filterCutoff",           json_real(filterCutoff));
         return rootJ;
     }
     
     void dataFromJson(json_t* rootJ) override {
-        json_t* divJ = json_object_get(rootJ, "symmetric");
-        if (divJ)
-            symmetric = json_boolean_value(divJ);
+        json_t* j;
+        j = json_object_get(rootJ, "symmetric");
+        if (j) symmetric = json_boolean_value(j);
 
-        json_t* isSupersamplingEnabledJ = json_object_get(rootJ, "isSupersamplingEnabled");
-        if (isSupersamplingEnabledJ)
-            isSupersamplingEnabled = json_boolean_value(isSupersamplingEnabledJ);
+        j = json_object_get(rootJ, "isSupersamplingEnabled");
+        if (j) isSupersamplingEnabled = json_boolean_value(j);
+
+        j = json_object_get(rootJ, "isBandlimitEnabled");
+        if (j) isBandlimitEnabled = json_boolean_value(j);
+
+        j = json_object_get(rootJ, "filterCutoff");
+        if (j) {
+            filterCutoff = clamp((float)json_real_value(j), 0.01f, 0.49f);
+            initFilters();
+        }
     }
     
     Clpy() {
@@ -150,20 +179,20 @@ struct Clpy : Module {
         configInput(INR_INPUT, "In R");
         configOutput(OUTL_OUTPUT, "Out L");
         configOutput(OUTR_OUTPUT, "Out R");
+        initFilters();
     }
 
     void process(const ProcessArgs& args) override {
         int inChannels = std::max(inputs[INL_INPUT].getChannels(), inputs[INR_INPUT].getChannels());
         if (inChannels == 0) inChannels = 1;
     
-        int gainChannels = inputs[GAIN_INPUT].getChannels();
+        int gainChannels  = inputs[GAIN_INPUT].getChannels();
         int clipLChannels = inputs[CLIP_L_INPUT].getChannels();
         int clipRChannels = inputs[CLIP_R_INPUT].getChannels();
     
         outputs[OUTL_OUTPUT].setChannels(inChannels);
         outputs[OUTR_OUTPUT].setChannels(inChannels);
     
-        // Read attenuverters
         float gainAtt = params[GAIN_ATT_PARAM].getValue();  
         float clipAtt = params[CLIP_ATT_PARAM].getValue();  
     
@@ -172,30 +201,27 @@ struct Clpy : Module {
             float inL = (inputs[INL_INPUT].getChannels() > c) ? inputs[INL_INPUT].getPolyVoltage(c) : 0.f;
             float inR = (inputs[INR_INPUT].getChannels() > c) ? inputs[INR_INPUT].getPolyVoltage(c) : inL;
     
-            // Gain CV
+            // Gain CV with poly-channel fallback to channel 0
             float gainCV = 0.f;
-            if (gainChannels > c) gainCV = inputs[GAIN_INPUT].getPolyVoltage(c);
+            if (gainChannels > c)       gainCV = inputs[GAIN_INPUT].getPolyVoltage(c);
             else if (gainChannels == 1) gainCV = inputs[GAIN_INPUT].getPolyVoltage(0);
-
-            // Apply attenuverter
             gainCV *= gainAtt;
     
             float gain = clamp(params[GAIN_PARAM].getValue() + gainCV, 0.f, 10.f);
     
-            inL *= gain*0.5f;
-            inR *= gain*0.5f;
+            inL *= gain * 0.5f;
+            inR *= gain * 0.5f;
     
             // Clip / asymptote L/R with auto-normalization
             float clipL = 0.0f;
             float clipR = 0.0f;
     
-            if (clipLChannels > c) clipL = 0.2f * inputs[CLIP_L_INPUT].getPolyVoltage(c);
+            if (clipLChannels > c)       clipL = 0.2f * inputs[CLIP_L_INPUT].getPolyVoltage(c);
             else if (clipLChannels == 1) clipL = 0.2f * inputs[CLIP_L_INPUT].getPolyVoltage(0);
     
-            if (clipRChannels > c) clipR = 0.2f * inputs[CLIP_R_INPUT].getPolyVoltage(c);
+            if (clipRChannels > c)       clipR = 0.2f * inputs[CLIP_R_INPUT].getPolyVoltage(c);
             else if (clipRChannels == 1) clipR = 0.2f * inputs[CLIP_R_INPUT].getPolyVoltage(0);
     
-            // Apply attenuverter
             clipL *= clipAtt;
             clipR *= clipAtt;
 
@@ -206,21 +232,26 @@ struct Clpy : Module {
             // Clamp final clip values
             clipL = clamp(clipL, -10.f, 10.f);
             clipR = clamp(clipR, -10.f, 10.f);
-            
+
             clipL *= 0.56f;
             clipR *= 0.56f;
     
-            // Auto-normalize
+            // Auto-normalize: if one clip input is absent, mirror the other
             if (clipLChannels == 0 && clipRChannels > 0) clipL = clipR;
             if (clipRChannels == 0 && clipLChannels > 0) clipR = clipL;
     
             // Apply waveshaper with optional supersampling
             float outL = shaperL[c].process(inL, clipL, symmetric, isSupersamplingEnabled);
             float outR = shaperR[c].process(inR, clipR, symmetric, isSupersamplingEnabled);
+
+            // Optional post-shaping bandlimit filter for smoother output
+            if (isBandlimitEnabled) {
+                outL = butterworthFilterL[c].process(outL);
+                outR = butterworthFilterR[c].process(outR);
+            }
     
-            // Output
-            outputs[OUTL_OUTPUT].setVoltage(clamp(outL*1.77f, -10.f, 10.f), c);
-            outputs[OUTR_OUTPUT].setVoltage(clamp(outR*1.77f, -10.f, 10.f), c);
+            outputs[OUTL_OUTPUT].setVoltage(clamp(outL * 1.77f, -10.f, 10.f), c);
+            outputs[OUTR_OUTPUT].setVoltage(clamp(outR * 1.77f, -10.f, 10.f), c);
         }
     }
 
@@ -249,7 +280,6 @@ struct ClpyWidget : ModuleWidget {
         addInput(createInputCentered<ThemedPJ301MPort>  (Vec( box.size.x/2.f-12, clipPos + 52 ), module, Clpy::CLIP_L_INPUT));
         addInput(createInputCentered<ThemedPJ301MPort>  (Vec( box.size.x/2.f+12, clipPos + 52 ), module, Clpy::CLIP_R_INPUT));
 
-
         addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(6.211, 12.002)), module, Clpy::INL_INPUT));
         addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(14.109, 12.002)), module, Clpy::INR_INPUT));
 
@@ -260,12 +290,12 @@ struct ClpyWidget : ModuleWidget {
     void appendContextMenu(Menu* menu) override {
         ModuleWidget::appendContextMenu(menu);
     
-        Clpy* clpyModule = dynamic_cast<Clpy*>(this->module);
-        if (!clpyModule)
-            return;
+        Clpy* m = dynamic_cast<Clpy*>(this->module);
+        if (!m) return;
     
         menu->addChild(new MenuSeparator());
     
+        // ---- Clipping mode ----
         struct SymmetricItem : MenuItem {
             Clpy* module;
             void onAction(const event::Action& e) override {
@@ -277,13 +307,13 @@ struct ClpyWidget : ModuleWidget {
                 MenuItem::step();
             }
         };
-    
         auto* divItem = new SymmetricItem();
-        divItem->module = clpyModule;
+        divItem->module = m;
         menu->addChild(divItem);
 
         menu->addChild(new MenuSeparator());
-    
+
+        // ---- Supersampling toggle ----
         struct SupersampleItem : MenuItem {
             Clpy* module;
             void onAction(const event::Action& e) override {
@@ -291,15 +321,56 @@ struct ClpyWidget : ModuleWidget {
             }
             void step() override {
                 text = "Supersampling";
-                rightText = module->isSupersamplingEnabled ? "✔" : "";
+                rightText = module->isSupersamplingEnabled ? CHECKMARK_STRING : "";
                 MenuItem::step();
             }
         };
-    
         auto* supersampleItem = new SupersampleItem();
-        supersampleItem->module = clpyModule;
+        supersampleItem->module = m;
         menu->addChild(supersampleItem);
 
+        menu->addChild(new MenuSeparator());
+
+        // ---- Bandlimit filter toggle ----
+        struct BandlimitItem : MenuItem {
+            Clpy* module;
+            void onAction(const event::Action& e) override {
+                module->isBandlimitEnabled = !module->isBandlimitEnabled;
+            }
+            void step() override {
+                text = "Bandlimit Filter";
+                rightText = module->isBandlimitEnabled ? CHECKMARK_STRING : "";
+                MenuItem::step();
+            }
+        };
+        auto* blItem = new BandlimitItem();
+        blItem->module = m;
+        menu->addChild(blItem);
+
+        // ---- Filter cutoff slider ----
+        struct FilterCutoffQuantity : Quantity {
+            Clpy* module;
+            FilterCutoffQuantity(Clpy* m) : module(m) {}
+            void setValue(float v) override {
+                float clamped = clamp(v, 0.01f, 0.49f);
+                module->filterCutoff = clamped;
+                module->initFilters();
+            }
+            float getValue() override        { return module->filterCutoff; }
+            float getDefaultValue() override { return 0.4f; }
+            float getMinValue() override     { return 0.01f; }
+            float getMaxValue() override     { return 0.49f; }
+            int   getDisplayPrecision() override { return 3; }
+            std::string getLabel() override  { return "Filter Cutoff"; }
+            std::string getDisplayValueString() override {
+                float khz = module->filterCutoff * 44.1f;
+                return string::f("%.1f kHz", khz);
+            }
+        };
+        auto* fcSlider = new ui::Slider();
+        fcSlider->quantity = new FilterCutoffQuantity(m);
+        fcSlider->box.size.x = 200.f;
+        menu->addChild(fcSlider);
     }
 };
 Model* modelClpy = createModel<Clpy, ClpyWidget>("Clpy");

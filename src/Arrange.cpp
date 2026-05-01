@@ -85,8 +85,8 @@ struct Arrange : Module {
     int prevPolyphonyChannels = 1;
 
     //For Copy/Paste function
-    float copiedKnobStates[7] = {0.f};  
-    bool copyBufferFilled = false;
+    float arrangeCopy[2048][7] = {{0.0f}};
+    int copiedStages = 0; // Variable to store the number of stages copied
     bool gateTriggerEnabled = false;
 
     json_t* dataToJson() override {
@@ -279,6 +279,18 @@ struct Arrange : Module {
         for (int i = 0; i < 7; i++) {
             params[CHAN_1_KNOB + i].setValue(0.f);  //set param knobs to zero
         }       
+    }
+
+    // Helper function to get the next larger sequence length
+    const int predefinedLengths[5] = {128, 256, 512, 1024, 2048};
+    int getNextSequenceLength(int currentMax, int additionalStages) {
+        int requiredStages = currentMax + additionalStages;
+        for (int i = 0; i < 5; ++i) {
+            if (predefinedLengths[i] >= requiredStages) {
+                return predefinedLengths[i];
+            }
+        }
+        return 2048;
     }
 
     void process(const ProcessArgs &args) override {    
@@ -927,74 +939,179 @@ struct ArrangeWidget : ModuleWidget {
 
         // Separator for visual grouping in the context menu
         menu->addChild(new MenuSeparator());
-     
-        // Copy Layer menu item
-        struct CopyLayerMenuItem : MenuItem {
-            Arrange* arrangeModule;
-            void onAction(const event::Action& e) override {
-                for (int i = 0; i < 7; i++) {
-                    arrangeModule->copiedKnobStates[i] = arrangeModule->outputs[Arrange::CHAN_1_OUTPUT + i].getVoltage();;
-                }
-                arrangeModule->copyBufferFilled = true;
-            }
-            void step() override {
-                rightText = arrangeModule->copyBufferFilled ? "✔" : "";
-                MenuItem::step();
-            }
-        };
-        
-        CopyLayerMenuItem* copyLayerItem = new CopyLayerMenuItem();
-        copyLayerItem->text = "Copy Layer";
-        copyLayerItem->arrangeModule = arrangeModule;
-        menu->addChild(copyLayerItem);
-        
-        // Paste Layer menu item
-        struct PasteLayerMenuItem : MenuItem {
-            Arrange* arrangeModule;
-            void onAction(const event::Action& e) override {
-                if (!arrangeModule->copyBufferFilled) return;
-                for (int i = 0; i < 7; i++) {
-                    arrangeModule->outputValues[arrangeModule->currentStage][i] = arrangeModule->copiedKnobStates[i];
-                    arrangeModule->paramQuantities[Arrange::CHAN_1_KNOB + i]->setDisplayValue(arrangeModule->copiedKnobStates[i]); 
-                }
-            }
-            void step() override {
-                rightText = arrangeModule->copyBufferFilled ? "Ready" : "Empty";
-                MenuItem::step();
-            }
-        };
-        
-        PasteLayerMenuItem* pasteLayerItem = new PasteLayerMenuItem();
-        pasteLayerItem->text = "Paste Layer";
-        pasteLayerItem->arrangeModule = arrangeModule;
-        menu->addChild(pasteLayerItem);
 
-        // Paste to All Layers menu item
-        struct PasteAllLayersMenuItem : MenuItem {
+        // Copy (current stage only)
+        struct CopyStageMenuItem : MenuItem {
             Arrange* arrangeModule;
             void onAction(const event::Action& e) override {
-                if (!arrangeModule->copyBufferFilled) return;
-
-                for (int chan = 0; chan < 7; chan++) {               
-                    for (int step = 0; step < 2048; step++) {
-                        arrangeModule->outputValues[step][chan] = arrangeModule->copiedKnobStates[chan];
-                    }
-                }
-                for (int i = 0; i < 7; i++) {
-                    arrangeModule->paramQuantities[Arrange::CHAN_1_KNOB + i]->setDisplayValue(arrangeModule->copiedKnobStates[i]); 
-                }
-                
+                for (int j = 0; j < 7; ++j)
+                    arrangeModule->arrangeCopy[0][j] = arrangeModule->outputValues[arrangeModule->currentStage][j];
+                arrangeModule->copiedStages = 1;
             }
             void step() override {
-                rightText = arrangeModule->copyBufferFilled ? "Ready" : "Empty";
+                rightText = (arrangeModule->copiedStages > 0) ? "✔" : "";
                 MenuItem::step();
             }
         };
-        
-        PasteAllLayersMenuItem* pasteAllLayersItem = new PasteAllLayersMenuItem();
-        pasteAllLayersItem->text = "Paste to All Layers";
-        pasteAllLayersItem->arrangeModule = arrangeModule;
-        menu->addChild(pasteAllLayersItem);
+        CopyStageMenuItem* copyStageItem = new CopyStageMenuItem();
+        copyStageItem->text = "Copy Stage";
+        copyStageItem->arrangeModule = arrangeModule;
+        menu->addChild(copyStageItem);
+
+        // Copy All (stages 0..currentStage)
+        struct CopyAllStagesMenuItem : MenuItem {
+            Arrange* arrangeModule;
+            void onAction(const event::Action& e) override {
+                int stagesToCopy = clamp(arrangeModule->currentStage + 1, 0, 2048);
+                for (int i = 0; i < stagesToCopy; ++i)
+                    for (int j = 0; j < 7; ++j)
+                        arrangeModule->arrangeCopy[i][j] = arrangeModule->outputValues[i][j];
+                arrangeModule->copiedStages = stagesToCopy;
+            }
+            void step() override {
+                rightText = (arrangeModule->copiedStages > 1) ? "✔" : "";
+                MenuItem::step();
+            }
+        };
+        CopyAllStagesMenuItem* copyAllItem = new CopyAllStagesMenuItem();
+        copyAllItem->text = "Copy All Stages (up to current)";
+        copyAllItem->arrangeModule = arrangeModule;
+        menu->addChild(copyAllItem);
+
+        // Paste (insert copied stages after current stage)
+        struct PasteStagesMenuItem : MenuItem {
+            Arrange* arrangeModule;
+            void onAction(const event::Action& e) override {
+                if (arrangeModule->copiedStages == 0) return;
+                int cs = arrangeModule->currentStage;
+                int newMax = cs + 1 + arrangeModule->copiedStages;
+                if (newMax > arrangeModule->maxSequenceLength)
+                    arrangeModule->maxSequenceLength = clamp(arrangeModule->getNextSequenceLength(arrangeModule->maxSequenceLength, arrangeModule->copiedStages), 128, 2048);
+                if (newMax > 2048) {
+                    arrangeModule->copiedStages = 2048 - (cs + 1);
+                    newMax = cs + 1 + arrangeModule->copiedStages;
+                }
+                for (int i = arrangeModule->copiedStages - 1; i >= 0; --i) {
+                    int tgt = cs + 1 + i;
+                    if (tgt < 2048)
+                        for (int j = 0; j < 7; ++j)
+                            arrangeModule->outputValues[tgt][j] = arrangeModule->arrangeCopy[i][j];
+                }
+                arrangeModule->maxNumStages = fmax((float)newMax, arrangeModule->maxNumStages);
+                arrangeModule->paramQuantities[Arrange::MAX_STAGES]->setDisplayValue(arrangeModule->maxNumStages);
+                arrangeModule->currentStage = cs + arrangeModule->copiedStages;
+                arrangeModule->paramQuantities[Arrange::STAGE_SELECT]->setDisplayValue(arrangeModule->currentStage + 1);
+                for (int i = 0; i < arrangeModule->copiedStages; ++i)
+                    for (int j = 0; j < 7; ++j)
+                        arrangeModule->arrangeCopy[i][j] = 0.0f;
+                arrangeModule->copiedStages = 0;
+            }
+            void step() override {
+                rightText = (arrangeModule->copiedStages > 0) ? "Ready" : "Empty";
+                MenuItem::step();
+            }
+        };
+        PasteStagesMenuItem* pasteItem = new PasteStagesMenuItem();
+        pasteItem->text = "Paste (insert after current)";
+        pasteItem->arrangeModule = arrangeModule;
+        menu->addChild(pasteItem);
+
+        // Clone: paste first copied stage into ALL stages
+        struct CloneToAllMenuItem : MenuItem {
+            Arrange* arrangeModule;
+            void onAction(const event::Action& e) override {
+                if (arrangeModule->copiedStages == 0) return;
+                for (int s = 0; s < arrangeModule->maxStages; ++s)
+                    for (int j = 0; j < 7; ++j)
+                        arrangeModule->outputValues[s][j] = arrangeModule->arrangeCopy[0][j];
+                for (int j = 0; j < 7; ++j)
+                    arrangeModule->paramQuantities[Arrange::CHAN_1_KNOB + j]->setDisplayValue(arrangeModule->arrangeCopy[0][j]);
+                for (int i = 0; i < arrangeModule->copiedStages; ++i)
+                    for (int j = 0; j < 7; ++j)
+                        arrangeModule->arrangeCopy[i][j] = 0.0f;
+                arrangeModule->copiedStages = 0;
+            }
+            void step() override {
+                rightText = (arrangeModule->copiedStages > 0) ? "Ready" : "Empty";
+                MenuItem::step();
+            }
+        };
+        CloneToAllMenuItem* cloneItem = new CloneToAllMenuItem();
+        cloneItem->text = "Clone Stage to All";
+        cloneItem->arrangeModule = arrangeModule;
+        menu->addChild(cloneItem);
+
+        menu->addChild(new MenuSeparator());
+
+        // Clear current stage
+        struct ClearStageMenuItem : MenuItem {
+            Arrange* arrangeModule;
+            void onAction(const event::Action& e) override {
+                for (int j = 0; j < 7; ++j) {
+                    arrangeModule->outputValues[arrangeModule->currentStage][j] = 0.0f;
+                    arrangeModule->paramQuantities[Arrange::CHAN_1_KNOB + j]->setDisplayValue(0.0f);
+                }
+            }
+        };
+        ClearStageMenuItem* clearItem = new ClearStageMenuItem();
+        clearItem->text = "Clear Stage";
+        clearItem->arrangeModule = arrangeModule;
+        menu->addChild(clearItem);
+
+        // Add stage (insert blank stage after current)
+        struct AddStageMenuItem : MenuItem {
+            Arrange* arrangeModule;
+            void onAction(const event::Action& e) override {
+                if (arrangeModule->maxStages >= 2048) return;
+                int ins = arrangeModule->currentStage + 1;
+                for (int i = arrangeModule->maxStages; i > ins; --i)
+                    for (int j = 0; j < 7; ++j)
+                        arrangeModule->outputValues[i][j] = arrangeModule->outputValues[i - 1][j];
+                for (int j = 0; j < 7; ++j)
+                    arrangeModule->outputValues[ins][j] = 0.0f;
+                int newMax = clamp(arrangeModule->maxStages + 1, 0, 2048);
+                if (newMax > arrangeModule->maxSequenceLength)
+                    arrangeModule->maxSequenceLength = clamp(arrangeModule->getNextSequenceLength(arrangeModule->maxSequenceLength, 1), 128, 2048);
+                arrangeModule->maxNumStages = (float)newMax;
+                arrangeModule->paramQuantities[Arrange::MAX_STAGES]->setDisplayValue(arrangeModule->maxNumStages);
+                arrangeModule->currentStage = ins;
+                arrangeModule->paramQuantities[Arrange::STAGE_SELECT]->setDisplayValue(ins + 1);
+                for (int j = 0; j < 7; ++j)
+                    arrangeModule->paramQuantities[Arrange::CHAN_1_KNOB + j]->setDisplayValue(0.0f);
+            }
+        };
+        AddStageMenuItem* addItem = new AddStageMenuItem();
+        addItem->text = "Add Stage (after current)";
+        addItem->arrangeModule = arrangeModule;
+        menu->addChild(addItem);
+
+        // Delete current stage
+        struct DeleteStageMenuItem : MenuItem {
+            Arrange* arrangeModule;
+            void onAction(const event::Action& e) override {
+                if (arrangeModule->maxStages <= 1) return;
+                int del = arrangeModule->currentStage;
+                for (int i = del; i < arrangeModule->maxStages - 1; ++i)
+                    for (int j = 0; j < 7; ++j)
+                        arrangeModule->outputValues[i][j] = arrangeModule->outputValues[i + 1][j];
+                for (int j = 0; j < 7; ++j)
+                    arrangeModule->outputValues[arrangeModule->maxStages - 1][j] = 0.0f;
+                int newMax = clamp(arrangeModule->maxStages - 1, 1, 2048);
+                arrangeModule->maxNumStages = (float)newMax;
+                arrangeModule->paramQuantities[Arrange::MAX_STAGES]->setDisplayValue(arrangeModule->maxNumStages);
+                if (arrangeModule->currentStage >= newMax) {
+                    arrangeModule->currentStage = newMax - 1;
+                    arrangeModule->paramQuantities[Arrange::STAGE_SELECT]->setDisplayValue(arrangeModule->currentStage + 1);
+                }
+                for (int j = 0; j < 7; ++j)
+                    arrangeModule->paramQuantities[Arrange::CHAN_1_KNOB + j]->setDisplayValue(
+                        arrangeModule->outputValues[arrangeModule->currentStage][j]);
+            }
+        };
+        DeleteStageMenuItem* deleteItem = new DeleteStageMenuItem();
+        deleteItem->text = "Delete Stage";
+        deleteItem->arrangeModule = arrangeModule;
+        menu->addChild(deleteItem);
 
     }
     

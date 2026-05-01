@@ -476,20 +476,63 @@ struct PolarXYDisplay : TransparentWidget {
     float radiusScale; 
     static constexpr float twoPi = 2.0f * M_PI; // Precomputed constant for 2π
 
+    // Draws a static polar sine preview when no module is loaded (library / browser).
+    // A pure sine maps to a perfect circle in polar space — clean and recognisable.
+    void drawDummySine(const DrawArgs& args) {
+        centerX    = box.size.x / 2.0f;
+        centerY    = box.size.y / 2.0f;
+        radiusScale = centerY * 0.8f;
+
+        const int N = 256;
+
+        // Orange trace (L) — full circle
+        nvgBeginPath(args.vg);
+        for (int i = 0; i <= N; i++) {
+            float theta = ((float)i / N) * twoPi;
+            // Sine mapped to 0..1 amplitude range, same as live path
+            float amplitude = (std::sin(theta) * 5.f + 5.f) / 10.0f;
+            float radius = amplitude * radiusScale;
+            Vec pos = polarToCartesian(theta, radius);
+            i == 0 ? nvgMoveTo(args.vg, pos.x, pos.y)
+                   : nvgLineTo(args.vg, pos.x, pos.y);
+        }
+        nvgStrokeColor(args.vg, nvgRGBAf(1.f, 0.4f, 0.f, 0.8f));
+        nvgStrokeWidth(args.vg, 1.0f);
+        nvgStroke(args.vg);
+
+        // Blue trace (R) — quarter-phase offset so the two traces are visible
+        nvgBeginPath(args.vg);
+        for (int i = 0; i <= N; i++) {
+            float theta = ((float)i / N) * twoPi;
+            float amplitude = (std::sin(theta + float(M_PI) * 0.5f) * 5.f + 5.f) / 10.0f;
+            float radius = amplitude * radiusScale;
+            Vec pos = polarToCartesian(theta, radius);
+            i == 0 ? nvgMoveTo(args.vg, pos.x, pos.y)
+                   : nvgLineTo(args.vg, pos.x, pos.y);
+        }
+        nvgStrokeColor(args.vg, nvgRGBAf(0.f, 0.4f, 1.f, 0.8f));
+        nvgStrokeWidth(args.vg, 1.0f);
+        nvgStroke(args.vg);
+    }
+
     void drawLayer(const DrawArgs& args, int layer) override {
-        if (!module) return;
-
         if (layer == 1) {
-            centerX = box.size.x / 2.0f;
-            centerY = box.size.y / 2.0f;
-            radiusScale = centerY * 0.8f; // Adjust as needed
+            centerX    = box.size.x / 2.0f;
+            centerY    = box.size.y / 2.0f;
+            radiusScale = centerY * 0.8f;
 
-            // Draw waveforms
+            if (!module) {
+                drawDummySine(args);
+            } else {
                 drawWaveform(args, module->waveBuffers[0], nvgRGBAf(1, 0.4, 0, 0.8));
                 drawWaveform(args, module->waveBuffers[1], nvgRGBAf(0, 0.4, 1, 0.8));
+            }
         }
-
         TransparentWidget::drawLayer(args, layer);
+    }
+
+    void draw(const DrawArgs& args) override {
+        if (!module) drawDummySine(args);
     }
 
     void drawWaveform(const DrawArgs& args, const CircularBuffer<float, 512>& waveBuffer, NVGcolor color) {

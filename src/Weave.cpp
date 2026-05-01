@@ -382,7 +382,7 @@ struct Weave : Module {
                     // Assign the quantized note to the assigned notes for this channel
                     for (int n = 0; n < channelNotes; n++) {
                         if (noteIndex < totalNotes) {
-                            currentNotes[noteIndex] = std::roundf(noteVoltage * 12.0f)/12.0f; // Store the quantized note value
+                            currentNotes[noteIndex] = static_cast<int>(std::roundf(noteVoltage * 12.0f)) / 12.0f; // Store the quantized note value
                             noteIndex++;
                         }
                     }
@@ -564,19 +564,18 @@ struct Weave : Module {
         extOffset += inputOctaveOffset;
 
         // --- Quantize shift to semitones if enabled ---
-        if (quantizeShift) {  extOffset = std::roundf(extOffset * 12.0f) / 12.0f; }
+        if (quantizeShift) {  extOffset = static_cast<int>(std::roundf(extOffset * 12.0f)) / 12.0f; }
 
         for (int c = 0; c < 6; c++) {
             float outputNote = clamp(finalNotes[c] + extOffset, -10.f, 10.f);
             outputs[POLY_OUTPUT].setVoltage(outputNote, currentPermute[c]);
+        }
 
-            // Also send the same notes to the individual mono outputs
-            if (outputs[OUTPUT_1].isConnected()) outputs[OUTPUT_1 + currentPermute[0]].setVoltage(finalNotes[0] + extOffset);
-            if (outputs[OUTPUT_2].isConnected()) outputs[OUTPUT_1 + currentPermute[1]].setVoltage(finalNotes[1] + extOffset);
-            if (outputs[OUTPUT_3].isConnected()) outputs[OUTPUT_1 + currentPermute[2]].setVoltage(finalNotes[2] + extOffset);
-            if (outputs[OUTPUT_4].isConnected()) outputs[OUTPUT_1 + currentPermute[3]].setVoltage(finalNotes[3] + extOffset);
-            if (outputs[OUTPUT_5].isConnected()) outputs[OUTPUT_1 + currentPermute[4]].setVoltage(finalNotes[4] + extOffset);
-            if (outputs[OUTPUT_6].isConnected()) outputs[OUTPUT_1 + currentPermute[5]].setVoltage(finalNotes[5] + extOffset);
+        // Individual mono outputs: route note c to the weave-permuted jack
+        for (int c = 0; c < 6; c++) {
+            int destJack = OUTPUT_1 + currentPermute[c];
+            if (outputs[destJack].isConnected())
+                outputs[destJack].setVoltage(clamp(finalNotes[c] + extOffset, -10.f, 10.f));
         }
 
         // --- Root Output Logic ---
