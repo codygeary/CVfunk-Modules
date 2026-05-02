@@ -174,7 +174,7 @@ struct Triton : Module {
 
     // Smoothers
     OnePole smCenter, smSpread, smGap, smSharp, smRes, smDrive, smWidth;
-    OnePole smLowLvl, smMidLvl, smHighLvl;
+    OnePole smLowLvl, smMidLvl, smHighLvl, smMixLvl;
 
     // Width mapping — bitmask, each bit enables one parameter
     int  widthTarget = 0;
@@ -189,7 +189,7 @@ struct Triton : Module {
 
     // Cached smoothed values — written by param tier, read by audio tier
     float cachedDriveGainL = 1.f, cachedDriveGainR = 1.f;
-    float cachedLowLvl = 1.f, cachedMidLvl = 1.f, cachedHighLvl = 1.f;
+    float cachedLowLvl = 1.f, cachedMidLvl = 1.f, cachedHighLvl = 1.f, cachedMixLvl = 1.f;
 
     // Dirty flag — set when filter coeffs change, cleared after display copy
     bool coeffsDirty = true;
@@ -435,6 +435,7 @@ struct Triton : Module {
             cachedLowLvl  = smLowLvl.process (readLvl(LOW_LEVEL_PARAM, LOW_LEVEL_TRIM_PARAM, LOW_LEVEL_CV_INPUT), 0.16f);
             cachedMidLvl  = smMidLvl.process (readLvl(MID_LEVEL_PARAM, MID_LEVEL_TRIM_PARAM, MID_LEVEL_CV_INPUT), 0.16f);
             cachedHighLvl = smHighLvl.process(readLvl(HIGH_LEVEL_PARAM,HIGH_LEVEL_TRIM_PARAM,HIGH_LEVEL_CV_INPUT),0.16f);
+            cachedMixLvl = smMixLvl.process(readLvl(MIX_LEVEL_PARAM,MIX_LEVEL_TRIM_PARAM,MIX_LEVEL_CV_INPUT),0.16f);
 
             // Crossover frequencies — both L and R may differ when Width is mapped
             CutoffSet csL = computeCutoffs(cSl, spSl, gSl, sampleRate);
@@ -537,7 +538,7 @@ struct Triton : Module {
         float envMix = clamp((envL_+envM_+envH_)/3.f, 0.f,10.f);
 
         // ── Outputs ───────────────────────────────────────────────────────────
-        float lowLvl=cachedLowLvl, midLvl=cachedMidLvl, highLvl=cachedHighLvl;
+        float lowLvl=cachedLowLvl, midLvl=cachedMidLvl, highLvl=cachedHighLvl, mixLvl=cachedMixLvl;
         outputs[LOW_L_OUTPUT ].setVoltage(clamp(lowL  *lowLvl,  -10.f,10.f));
         outputs[LOW_R_OUTPUT ].setVoltage(clamp(lowR  *lowLvl,  -10.f,10.f));
         outputs[MID_L_OUTPUT ].setVoltage(clamp(midL  *midLvl,  -10.f,10.f));
@@ -545,12 +546,13 @@ struct Triton : Module {
         outputs[HIGH_L_OUTPUT].setVoltage(clamp(highL *highLvl, -10.f,10.f));
         outputs[HIGH_R_OUTPUT].setVoltage(clamp(highR *highLvl, -10.f,10.f));
 
+        outputs[SUM_L_OUTPUT  ].setVoltage(clamp(lowL*lowLvl+midL*midLvl+highL*highLvl,-10.f,10.f)*mixLvl);
+        outputs[SUM_R_OUTPUT  ].setVoltage(clamp(lowR*lowLvl+midR*midLvl+highR*highLvl,-10.f,10.f)*mixLvl);
+
         outputs[LOW_ENV_OUTPUT ].setVoltage(envL_);
         outputs[MID_ENV_OUTPUT ].setVoltage(envM_);
         outputs[HIGH_ENV_OUTPUT].setVoltage(envH_);
 
-        outputs[SUM_L_OUTPUT  ].setVoltage(clamp(lowL*lowLvl+midL*midLvl+highL*highLvl,-10.f,10.f));
-        outputs[SUM_R_OUTPUT  ].setVoltage(clamp(lowR*lowLvl+midR*midLvl+highR*highLvl,-10.f,10.f));
         outputs[MIX_ENV_OUTPUT].setVoltage(envMix);
 
         // Display
@@ -578,12 +580,6 @@ struct TritonWidget : ModuleWidget {
     // ── Filter display ────────────────────────────────────────────────────────
     struct FilterDisplay : TransparentWidget {
         Triton* module=nullptr;
-//         void draw(const DrawArgs& args) override {
-//             nvgBeginPath(args.vg);
-//             nvgRoundedRect(args.vg,0,0,box.size.x,box.size.y,3.f);
-//             nvgFillColor(args.vg,nvgRGB(6,8,18));
-//             nvgFill(args.vg);
-//         }
         void drawLayer(const DrawArgs& args, int layer) override {
             if (layer!=1){TransparentWidget::drawLayer(args,layer);return;}
             const float w=box.size.x,h=box.size.y,pad=3.f;
