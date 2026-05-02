@@ -559,7 +559,7 @@ struct NodeWidget : ModuleWidget {
         // Envelope polySpan
         auto* fadeSlider = new ui::Slider();
         fadeSlider->quantity = new FloatMemberQuantity(nodeModule, &Node::transitionTime,
-            "Mute Fade Time (ms)", 1.f, 2000.f, 19.f, 0);
+            "Mute Fade Time (ms)", 1.f, 4000.f, 19.f, 0);
         fadeSlider->box.size.x = 200.f;
         menu->addChild(fadeSlider);
                 
