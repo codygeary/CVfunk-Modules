@@ -3,24 +3,9 @@
 //   Triton
 //
 //   written by Cody Geary
-//   Copyright 2026, All Rights Reserved
+//   Copyright 2026, MIT License
 //
 //   Stereo three-band spectral splitter with envelope followers.
-//
-//   Left side controls:  Center, Spread, Gap (row 1)
-//                        Sharpness, Resonance, Drive (row 2)
-//                        L-in, R-in, V/Oct (row 3)
-//
-//   Right side outputs:  LOW | MID | HIGH | WIDTH columns
-//                        Each band: Level slider, ENV, INV, L-out, R-out
-//                        Width: offset slider with LED-mapped target,
-//                               MixEnv, MixInv, Sum-L, Sum-R
-//
-//   Width slider maps to any filter parameter via a cycle button.
-//   R channel uses panel values + Width offset on mapped parameter.
-//   L channel always uses panel values directly.
-//
-//   Follow time constant lives in the context menu.
 //
 ////////////////////////////////////////////////////////////
 
