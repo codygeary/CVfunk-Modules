@@ -208,17 +208,27 @@ struct Triton : Module {
     float displayFcLowR = 0.05f, displayFcHighR = 0.25f;
     float sampleRate = 44100.f;
 
+    // Feedback system
+    bool feedbackEnabled = false;    
+    float mixL = 0.f; //used for feedback
+    float mixR = 0.f;
+    float feedbackL = 0.f, feedbackR = 0.f;
+    float fbGainL = 0.f, fbGainR = 0.f;        // actual feedback gains, audio-rate smoothed
+    float fbEnvL  = 0.f, fbEnvR  = 0.f;        // peak envelope trackers for AGC
+
     // ── JSON ──────────────────────────────────────────────────────────────────
     json_t* dataToJson() override {
         json_t* r = json_object();
         json_object_set_new(r, "widthTarget", json_integer(widthTarget));
         json_object_set_new(r, "followTime",  json_real(followTime));
+        json_object_set_new(r, "feedbackEnabled", json_boolean(feedbackEnabled));
         return r;
     }
     void dataFromJson(json_t* r) override {
         json_t* j;
         j = json_object_get(r,"widthTarget"); if (j) widthTarget=json_integer_value(j);
         j = json_object_get(r,"followTime");  if (j) followTime =json_real_value(j);
+        j = json_object_get(r,"feedbackEnabled"); if (j) feedbackEnabled=json_boolean_value(j);
     }
 
     // ── Constructor ───────────────────────────────────────────────────────────
@@ -226,27 +236,27 @@ struct Triton : Module {
         config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
 
         configParam<CenterHzQuantity>(CENTER_PARAM, -2.f, 4.f, 0.f, "Center");
-        configParam(CENTER_TRIM_PARAM,    -1.f, 1.f, 0.f, "Center CV Trim");
+        configParam(CENTER_TRIM_PARAM,    -2.f, 2.f, 0.f, "Center CV Trim");
         configParam(SPREAD_PARAM,          0.f, 1.f, 0.4f,"Spread");
-        configParam(SPREAD_TRIM_PARAM,    -1.f, 1.f, 0.f, "Spread CV Trim");
-        configParam(GAP_PARAM,            -2.f, 2.f, 0.f, "Gap");
-        configParam(GAP_TRIM_PARAM,       -1.f, 1.f, 0.f, "Gap CV Trim");
+        configParam(SPREAD_TRIM_PARAM,    -2.f, 2.f, 0.f, "Spread CV Trim");
+        configParam(GAP_PARAM,            -1.f, 1.f, 0.f, "Gap");
+        configParam(GAP_TRIM_PARAM,       -2.f, 2.f, 0.f, "Gap CV Trim");
         configParam(SHARP_PARAM,           0.f, 1.f, 1.f, "Sharpness");
-        configParam(SHARP_TRIM_PARAM,     -1.f, 1.f, 0.f, "Sharpness CV Trim");
+        configParam(SHARP_TRIM_PARAM,     -2.f, 2.f, 0.f, "Sharpness CV Trim");
         configParam(RES_PARAM,             0.f, 1.f, 0.f, "Resonance");
-        configParam(RES_TRIM_PARAM,       -1.f, 1.f, 0.f, "Resonance CV Trim");
+        configParam(RES_TRIM_PARAM,       -2.f, 2.f, 0.f, "Resonance CV Trim");
         configParam(DRIVE_PARAM,           0.f, 1.f, 0.f, "Drive");
-        configParam(DRIVE_TRIM_PARAM,     -1.f, 1.f, 0.f, "Drive CV Trim");
+        configParam(DRIVE_TRIM_PARAM,     -2.f, 2.f, 0.f, "Drive CV Trim");
         configParam(LOW_LEVEL_PARAM,       0.f, 1.f, 1.f, "Low Level");
-        configParam(LOW_LEVEL_TRIM_PARAM, -1.f, 1.f, 0.f, "Low Level CV Trim");
+        configParam(LOW_LEVEL_TRIM_PARAM, -2.f, 2.f, 0.f, "Low Level CV Trim");
         configParam(MID_LEVEL_PARAM,       0.f, 1.f, 1.f, "Mid Level");
-        configParam(MID_LEVEL_TRIM_PARAM, -1.f, 1.f, 0.f, "Mid Level CV Trim");
+        configParam(MID_LEVEL_TRIM_PARAM, -2.f, 2.f, 0.f, "Mid Level CV Trim");
         configParam(HIGH_LEVEL_PARAM,      0.f, 1.f, 1.f, "High Level");
-        configParam(HIGH_LEVEL_TRIM_PARAM,-1.f, 1.f, 0.f, "High Level CV Trim");
-        configParam(MIX_LEVEL_PARAM,      0.f, 1.f, 1.f,  "Mix Level");
-        configParam(MIX_LEVEL_TRIM_PARAM,-1.f, 1.f, 0.f,  "Mix Level CV Trim");
+        configParam(HIGH_LEVEL_TRIM_PARAM,-2.f, 2.f, 0.f, "High Level CV Trim");
+        configParam(MIX_LEVEL_PARAM,       0.f, 1.f, 1.f,  "Mix Level");
+        configParam(MIX_LEVEL_TRIM_PARAM, -2.f, 2.f, 0.f,  "Mix Level CV Trim");
         configParam(WIDTH_PARAM,          -1.f, 1.f, 0.f, "Width");
-        configParam(WIDTH_TRIM_PARAM,     -1.f, 1.f, 0.f, "Width CV Trim");
+        configParam(WIDTH_TRIM_PARAM,     -2.f, 2.f, 0.f, "Width CV Trim");
         configParam(MAP_CENTER_PARAM,      0.f, 1.f, 0.f, "Map Width to Center");
         configParam(MAP_SPREAD_PARAM,      0.f, 1.f, 0.f, "Map Width to Spread");
         configParam(MAP_GAP_PARAM,         0.f, 1.f, 0.f, "Map Width to Gap");
@@ -371,8 +381,8 @@ struct Triton : Module {
                            + readCV(CENTER_CV_INPUT)*params[CENTER_TRIM_PARAM].getValue();
             float spread   = clamp(params[SPREAD_PARAM].getValue()
                            + readCV(SPREAD_CV_INPUT)*0.1f*params[SPREAD_TRIM_PARAM].getValue(), 0.f,1.f);
-            float gap      = clamp(params[GAP_PARAM].getValue()
-                           + readCV(GAP_CV_INPUT)*0.1f*params[GAP_TRIM_PARAM].getValue(), -1.f,1.f);
+            float gap      = clamp(2.f*params[GAP_PARAM].getValue()
+                           + readCV(GAP_CV_INPUT)*0.2f*params[GAP_TRIM_PARAM].getValue(), -2.f,2.f);
             float sharp    = clamp(params[SHARP_PARAM].getValue()
                            + readCV(SHARP_CV_INPUT)*0.1f*params[SHARP_TRIM_PARAM].getValue(), 0.f,1.f);
             float res      = clamp(params[RES_PARAM].getValue()
@@ -382,49 +392,52 @@ struct Triton : Module {
             float width    = clamp(params[WIDTH_PARAM].getValue()
                            + readCV(WIDTH_CV_INPUT)*0.1f*params[WIDTH_TRIM_PARAM].getValue(), -1.f,1.f);
 
-            float cS  = smCenter.process(centerV,  0.04f);   // coeff scaled for sub-rate
-            float spS = smSpread.process(spread,   0.04f);
-            float gS  = smGap.process   (gap,      0.04f);
-            float shS = smSharp.process (sharp,    0.06f);
-            float rS  = smRes.process   (res,      0.04f);
-            float dS  = smDrive.process (driveKnob,0.16f);
-            float wS  = smWidth.process (width,    0.16f);
+            float centerSc  = smCenter.process(centerV,  0.04f);   // coeff scaled for sub-rate
+            float spreadSc = smSpread.process(spread,   0.04f);
+            float gapSc  = smGap.process   (gap,      0.04f);
+            float sharpSc = smSharp.process (sharp,    0.06f);
+            float resSc  = smRes.process   (res,      0.04f);
+            float driveSc  = smDrive.process (driveKnob,0.16f);
+            float widthSc  = smWidth.process (width,    0.16f);
 
             // Non-linear response curves — applied after smoothing, before width offset
             // Sharpness: most action in top quarter — 1-(1-x)^3 stretches that range out
-            shS = clamp(1.f - (1.f-shS)*(1.f-shS)*(1.f-shS), 0.f, 1.f);
+            sharpSc = clamp(1.f - (1.f-sharpSc)*(1.f-sharpSc)*(1.f-sharpSc), 0.f, 1.f);
             // Resonance: most action in bottom fifth — x^3 keeps it subtle until pushed
-            rS  = clamp(rS*rS*rS, 0.f, 1.f);
+            resSc  = clamp(resSc*resSc*resSc, 0.f, 1.f)*0.5f;
 
             // Width pushes L and R symmetrically in opposite directions.
             // Each active bit contributes its offset — multiple bits stack.
-            float half = wS * 0.5f;
-            float cSl=cS,  spSl=spS,  gSl=gS,  shSl=shS,  rSl=rS,  dSl=dS;
-            float cSr=cS,  spSr=spS,  gSr=gS,  shSr=shS,  rSr=rS,  dSr=dS;
+            float centerL=centerSc,  spreadL=spreadSc,  gapL=gapSc,  sharpL=sharpSc,  resL=resSc,  driveL=driveSc;
+            float centerR=centerSc,  spreadR=spreadSc,  gapR=gapSc,  sharpR=sharpSc,  resR=resSc,  driveR=driveSc;
             if (widthTarget & W_CENTER) {
-                cSl = cS  - half*2.f;
-                cSr = cS  + half*2.f;
+                centerL = centerSc  - widthSc*2.f;
+                centerR = centerSc  + widthSc*2.f;
             }
             if (widthTarget & W_SPREAD) {
-                spSl = clamp(spS - half*0.5f, 0.f,1.f);
-                spSr = clamp(spS + half*0.5f, 0.f,1.f);
+                spreadL = clamp(spreadSc - widthSc, 0.f,1.f);
+                spreadR = clamp(spreadSc + widthSc, 0.f,1.f);
             }
             if (widthTarget & W_GAP) {
-                gSl = clamp(gS - half*0.5f, -1.f,1.f);
-                gSr = clamp(gS + half*0.5f, -1.f,1.f);
+                gapL = clamp(gapSc - widthSc, -2.f,2.f);
+                gapR = clamp(gapSc + widthSc, -2.f,2.f);
             }
             if (widthTarget & W_SHARP) {
-                shSl = clamp(shS - half*0.5f, 0.f,1.f);
-                shSr = clamp(shS + half*0.5f, 0.f,1.f);
+                sharpL = clamp(sharpSc - widthSc, 0.f,1.f);
+                sharpR = clamp(sharpSc + widthSc, 0.f,1.f);
             }
             if (widthTarget & W_RES) {
-                rSl = clamp(rS - half*0.5f, 0.f,1.f);
-                rSr = clamp(rS + half*0.5f, 0.f,1.f);
+                resL = clamp(resSc - widthSc*0.5f, 0.f,0.5f);
+                resR = clamp(resSc + widthSc*0.5f, 0.f,0.5f);
             }
             if (widthTarget & W_DRIVE) {
-                dSl = clamp(dS - half*0.5f, 0.f,1.f);
-                dSr = clamp(dS + half*0.5f, 0.f,1.f);
+                driveL = clamp(driveSc - widthSc, 0.f,1.f);
+                driveR = clamp(driveSc + widthSc, 0.f,1.f);
             }
+
+            //Feedback
+            feedbackL = 0.5f*resL; //save to global var for use in audio feedback
+            feedbackR = 0.5f*resR;
 
             // Levels
             auto readLvl = [&](ParamId p, ParamId t, InputId i) -> float {
@@ -438,18 +451,18 @@ struct Triton : Module {
             cachedMixLvl = smMixLvl.process(readLvl(MIX_LEVEL_PARAM,MIX_LEVEL_TRIM_PARAM,MIX_LEVEL_CV_INPUT),0.16f);
 
             // Crossover frequencies — both L and R may differ when Width is mapped
-            CutoffSet csL = computeCutoffs(cSl, spSl, gSl, sampleRate);
-            CutoffSet csR = computeCutoffs(cSr, spSr, gSr, sampleRate);
+            CutoffSet csL = computeCutoffs(centerL, spreadL, gapL, sampleRate);
+            CutoffSet csR = computeCutoffs(centerR, spreadR, gapR, sampleRate);
 
             // Update filter coefficients
-            lpLowL.setParameters (csL.lpLow,  shSl, rSl);
-            hpLowL.setParameters (csL.hpLow,  shSl, rSl);
-            lpHighL.setParameters(csL.lpHigh, shSl, rSl);
-            hpHighL.setParameters(csL.hpHigh, shSl, rSl);
-            lpLowR.setParameters (csR.lpLow,  shSr, rSr);
-            hpLowR.setParameters (csR.hpLow,  shSr, rSr);
-            lpHighR.setParameters(csR.lpHigh, shSr, rSr);
-            hpHighR.setParameters(csR.hpHigh, shSr, rSr);
+            lpLowL.setParameters (csL.lpLow,  sharpL, resL);
+            hpLowL.setParameters (csL.hpLow,  sharpL, resL);
+            lpHighL.setParameters(csL.lpHigh, sharpL, resL);
+            hpHighL.setParameters(csL.hpHigh, sharpL, resL);
+            lpLowR.setParameters (csR.lpLow,  sharpR, resR);
+            hpLowR.setParameters (csR.hpLow,  sharpR, resR);
+            lpHighR.setParameters(csR.lpHigh, sharpR, resR);
+            hpHighR.setParameters(csR.hpHigh, sharpR, resR);
 
             // Envelope follower coefficients
             float fcLowCenter  = csL.lpLow  * 0.6f;
@@ -467,7 +480,7 @@ struct Triton : Module {
                 dispLpHigh[i] = lpHighL.coeffs[i];
                 dispHpHigh[i] = hpHighL.coeffs[i];
             }
-            dispSharp    = shSl;
+            dispSharp    = sharpL;
             displayFcLow = csL.fA;
             displayFcHigh= csL.fB;
             for (int i=0;i<TRITON_STAGES;i++) {
@@ -476,18 +489,40 @@ struct Triton : Module {
                 dispLpHighR[i] = lpHighR.coeffs[i];
                 dispHpHighR[i] = hpHighR.coeffs[i];
             }
-            dispSharpR     = shSr;
+            dispSharpR     = sharpR;
             displayFcLowR  = csR.fA;
             displayFcHighR = csR.fB;
 
-            cachedDriveGainL = 1.f + dSl * 9.f;
-            cachedDriveGainR = 1.f + dSr * 9.f;
+            cachedDriveGainL = 1.f + driveL * 9.f;
+            cachedDriveGainR = 1.f + driveR * 9.f;
         } // end paramDivider
 
         // ── AUDIO TIER — runs every sample ────────────────────────────────────
         float inL = inputs[AUDIO_L_INPUT].getVoltage();
         float inR = inputs[AUDIO_R_INPUT].isConnected()
                   ? inputs[AUDIO_R_INPUT].getVoltage() : inL;
+
+        // ── Feedback AGC ──────────────────────────────────────────────────────
+        const float fbAttack  = 0.9f;
+        const float fbRelease = 0.0005f;
+        const float fbTarget  = 5.0f;
+
+        float mixLabs = fabsf(mixL);
+        float mixRabs = fabsf(mixR);
+        fbEnvL = mixLabs > fbEnvL ? mixLabs*fbAttack + fbEnvL*(1.f-fbAttack)
+                                  : fbEnvL*(1.f-fbRelease);
+        fbEnvR = mixRabs > fbEnvR ? mixRabs*fbAttack + fbEnvR*(1.f-fbAttack)
+                                  : fbEnvR*(1.f-fbRelease);
+
+        float agcL = (fbEnvL > fbTarget) ? fbTarget / fbEnvL : 1.f;
+        float agcR = (fbEnvR > fbTarget) ? fbTarget / fbEnvR : 1.f;
+        fbGainL += 0.01f * (feedbackL * agcL - fbGainL);
+        fbGainR += 0.01f * (feedbackR * agcR - fbGainR);
+
+        if (feedbackEnabled) {
+            inL += mixL * fbGainL + 0.003f * feedbackL;
+            inR += mixR * fbGainR + 0.003f * feedbackR;
+        }        
 
         float drivenL = driveL.process(inL, cachedDriveGainL);
         float drivenR = driveR.process(inR, cachedDriveGainR);
@@ -496,6 +531,7 @@ struct Triton : Module {
         float lowL  = dcBlockL.process(lpLowL.process(drivenL));
         float midL  = lpHighL.process(hpLowL.process(drivenL));
         float highL = nyqCapL.process(hpHighL.process(drivenL));
+                        
         lowL  = clamp(lowL,  -12.f,12.f);
         midL  = clamp(midL,  -12.f,12.f);
         highL = clamp(highL, -12.f,12.f);
@@ -546,8 +582,11 @@ struct Triton : Module {
         outputs[HIGH_L_OUTPUT].setVoltage(clamp(highL *highLvl, -10.f,10.f));
         outputs[HIGH_R_OUTPUT].setVoltage(clamp(highR *highLvl, -10.f,10.f));
 
-        outputs[SUM_L_OUTPUT  ].setVoltage(clamp(lowL*lowLvl+midL*midLvl+highL*highLvl,-10.f,10.f)*mixLvl);
-        outputs[SUM_R_OUTPUT  ].setVoltage(clamp(lowR*lowLvl+midR*midLvl+highR*highLvl,-10.f,10.f)*mixLvl);
+        mixL = lowL*lowLvl+midL*midLvl+highL*highLvl;
+        mixR = lowR*lowLvl+midR*midLvl+highR*highLvl;
+
+        outputs[SUM_L_OUTPUT  ].setVoltage(clamp(mixL*mixLvl,-10.f,10.f));
+        outputs[SUM_R_OUTPUT  ].setVoltage(clamp(mixR*mixLvl,-10.f,10.f));        
 
         outputs[LOW_ENV_OUTPUT ].setVoltage(envL_);
         outputs[MID_ENV_OUTPUT ].setVoltage(envM_);
@@ -876,6 +915,11 @@ struct TritonWidget : ModuleWidget {
         followSlider->quantity=new FollowQuantity(m);
         followSlider->box.size.x=200.f;
         menu->addChild(followSlider);
+        
+        menu->addChild(new MenuSeparator());
+        auto* fbItem = createMenuItem("Internal Feedback", CHECKMARK(m->feedbackEnabled),
+            [m]() { m->feedbackEnabled = !m->feedbackEnabled; });
+        menu->addChild(fbItem);
     }
 };
 
