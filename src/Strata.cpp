@@ -1073,11 +1073,13 @@ struct Strata : Module {
                 if (patternReset) patternIndex=0;
                 if (patternIndex >= patternStages) patternIndex = 0;
                 if (patternState[patternIndex][strataLayer]==0) {
+                    DonPulse.reset();
                     DonPulse.trigger(beatInterval); 
                     DonSample = true;
                     noteSampled = true;
                 }
                 if (patternState[patternIndex][strataLayer]==1) {
+                    KaPulse.reset();
                     KaPulse.trigger(beatInterval); 
                     KaSample = true;
                     noteSampled = true;
@@ -1160,11 +1162,13 @@ struct Strata : Module {
                         patternIndex = 0;
         
                     if (patternState[patternIndex][strataLayer] == 0){
+                        DonPulse.reset();
                         DonPulse.trigger(beatInterval); 
                         if (mainSwitch == 2) DonSample = true;
                         noteSampled = true;
                     }
                     if (patternState[patternIndex][strataLayer] == 1){
+                        KaPulse.reset();
                         KaPulse.trigger(beatInterval); 
                         if (mainSwitch == 2) KaSample = true;
                         noteSampled = true;
