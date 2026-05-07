@@ -735,8 +735,8 @@ struct TritonWidget : ModuleWidget {
     struct FollowQuantity : Quantity {
         Triton* module;
         FollowQuantity(Triton* m):module(m){}
-        void setValue(float v) override { module->followTime=clamp(v,0.f,1.f); }
-        float getValue() override { return module->followTime; }
+        void setValue(float v) override { if (module) module->followTime=clamp(v,0.f,1.f); }
+        float getValue() override { return module ? module->followTime : getDefaultValue(); }
         float getDefaultValue() override { return 0.12f; }
         float getMinValue() override { return 0.f; }
         float getMaxValue() override { return 1.f; }

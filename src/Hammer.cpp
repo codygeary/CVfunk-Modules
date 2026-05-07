@@ -799,7 +799,7 @@ struct HammerWidget : ModuleWidget {
             ChannelFloatQuantity(Hammer* m, int i, std::string lbl, float mn, float mx, int prec = 0)
                 : module(m), idx(i), label(lbl), minV(mn), maxV(mx), precision(prec) {}
             void setValue(float v) override {
-                float cv = clamp(v, minV, maxV);
+                float cv = std::round(clamp(v, minV, maxV));
                 // Determine whether label contains "Multiply" or "Divide" to write the right array
                 if (label.rfind("Multiply", 0) == 0) {
                     module->multiply[idx] = cv;

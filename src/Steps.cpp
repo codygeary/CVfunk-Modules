@@ -367,18 +367,18 @@ struct StepsWidget : ModuleWidget {
         struct PolyQuantity : Quantity {
             Steps* m;
             void  setValue(float v) override {
-                m->polyOverride = clamp((int)std::round(v), 0, Steps::MAX_POLY);
+                if (m) m->polyOverride = clamp((int)std::round(v), 0, Steps::MAX_POLY);
             }
-            float getValue() override            { return (float)m->polyOverride; }
+            float getValue() override            { return m ? (float)m->polyOverride : getDefaultValue(); }
             float getDefaultValue() override     { return 0.f; }
             float getMinValue() override         { return 0.f; }
             float getMaxValue() override         { return (float)Steps::MAX_POLY; }
             int   getDisplayPrecision() override { return 0; }
             std::string getLabel() override      { return "Poly Channels"; }
             std::string getDisplayValueString() override {
-                return m->polyOverride == 0
-                    ? "Auto"
-                    : std::to_string(m->polyOverride);
+                if (!m || m->polyOverride == 0)
+                    return "Auto";
+                return std::to_string(m->polyOverride);
             }
         };
         menu->addChild(createMenuLabel("Poly Channel Count"));

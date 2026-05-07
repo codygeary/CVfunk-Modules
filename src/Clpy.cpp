@@ -352,17 +352,19 @@ struct ClpyWidget : ModuleWidget {
             Clpy* module;
             FilterCutoffQuantity(Clpy* m) : module(m) {}
             void setValue(float v) override {
+                if (!module) return;
                 float clamped = clamp(v, 0.01f, 0.49f);
                 module->filterCutoff = clamped;
                 module->initFilters();
             }
-            float getValue() override        { return module->filterCutoff; }
+            float getValue() override        { return module ? module->filterCutoff : getDefaultValue(); }
             float getDefaultValue() override { return 0.4f; }
             float getMinValue() override     { return 0.01f; }
             float getMaxValue() override     { return 0.49f; }
             int   getDisplayPrecision() override { return 3; }
             std::string getLabel() override  { return "Filter Cutoff"; }
             std::string getDisplayValueString() override {
+                if (!module) return "0.0 kHz";
                 float khz = module->filterCutoff * 44.1f;
                 return string::f("%.1f kHz", khz);
             }

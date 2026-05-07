@@ -672,8 +672,8 @@ struct JunkDNAWidget : ModuleWidget {
                             float mn, float mx, float df, int prec = 0)
             : module(m), member(mem), label(lbl), min(mn), max(mx), def(df), precision(prec) {}
     
-        void setValue(float v) override { module->*member = clamp(v, min, max); }
-        float getValue() override { return module->*member; }
+        void setValue(float v) override { if (module) module->*member = clamp(v, min, max); }
+        float getValue() override { return module ? module->*member : def; }
         float getDefaultValue() override { return def; }
         float getMinValue() override { return min; }
         float getMaxValue() override { return max; }
