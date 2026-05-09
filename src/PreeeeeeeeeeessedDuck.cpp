@@ -1043,19 +1043,23 @@ struct PreeeeeeeeeeessedDuck : Module {
             filteredSideEnvelopeR = 0.0f;
             sideEnvelope = 0.0f;
         } else {
-            // Calculate the envelope for the side signals
+            // Measure envelope from pre-mix-scaled signal for clean linear ducking
             sidePeakL = fmax(sidePeakL * decayRate, fabs(sideL));
             sidePeakR = fmax(sidePeakR * decayRate, fabs(sideR));
             filteredSideEnvelopeL = alpha * sidePeakL + (1 - alpha) * filteredSideEnvelopeL;
             filteredSideEnvelopeR = alpha * sidePeakR + (1 - alpha) * filteredSideEnvelopeR;
 
-            // Calculate ducking based on the side envelope
+            // Scale sidechain up to match main mix level (post envelope measurement)
+            sideL *= 16.0f;
+            sideR *= 16.0f;
+
+            // Calculate ducking: full duck at 1.5V envelope so any reasonable signal ducks cleanly
             float duckAmount = cachedDuck;
             if (inputs[DUCK_CV].isConnected()) {
                 duckAmount += clamp(inputs[DUCK_CV].getVoltage() / 5.0f, 0.f, 1.f) * cachedDuckAtt;
             }
-            float duckingFactorL = fmax(0.0f, 1.f - duckAmount * (filteredSideEnvelopeL / 5.0f));
-            float duckingFactorR = fmax(0.0f, 1.f - duckAmount * (filteredSideEnvelopeR / 5.0f));
+            float duckingFactorL = fmax(0.0f, 1.f - duckAmount * (filteredSideEnvelopeL / 1.5f));
+            float duckingFactorR = fmax(0.0f, 1.f - duckAmount * (filteredSideEnvelopeR / 1.5f));
             sideEnvelope = (filteredSideEnvelopeL + filteredSideEnvelopeR) / 2.0f;
 
             if (!mutedSideDucks){
@@ -1064,9 +1068,8 @@ struct PreeeeeeeeeeessedDuck : Module {
                 mixR = (mixR * duckingFactorR) + sideR;
             } else {
                 if (muteState[16]) {
-                    mixL = (mixL * duckingFactorL) ;
-                    mixR = (mixR * duckingFactorR) ;
-
+                    mixL = (mixL * duckingFactorL);
+                    mixR = (mixR * duckingFactorR);
                 } else {
                     mixL = (mixL * duckingFactorL) + sideL;
                     mixR = (mixR * duckingFactorR) + sideR;
