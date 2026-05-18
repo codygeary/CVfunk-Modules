@@ -1351,11 +1351,9 @@ struct PreeeeeeeeeeessedDuckWidget : ModuleWidget {
     }
 
 	void step() override {
-		// Cast base Module* to your subclass
 		PreeeeeeeeeeessedDuck* module = dynamic_cast<PreeeeeeeeeeessedDuck*>(this->module);
-		if (!module) return;
-	
-		updateLights(module);
+		if (module)
+			updateLights(module);
 		ModuleWidget::step();
 	}
 	

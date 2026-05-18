@@ -1272,14 +1272,12 @@ struct PressedDuckWidget : ModuleWidget {
     }
 
 	void step() override {
-		// Cast base Module* to your subclass
 		PressedDuck* module = dynamic_cast<PressedDuck*>(this->module);
-		if (!module) return;
-	
-		updateLights(module);
+		if (module)
+			updateLights(module);
 		ModuleWidget::step();
 	}
-	
+		
 	void updateLights(PressedDuck* module) {    
 		for (int i = 0; i < 6; i++) {
 			module->lights[PressedDuck::VOLUME1_LIGHT + i].setBrightness(module->filteredEnvelope[i]);

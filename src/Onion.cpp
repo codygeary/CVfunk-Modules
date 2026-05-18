@@ -222,9 +222,11 @@ struct OnionWidget : ModuleWidget {
 
     void step() override {
         Onion* module = dynamic_cast<Onion*>(this->module);
+        
+        ModuleWidget::step();
         if (!module) return;
-
         float depth = module->depth;
+
         if (module->polarity <0.5f) depth *= 0.5f;
 
         for (int layer = 0; layer<ONION_LAYERS; layer++){
