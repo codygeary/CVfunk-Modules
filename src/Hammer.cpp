@@ -457,25 +457,19 @@ struct Hammer : Module {
                 ratio[i] = 1.0f; // div by zero safety
             }
 
-            if (i < 1){  //Swing clock reset logic
+            if (i < 1){  //External-clock swing reset logic: fires once per incoming tick via resetPulse
                 if ( inputs[EXT_CLOCK_INPUT].isConnected() ) {
-                      if (resetPulse){
+                    if (resetPulse){
                         swingCount++;
-                        if (swingCount > 1.f){
+                        if (swingCount > 1){
                             SwingTimer.reset();
                             swingCount = 0;
                         }
                         resetPulse = false;
                     }
-                } else {
-                    if ( ClockTimer[0].time >= (60.0f / (bpm ) ) ){
-                        swingCount++;
-                        if (swingCount > 1.f){
-                            SwingTimer.reset();
-                            swingCount = 0;
-                        }
-                    }
                 }
+                // Internal-clock swing count is handled below inside the processSampleCounter block,
+                // so it fires exactly once per master tick rather than continuously while the timer exceeds the threshold.
             }
 
             if ( (ClockTimer[i].time >= (60.0f / (bpm * ratio[i]))) && i>0) ClockTimer[i].reset();  //Process Channels via timer for continuous swing
@@ -485,6 +479,16 @@ struct Hammer : Module {
     
                 ClockTimer[0].reset(); //Process master clock with straight sample-based clock and swing offset
                 if (i == 0) {  // Master clock reset point
+
+                    // Internal-clock swing count: increment once per master tick so SwingTimer resets
+                    // on every second beat cleanly, independent of swing-warped deltaTime.
+                    if (!inputs[EXT_CLOCK_INPUT].isConnected()) {
+                        swingCount++;
+                        if (swingCount > 1){
+                            SwingTimer.reset();
+                            swingCount = 0;
+                        }
+                    }
                     masterClockCycle++;
                     clockPulse.trigger(args.sampleTime);  //Trigger Pulse for Chain Connection
                     // Rotate phases
