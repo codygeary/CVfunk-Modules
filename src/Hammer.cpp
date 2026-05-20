@@ -491,17 +491,10 @@ struct Hammer : Module {
                     }
                     masterClockCycle++;
                     clockPulse.trigger(args.sampleTime);  //Trigger Pulse for Chain Connection
-                    // Rotate phases
-                    for (int k = 1; k < (CHANNELS+1); k++) {
-                        int newIndex = (k + clockRotate) % CHANNELS;
-                        if (newIndex < 0) {
-                            newIndex += CHANNELS; // Adjust for negative values to wrap around correctly
-                        }
-                        tempPhases[newIndex + 1] = phases[k];
-                    }
-                    for (int k = 1; k < (CHANNELS+1); k++) {
-                        phases[k] = tempPhases[k];
-                    }
+                    // Note: phase rotation is handled at output time via srcIndex lookup,
+                    // not by shuffling phases[] here. Shuffling mid-loop caused a 1-sample
+                    // crosstalk spike because channels later in the loop would read a
+                    // rotated (near-1.0) phase value before their ClockTimer was reset.
 
                     for (int j = 1; j < (CHANNELS+1); j++) {
                         if (masterClockCycle % lcmWithMaster[j] == 0) {

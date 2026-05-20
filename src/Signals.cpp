@@ -24,6 +24,7 @@ struct Signals : Module {
         RANGE_PARAM,
         TRIGGER_ON_PARAM,
         RANGE_BUTTON_PARAM,
+        RESET_PARAM,        
         NUM_PARAMS
     };
     enum InputId {
@@ -54,6 +55,8 @@ struct Signals : Module {
     int scopeChannels[6] = {0, 0, 0, 0, 0, 0};  // Number of polyphonic channels for Scope inputs
     int activeScopeChannel[6] = {-1, -1, -1, -1, -1, -1};  // Stores the number of the previous active channel for the Scope
     int previousActiveScopeChannel[6] = {-1, -1, -1, -1, -1, -1};  // Track previous state to detect changes
+    bool resetToggleProcessed = false;
+
 
     //non-glitchy display refreshing
     bool waitingForTrigger[6] = {true, true, true, true, true, true};
@@ -80,6 +83,7 @@ struct Signals : Module {
         configParam(RANGE_PARAM, 0.1f, 0.9999f, 0.5f, "Range");
         configParam(TRIGGER_ON_PARAM, 0.f, 1.f, 1.f, "Retriggering");
         configSwitch(RANGE_BUTTON_PARAM, 0.f, 1.f, 0.f, "Mode", {"Default", "Slow"});
+        configParam(RESET_PARAM, 0.f, 1.f, 0.f, "Reset displays");
 
         lastTriggerTime.fill(0.0f);
         MAX_BUFFER_SIZE = int(static_cast<int>(APP->engine->getSampleRate() * MAX_TIME));
@@ -100,6 +104,20 @@ struct Signals : Module {
         }
         for (auto &buffer : displayBuffers) {
             buffer.resize(MAX_BUFFER_SIZE, 0.0f);
+        }
+    }
+
+    // Clears all buffers and resets capture state for all channels.
+    void resetAllChannels() {
+        for (int i = 0; i < 6; ++i) {
+            std::fill(envelopeBuffers[i].begin(), envelopeBuffers[i].end(), 0.f);
+            std::fill(displayBuffers[i].begin(), displayBuffers[i].end(), 0.f);
+            writeIndices[i] = 0;
+            lastInputs[i] = 0.f;
+            lastTriggerTime[i] = 0.f;
+            waitingForTrigger[i] = true;
+            displayReady[i] = false;
+            samplesSinceTrigger[i] = 0;
         }
     }
     
@@ -249,6 +267,15 @@ struct Signals : Module {
         } else if (params[TRIGGER_ON_PARAM].getValue() <= 0.5f) {
             retriggerToggleProcessed = false;
         }
+
+        // --- Reset button ---
+        if (params[RESET_PARAM].getValue() > 0.5f && !resetToggleProcessed) {
+            resetAllChannels();
+            resetToggleProcessed = true;
+            params[RESET_PARAM].setValue(0.0f);
+        } else if (params[RESET_PARAM].getValue() <= 0.5f) {
+            resetToggleProcessed = false;
+        }
     
         lights[TRIGGER_ON_LIGHT].setBrightness(retriggerEnabled ? 1.0f : 0.0f);
     
@@ -353,7 +380,7 @@ struct WaveformDisplay : TransparentWidget {
     
         // Draw the waveform
         nvgBeginPath(args.vg);
-        nvgStrokeWidth(args.vg, 2.0f);
+        nvgStrokeWidth(args.vg, 1.8f);
         nvgStrokeColor(args.vg, waveformColor);        
         nvgMoveTo(args.vg, points[0].x, points[0].y);
         for (size_t i = 1; i < points.size(); ++i) { // Start from 1 to avoid duplicating the first point
@@ -398,6 +425,9 @@ struct SignalsWidget : ModuleWidget {
 
         addParam(createParam<CKSS>(mm2px(Vec(17, 14)), module, Signals::RANGE_BUTTON_PARAM));
         addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(23, 16)), module, Signals::LONG_LIGHT));
+
+        // Reset button 
+        addParam(createParamCentered<TL1105>(mm2px(Vec(43, 19)), module, Signals::RESET_PARAM));
 
         addParam(createParamCentered<TL1105>(mm2px(Vec(50, 19)), module, Signals::TRIGGER_ON_PARAM));
         addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(55, 19)), module, Signals::TRIGGER_ON_LIGHT));
