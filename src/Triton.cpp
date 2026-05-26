@@ -13,6 +13,7 @@
 #include "plugin.hpp"
 using namespace rack;
 #include <cmath>
+#include <algorithm>
 #include <functional>
 #include "FilterTriton.h"
 
@@ -142,24 +143,71 @@ struct Triton : Module {
         LIGHTS_LEN
     };
 
-    // ── DSP — Left channel ────────────────────────────────────────────────────
-    FilterTriton lpLowL, hpLowL, lpHighL, hpHighL;
-    DCBlocker    dcBlockL;
-    NyquistCap   nyqCapL;
-    ADAADrive    driveL;
+    // ── Per-voice DSP state ───────────────────────────────────────────────────
+    static constexpr int MAX_POLY = 16;
 
-    // ── DSP — Right channel ───────────────────────────────────────────────────
-    FilterTriton lpLowR, hpLowR, lpHighR, hpHighR;
-    DCBlocker    dcBlockR;
-    NyquistCap   nyqCapR;
-    ADAADrive    driveR;
+    struct TritonVoice {
+        // Two FilterTritonSIMD per voice replace the 8 scalar FilterTriton members.
+        // filtersA: lane 0=lpLowL, lane 1=hpLowL, lane 2=lpLowR, lane 3=hpLowR
+        // filtersB: lane 0=hpHighL, lane 1=lpHighL, lane 2=hpHighR, lane 3=lpHighR
+        FilterTritonSIMD filtersA, filtersB;
+        DCBlocker    dcBlockL, dcBlockR;
+        NyquistCap   nyqCapL,  nyqCapR;
+        ADAADrive    driveL,   driveR;
 
-    // Envelope followers (tap L channel)
-    EnvFollower  envLow, envMid, envHigh;
+        // Envelope followers — tap L channel bands
+        EnvFollower  envLow, envMid, envHigh;
 
-    // Smoothers
-    OnePole smCenter, smSpread, smGap, smSharp, smRes, smDrive, smWidth;
-    OnePole smLowLvl, smMidLvl, smHighLvl, smMixLvl;
+        // Feedback state — per-voice so poly channels don't cross-contaminate
+        float mixL = 0.f, mixR = 0.f;            // previous mix output, used as feedback source
+        float feedbackL = 0.f, feedbackR = 0.f;  // feedback amount set from resonance
+        float fbGainL = 0.f, fbGainR = 0.f;      // smoothed feedback gain
+        float fbEnvL  = 0.f, fbEnvR  = 0.f;      // peak envelope for AGC
+
+        // Cached levels — written by param tier, read by audio tier
+        float driveGainL = 1.f, driveGainR = 1.f;
+        float lowLvl = 1.f, midLvl = 1.f, highLvl = 1.f, mixLvl = 1.f;
+
+        // Per-voice level smoothers — needed because level CVs are polyphonic
+        OnePole smLowLvl, smMidLvl, smHighLvl, smMixLvl;
+
+        void init(float sampleRate) {
+            // filtersA: lpLow and hpLow for L (lanes 0-1) and R (lanes 2-3)
+            filtersA.setLane(0, FilterTriton::LOWPASS,  0.1f, 1.f, 0.f);
+            filtersA.setLane(1, FilterTriton::HIGHPASS, 0.1f, 1.f, 0.f);
+            filtersA.setLane(2, FilterTriton::LOWPASS,  0.1f, 1.f, 0.f);
+            filtersA.setLane(3, FilterTriton::HIGHPASS, 0.1f, 1.f, 0.f);
+            // filtersB: hpHigh and lpHigh for L (lanes 0-1) and R (lanes 2-3)
+            filtersB.setLane(0, FilterTriton::HIGHPASS, 0.1f, 1.f, 0.f);
+            filtersB.setLane(1, FilterTriton::LOWPASS,  0.1f, 1.f, 0.f);
+            filtersB.setLane(2, FilterTriton::HIGHPASS, 0.1f, 1.f, 0.f);
+            filtersB.setLane(3, FilterTriton::LOWPASS,  0.1f, 1.f, 0.f);
+            dcBlockL.setSampleRate(sampleRate);  dcBlockR.setSampleRate(sampleRate);
+            nyqCapL.setSampleRate(sampleRate);   nyqCapR.setSampleRate(sampleRate);
+            // Sync active and prev arrays to the initial coefficients
+            filtersA.snapshot();  filtersA.lerpCoeffs(1.f);  filtersA.snapshot();
+            filtersB.snapshot();  filtersB.lerpCoeffs(1.f);  filtersB.snapshot();
+        }
+
+        void clear() {
+            filtersA.reset();  filtersB.reset();
+            driveL.reset();  driveR.reset();
+            envLow.reset();  envMid.reset();  envHigh.reset();
+            mixL=0.f; mixR=0.f;
+            fbGainL=0.f; fbGainR=0.f;
+            fbEnvL=0.f;  fbEnvR=0.f;
+            feedbackL=0.f; feedbackR=0.f;
+        }
+    };
+
+    TritonVoice voices[MAX_POLY];
+    int nVoices   = 1;
+    int prevVoices = 0;
+
+    // Interpolation phase — counts samples since last param tier tick.
+    // Resets to 0 each time the param divider fires; used to compute the
+    // lerp fraction t = interpPhase / PARAM_STRIDE in the audio tier.
+    int interpPhase = 0;
 
     // Width mapping — bitmask, each bit enables one parameter
     int  widthTarget = 0;
@@ -172,48 +220,52 @@ struct Triton : Module {
     static const int PARAM_STRIDE = 32;
     dsp::ClockDivider paramDivider;
 
-    // Cached smoothed values — written by param tier, read by audio tier
-    float cachedDriveGainL = 1.f, cachedDriveGainR = 1.f;
-    float cachedLowLvl = 1.f, cachedMidLvl = 1.f, cachedHighLvl = 1.f, cachedMixLvl = 1.f;
+    // Cached feedback amounts — set from resonance in param tier, used per-voice in audio tier
+    float cachedFeedbackL = 0.f, cachedFeedbackR = 0.f;
 
-    // Dirty flag — set when filter coeffs change, cleared after display copy
-    bool coeffsDirty = true;
+    // Cached level knob bases and trim factors — updated in param tier every PARAM_STRIDE
+    // samples. At audio rate each voice only adds its own poly CV * trim to these bases,
+    // avoiding repeated params[].getValue() calls (slow engine indirections) per sample.
+    float cachedLowBase  = 1.f, cachedMidBase  = 1.f;
+    float cachedHighBase = 1.f, cachedMixBase  = 1.f;
+    float cachedLowTrim  = 0.f, cachedMidTrim  = 0.f;
+    float cachedHighTrim = 0.f, cachedMixTrim  = 0.f;
 
     // Follow time (context menu, 0..1)
-    float followTime = 0.12f;
+    float followTime = 0.30f;
 
-    // Display state
+    // Display state — driven by voice 0
     float displayFcLow  = 0.05f, displayFcHigh = 0.25f;
+    float displayFcLowR = 0.05f, displayFcHighR = 0.25f;
     float displayEnvLow = 0.f,   displayEnvMid = 0.f, displayEnvHigh = 0.f;
     BiquadCoeffs dispLpLow[TRITON_STAGES], dispHpLow[TRITON_STAGES];
     BiquadCoeffs dispLpHigh[TRITON_STAGES], dispHpHigh[TRITON_STAGES];
     BiquadCoeffs dispLpLowR[TRITON_STAGES], dispHpLowR[TRITON_STAGES];
     BiquadCoeffs dispLpHighR[TRITON_STAGES], dispHpHighR[TRITON_STAGES];
     float dispSharp = 1.f, dispSharpR = 1.f;
-    float displayFcLowR = 0.05f, displayFcHighR = 0.25f;
     float sampleRate = 44100.f;
 
-    // Feedback system
-    bool feedbackEnabled = false;    
-    float mixL = 0.f; //used for feedback
-    float mixR = 0.f;
-    float feedbackL = 0.f, feedbackR = 0.f;
-    float fbGainL = 0.f, fbGainR = 0.f;        // actual feedback gains, audio-rate smoothed
-    float fbEnvL  = 0.f, fbEnvR  = 0.f;        // peak envelope trackers for AGC
+    // Envelope output scaling — when true, env outputs follow the band level knobs
+    bool scaledEnvelopes = true;
+
+    // Feedback enabled flag
+    bool feedbackEnabled = false;
 
     // ── JSON ──────────────────────────────────────────────────────────────────
     json_t* dataToJson() override {
         json_t* r = json_object();
         json_object_set_new(r, "widthTarget", json_integer(widthTarget));
         json_object_set_new(r, "followTime",  json_real(followTime));
-        json_object_set_new(r, "feedbackEnabled", json_boolean(feedbackEnabled));
+        json_object_set_new(r, "feedbackEnabled",  json_boolean(feedbackEnabled));
+        json_object_set_new(r, "scaledEnvelopes",  json_boolean(scaledEnvelopes));
         return r;
     }
     void dataFromJson(json_t* r) override {
         json_t* j;
-        j = json_object_get(r,"widthTarget"); if (j) widthTarget=json_integer_value(j);
-        j = json_object_get(r,"followTime");  if (j) followTime =json_real_value(j);
-        j = json_object_get(r,"feedbackEnabled"); if (j) feedbackEnabled=json_boolean_value(j);
+        j = json_object_get(r,"widthTarget");     if (j) widthTarget     = json_integer_value(j);
+        j = json_object_get(r,"followTime");      if (j) followTime      = json_real_value(j);
+        j = json_object_get(r,"feedbackEnabled"); if (j) feedbackEnabled = json_boolean_value(j);
+        j = json_object_get(r,"scaledEnvelopes"); if (j) scaledEnvelopes = json_boolean_value(j);
     }
 
     // ── Constructor ───────────────────────────────────────────────────────────
@@ -277,14 +329,9 @@ struct Triton : Module {
         configOutput(SUM_R_OUTPUT,   "Sum R");
         configOutput(MIX_ENV_OUTPUT, "Mix Envelope");
 
-        lpLowL.setMode(FilterTriton::LOWPASS);
-        hpLowL.setMode(FilterTriton::HIGHPASS);
-        lpHighL.setMode(FilterTriton::LOWPASS);
-        hpHighL.setMode(FilterTriton::HIGHPASS);
-        lpLowR.setMode(FilterTriton::LOWPASS);
-        hpLowR.setMode(FilterTriton::HIGHPASS);
-        lpHighR.setMode(FilterTriton::LOWPASS);
-        hpHighR.setMode(FilterTriton::HIGHPASS);
+        // Bypass routing — when module is disabled, audio passes through unprocessed
+        configBypass(AUDIO_L_INPUT, SUM_L_OUTPUT);
+        configBypass(AUDIO_R_INPUT, SUM_R_OUTPUT);
 
         for (int i=0;i<TRITON_STAGES;i++) {
             dispLpLow[i]=dispHpLow[i]=dispLpHigh[i]=dispHpHigh[i]=BiquadCoeffs{};
@@ -293,20 +340,21 @@ struct Triton : Module {
 
         paramDivider.setDivision(PARAM_STRIDE);
 
-        // Initialise with safe defaults so filters are valid before first param update
-        dcBlockL.setSampleRate(44100.f); dcBlockR.setSampleRate(44100.f);
-        nyqCapL.setSampleRate(44100.f);  nyqCapR.setSampleRate(44100.f);
-        float defaultFc = 0.1f;
-        lpLowL.setParameters(defaultFc,1.f,0.f); hpLowL.setParameters(defaultFc,1.f,0.f);
-        lpHighL.setParameters(defaultFc,1.f,0.f); hpHighL.setParameters(defaultFc,1.f,0.f);
-        lpLowR.setParameters(defaultFc,1.f,0.f); hpLowR.setParameters(defaultFc,1.f,0.f);
-        lpHighR.setParameters(defaultFc,1.f,0.f); hpHighR.setParameters(defaultFc,1.f,0.f);
+        for (int vi=0; vi<MAX_POLY; vi++)
+            voices[vi].init(44100.f);
+    }
+
+    void onReset() override {
+        Module::onReset();
+        for (int vi=0; vi<MAX_POLY; vi++) voices[vi].clear();
+        followTime      = 0.30f;
+        feedbackEnabled = false;
+        scaledEnvelopes = true;
     }
 
     void onSampleRateChange(const SampleRateChangeEvent& e) override {
-        sampleRate=e.sampleRate;
-        dcBlockL.setSampleRate(sampleRate); dcBlockR.setSampleRate(sampleRate);
-        nyqCapL.setSampleRate(sampleRate);  nyqCapR.setSampleRate(sampleRate);
+        sampleRate = e.sampleRate;
+        for (int vi=0; vi<MAX_POLY; vi++) voices[vi].init(sampleRate);
     }
 
     // ── Helper: compute cutoff frequencies from base params + optional offset ─
@@ -340,10 +388,24 @@ struct Triton : Module {
     void process(const ProcessArgs& args) override {
         sampleRate = args.sampleRate;
 
+        // ── Voice count — deepest poly across all connected inputs ────────────
+        int maxCh = 1;
+        for (int i=0; i<INPUTS_LEN; i++)
+            if (inputs[i].isConnected()) maxCh = std::max(maxCh, inputs[i].getChannels());
+        nVoices = clamp(maxCh, 1, MAX_POLY);
+
+        // Clear voices that just dropped out of the active range
+        if (nVoices < prevVoices) {
+            for (int vi=nVoices; vi<prevVoices; vi++) voices[vi].clear();
+        }
+        prevVoices = nVoices;
+
         // ── PARAM TIER — runs every PARAM_STRIDE samples ──────────────────────
-        // All expensive non-audio work: param reads, smoothing, filter coeff
-        // updates, envelope follower coeff updates. Safe because all CV inputs
-        // are smoothed — a 32-sample delay is inaudible (~0.7ms at 44.1kHz).
+        // Param reads, smoothing, filter coeff and env follower updates.
+        // Filter CV inputs support polyphony — when any filter CV has more than
+        // one channel, each voice reads its own channel (poly path). When all
+        // filter CVs are mono or unconnected, all voices share identical smoothed
+        // values (fast path). VOCT is always per-voice regardless.
         if (paramDivider.process()) {
 
             // Per-slider map buttons — each toggles its bit in the widthTarget bitmask
@@ -354,16 +416,17 @@ struct Triton : Module {
             };
             for (int i = 0; i < 6; i++) {
                 if (mapTriggers[i].process(params[mapBtns[i].p].getValue()))
-                    widthTarget ^= mapBtns[i].bit;  // toggle bit
+                    widthTarget ^= mapBtns[i].bit;
             }
 
             auto readCV = [&](InputId i) -> float {
                 return inputs[i].isConnected() ? inputs[i].getVoltage() : 0.f;
             };
 
-            float centerV  = params[CENTER_PARAM].getValue()
-                           + readCV(VOCT_INPUT)
-                           + readCV(CENTER_CV_INPUT)*params[CENTER_TRIM_PARAM].getValue();
+            // Base center uses channel 0 of VOCT — per-voice offset applied in audio tier
+            float centerBase = params[CENTER_PARAM].getValue()
+                             + inputs[VOCT_INPUT].getPolyVoltage(0)
+                             + readCV(CENTER_CV_INPUT)*params[CENTER_TRIM_PARAM].getValue();
             float spread   = clamp(params[SPREAD_PARAM].getValue()
                            + readCV(SPREAD_CV_INPUT)*0.1f*params[SPREAD_TRIM_PARAM].getValue(), 0.f,1.f);
             float gap      = clamp(2.f*params[GAP_PARAM].getValue()
@@ -377,212 +440,333 @@ struct Triton : Module {
             float width    = clamp(params[WIDTH_PARAM].getValue()
                            + readCV(WIDTH_CV_INPUT)*0.1f*params[WIDTH_TRIM_PARAM].getValue(), -1.f,1.f);
 
-            float centerSc  = smCenter.process(centerV,  0.04f);   // coeff scaled for sub-rate
-            float spreadSc = smSpread.process(spread,   0.04f);
-            float gapSc  = smGap.process   (gap,      0.04f);
-            float sharpSc = smSharp.process (sharp,    0.06f);
-            float resSc  = smRes.process   (res,      0.04f);
-            float driveSc  = smDrive.process (driveKnob,0.16f);
-            float widthSc  = smWidth.process (width,    0.16f);
+            float centerSc = centerBase;
+            float spreadSc = spread;
+            float gapSc    = gap;
+            float sharpSc  = sharp;
+            float resSc    = res;
+            float driveSc  = driveKnob;
+            float widthSc  = width;
 
             // Non-linear response curves — applied after smoothing, before width offset
             // Sharpness: most action in top quarter — 1-(1-x)^3 stretches that range out
             sharpSc = clamp(1.f - (1.f-sharpSc)*(1.f-sharpSc)*(1.f-sharpSc), 0.f, 1.f);
             // Resonance: most action in bottom fifth — x^3 keeps it subtle until pushed
-            resSc  = clamp(resSc*resSc*resSc, 0.f, 1.f)*0.5f;
+            resSc   = clamp(resSc*resSc*resSc, 0.f, 1.f)*0.5f;
 
             // Width pushes L and R symmetrically in opposite directions.
-            // Each active bit contributes its offset — multiple bits stack.
-            float centerL=centerSc,  spreadL=spreadSc,  gapL=gapSc,  sharpL=sharpSc,  resL=resSc,  driveL=driveSc;
-            float centerR=centerSc,  spreadR=spreadSc,  gapR=gapSc,  sharpR=sharpSc,  resR=resSc,  driveR=driveSc;
-            if (widthTarget & W_CENTER) {
-                centerL = centerSc  - widthSc*2.f;
-                centerR = centerSc  + widthSc*2.f;
-            }
-            if (widthTarget & W_SPREAD) {
-                spreadL = clamp(spreadSc - widthSc, 0.f,1.f);
-                spreadR = clamp(spreadSc + widthSc, 0.f,1.f);
-            }
-            if (widthTarget & W_GAP) {
-                gapL = clamp(gapSc - widthSc, -2.f,2.f);
-                gapR = clamp(gapSc + widthSc, -2.f,2.f);
-            }
-            if (widthTarget & W_SHARP) {
-                sharpL = clamp(sharpSc - widthSc, 0.f,1.f);
-                sharpR = clamp(sharpSc + widthSc, 0.f,1.f);
-            }
-            if (widthTarget & W_RES) {
-                resL = clamp(resSc - widthSc*0.5f, 0.f,0.5f);
-                resR = clamp(resSc + widthSc*0.5f, 0.f,0.5f);
-            }
-            if (widthTarget & W_DRIVE) {
-                driveL = clamp(driveSc - widthSc, 0.f,1.f);
-                driveR = clamp(driveSc + widthSc, 0.f,1.f);
+            float centerL=centerSc, spreadL=spreadSc, gapL=gapSc, sharpL=sharpSc, resL=resSc, driveParamL=driveSc;
+            float centerR=centerSc, spreadR=spreadSc, gapR=gapSc, sharpR=sharpSc, resR=resSc, driveParamR=driveSc;
+            if (widthTarget & W_CENTER) { centerL = centerSc - widthSc*2.f; centerR = centerSc + widthSc*2.f; }
+            if (widthTarget & W_SPREAD) { spreadL = clamp(spreadSc - widthSc, 0.f,1.f); spreadR = clamp(spreadSc + widthSc, 0.f,1.f); }
+            if (widthTarget & W_GAP)    { gapL    = clamp(gapSc    - widthSc, -2.f,2.f); gapR   = clamp(gapSc    + widthSc, -2.f,2.f); }
+            if (widthTarget & W_SHARP)  { sharpL  = clamp(sharpSc  - widthSc, 0.f,1.f); sharpR  = clamp(sharpSc  + widthSc, 0.f,1.f); }
+            if (widthTarget & W_RES)    { resL    = clamp(resSc    - widthSc*0.5f, 0.f,0.5f); resR = clamp(resSc + widthSc*0.5f, 0.f,0.5f); }
+            if (widthTarget & W_DRIVE)  { driveParamL = clamp(driveSc - widthSc, 0.f,1.f); driveParamR = clamp(driveSc + widthSc, 0.f,1.f); }
+
+            // Cache feedback amounts for the audio tier (mono fast-path values)
+            cachedFeedbackL = 0.5f * resL;
+            cachedFeedbackR = 0.5f * resR;
+
+            // Detect whether any filter CV input is actually polyphonic.
+            // When all are mono (the common case) all voices share identical cutoffs —
+            // cheap. When a poly CV is patched, each voice reads its own channel.
+            bool filterCVIsPoly = inputs[CENTER_CV_INPUT].getChannels() > 1
+                                || inputs[SPREAD_CV_INPUT].getChannels() > 1
+                                || inputs[GAP_CV_INPUT   ].getChannels() > 1
+                                || inputs[SHARP_CV_INPUT ].getChannels() > 1
+                                || inputs[RES_CV_INPUT   ].getChannels() > 1
+                                || inputs[DRIVE_CV_INPUT ].getChannels() > 1
+                                || inputs[WIDTH_CV_INPUT ].getChannels() > 1;
+
+            // Precompute knob+trim bases for poly CV reads — avoids repeated
+            // params[].getValue() calls inside the per-voice loop
+            float centerKnob = params[CENTER_PARAM].getValue();
+            float spreadKnob = params[SPREAD_PARAM].getValue();
+            float gapKnob    = 2.f * params[GAP_PARAM].getValue();
+            float sharpKnob  = params[SHARP_PARAM].getValue();
+            float resKnob    = params[RES_PARAM].getValue();
+            float driveKnob2 = params[DRIVE_PARAM].getValue();
+            float widthKnob  = params[WIDTH_PARAM].getValue();
+            float centerTrim = params[CENTER_TRIM_PARAM].getValue();
+            float spreadTrim = params[SPREAD_TRIM_PARAM].getValue() * 0.1f;
+            float gapTrim    = params[GAP_TRIM_PARAM   ].getValue() * 0.2f;
+            float sharpTrim  = params[SHARP_TRIM_PARAM ].getValue() * 0.1f;
+            float resTrim    = params[RES_TRIM_PARAM   ].getValue() * 0.1f;
+            float driveTrim  = params[DRIVE_TRIM_PARAM ].getValue() * 0.1f;
+            float widthTrim  = params[WIDTH_TRIM_PARAM ].getValue() * 0.1f;
+            float voct0      = inputs[VOCT_INPUT].isConnected()
+                             ? inputs[VOCT_INPUT].getPolyVoltage(0) : 0.f;
+
+            for (int vi=0; vi<nVoices; vi++) {
+                TritonVoice& v = voices[vi];
+
+                float voctOffset = inputs[VOCT_INPUT].isConnected()
+                                 ? inputs[VOCT_INPUT].getPolyVoltage(vi) : 0.f;
+
+                float voiceCenterL, voiceCenterR;
+                float voiceSpreadL, voiceSpreadR;
+                float voiceGapL,    voiceGapR;
+                float voiceSharpL,  voiceSharpR;
+                float voiceResL,    voiceResR;
+                float voiceDriveL,  voiceDriveR;
+
+                if (filterCVIsPoly) {
+                    // Poly path — read each CV input's own channel for this voice
+                    float vCenter = centerKnob + voctOffset
+                                  + inputs[CENTER_CV_INPUT].getPolyVoltage(vi)*centerTrim;
+                    float vSpread = clamp(spreadKnob + inputs[SPREAD_CV_INPUT].getPolyVoltage(vi)*spreadTrim, 0.f,1.f);
+                    float vGap    = clamp(gapKnob    + inputs[GAP_CV_INPUT   ].getPolyVoltage(vi)*gapTrim,   -2.f,2.f);
+                    float vSharp  = clamp(sharpKnob  + inputs[SHARP_CV_INPUT ].getPolyVoltage(vi)*sharpTrim,  0.f,1.f);
+                    float vRes    = clamp(resKnob    + inputs[RES_CV_INPUT   ].getPolyVoltage(vi)*resTrim,    0.f,1.f);
+                    float vDrive  = clamp(driveKnob2 + inputs[DRIVE_CV_INPUT ].getPolyVoltage(vi)*driveTrim,  0.f,1.f);
+                    float vWidth  = clamp(widthKnob  + inputs[WIDTH_CV_INPUT ].getPolyVoltage(vi)*widthTrim, -1.f,1.f);
+
+                    // Non-linear curves — same as the mono smoother path
+                    vSharp = clamp(1.f - (1.f-vSharp)*(1.f-vSharp)*(1.f-vSharp), 0.f, 1.f);
+                    vRes   = clamp(vRes*vRes*vRes, 0.f, 1.f) * 0.5f;
+
+                    voiceCenterL = vCenter; voiceCenterR = vCenter;
+                    voiceSpreadL = vSpread; voiceSpreadR = vSpread;
+                    voiceGapL    = vGap;    voiceGapR    = vGap;
+                    voiceSharpL  = vSharp;  voiceSharpR  = vSharp;
+                    voiceResL    = vRes;    voiceResR    = vRes;
+                    voiceDriveL  = 1.f + vDrive * 9.f;
+                    voiceDriveR  = voiceDriveL;
+
+                    if (widthTarget & W_CENTER) { voiceCenterL -= vWidth*2.f;                          voiceCenterR += vWidth*2.f; }
+                    if (widthTarget & W_SPREAD) { voiceSpreadL  = clamp(vSpread-vWidth, 0.f,1.f);     voiceSpreadR  = clamp(vSpread+vWidth, 0.f,1.f); }
+                    if (widthTarget & W_GAP)    { voiceGapL     = clamp(vGap-vWidth,   -2.f,2.f);     voiceGapR     = clamp(vGap+vWidth,   -2.f,2.f); }
+                    if (widthTarget & W_SHARP)  { voiceSharpL   = clamp(vSharp-vWidth,  0.f,1.f);     voiceSharpR   = clamp(vSharp+vWidth,  0.f,1.f); }
+                    if (widthTarget & W_RES)    { voiceResL     = clamp(vRes-vWidth*0.5f, 0.f,0.5f);  voiceResR     = clamp(vRes+vWidth*0.5f, 0.f,0.5f); }
+                    if (widthTarget & W_DRIVE)  { voiceDriveL   = 1.f+clamp(vDrive-vWidth, 0.f,1.f)*9.f; voiceDriveR = 1.f+clamp(vDrive+vWidth, 0.f,1.f)*9.f; }
+
+                    v.feedbackL = 0.5f * voiceResL;
+                    v.feedbackR = 0.5f * voiceResR;
+                } else {
+                    // Mono fast-path — use pre-smoothed module-level values,
+                    // only substitute this voice's VOCT offset for center
+                    voiceCenterL = centerL - voct0 + voctOffset;
+                    voiceCenterR = centerR - voct0 + voctOffset;
+                    voiceSpreadL = spreadL; voiceSpreadR = spreadR;
+                    voiceGapL    = gapL;    voiceGapR    = gapR;
+                    voiceSharpL  = sharpL;  voiceSharpR  = sharpR;
+                    voiceResL    = resL;    voiceResR    = resR;
+                    voiceDriveL  = 1.f + driveParamL * 9.f;
+                    voiceDriveR  = 1.f + driveParamR * 9.f;
+                    v.feedbackL  = cachedFeedbackL;
+                    v.feedbackR  = cachedFeedbackR;
+                }
+
+                // Snapshot current coefficients before overwriting — gives lerpCoeffs()
+                // a valid start point for the interpolation window
+                v.filtersA.snapshot();
+                v.filtersB.snapshot();
+
+                CutoffSet vcL = computeCutoffs(voiceCenterL, voiceSpreadL, voiceGapL, sampleRate);
+                CutoffSet vcR = computeCutoffs(voiceCenterR, voiceSpreadR, voiceGapR, sampleRate);
+
+                v.filtersA.setLane(0, FilterTriton::LOWPASS,  vcL.lpLow,  voiceSharpL, voiceResL);
+                v.filtersA.setLane(1, FilterTriton::HIGHPASS, vcL.hpLow,  voiceSharpL, voiceResL);
+                v.filtersA.setLane(2, FilterTriton::LOWPASS,  vcR.lpLow,  voiceSharpR, voiceResR);
+                v.filtersA.setLane(3, FilterTriton::HIGHPASS, vcR.hpLow,  voiceSharpR, voiceResR);
+                v.filtersB.setLane(0, FilterTriton::HIGHPASS, vcL.hpHigh, voiceSharpL, voiceResL);
+                v.filtersB.setLane(1, FilterTriton::LOWPASS,  vcL.lpHigh, voiceSharpL, voiceResL);
+                v.filtersB.setLane(2, FilterTriton::HIGHPASS, vcR.hpHigh, voiceSharpR, voiceResR);
+                v.filtersB.setLane(3, FilterTriton::LOWPASS,  vcR.lpHigh, voiceSharpR, voiceResR);
+                v.envLow.setCoeff (vcL.lpLow * 0.6f,                         followTime, sampleRate);
+                v.envMid.setCoeff (sqrtf(vcL.lpLow * vcL.lpHigh) * 0.5f,    followTime, sampleRate);
+                v.envHigh.setCoeff(clamp(vcL.hpHigh * 4.0f, 0.001f, 0.499f), followTime, sampleRate);
+                v.driveGainL = voiceDriveL;
+                v.driveGainR = voiceDriveR;
+
+                if (vi == 0) {
+                    displayFcLow  = vcL.fA;
+                    displayFcHigh = vcL.fB;
+                    displayFcLowR = vcR.fA;
+                    displayFcHighR= vcR.fB;
+                }
             }
 
-            //Feedback
-            feedbackL = 0.5f*resL; //save to global var for use in audio feedback
-            feedbackR = 0.5f*resR;
-
-            // Levels
-            auto readLvl = [&](ParamId p, ParamId t, InputId i) -> float {
-                float v=params[p].getValue();
-                if (inputs[i].isConnected()) v+=inputs[i].getVoltage()*0.1f*params[t].getValue();
-                return clamp(v,0.f,1.f);
+            // Display coefficients — extract per-lane from voice 0's SIMD filters.
+            // filtersA: lane 0=lpLowL, lane 1=hpLowL, lane 2=lpLowR, lane 3=hpLowR
+            // filtersB: lane 0=hpHighL, lane 1=lpHighL, lane 2=hpHighR, lane 3=lpHighR
+            auto extractLane = [](const FilterTritonSIMD& f, int stage, int lane) -> BiquadCoeffs {
+                BiquadCoeffs c;
+                c.b0 = f.b0[stage][lane];  c.b1 = f.b1[stage][lane];  c.b2 = f.b2[stage][lane];
+                c.a1 = f.fa1[stage][lane]; c.a2 = f.fa2[stage][lane];
+                return c;
             };
-            cachedLowLvl  = smLowLvl.process (readLvl(LOW_LEVEL_PARAM, LOW_LEVEL_TRIM_PARAM, LOW_LEVEL_CV_INPUT), 0.16f);
-            cachedMidLvl  = smMidLvl.process (readLvl(MID_LEVEL_PARAM, MID_LEVEL_TRIM_PARAM, MID_LEVEL_CV_INPUT), 0.16f);
-            cachedHighLvl = smHighLvl.process(readLvl(HIGH_LEVEL_PARAM,HIGH_LEVEL_TRIM_PARAM,HIGH_LEVEL_CV_INPUT),0.16f);
-            cachedMixLvl = smMixLvl.process(readLvl(MIX_LEVEL_PARAM,MIX_LEVEL_TRIM_PARAM,MIX_LEVEL_CV_INPUT),0.16f);
-
-            // Crossover frequencies — both L and R may differ when Width is mapped
-            CutoffSet csL = computeCutoffs(centerL, spreadL, gapL, sampleRate);
-            CutoffSet csR = computeCutoffs(centerR, spreadR, gapR, sampleRate);
-
-            // Update filter coefficients
-            lpLowL.setParameters (csL.lpLow,  sharpL, resL);
-            hpLowL.setParameters (csL.hpLow,  sharpL, resL);
-            lpHighL.setParameters(csL.lpHigh, sharpL, resL);
-            hpHighL.setParameters(csL.hpHigh, sharpL, resL);
-            lpLowR.setParameters (csR.lpLow,  sharpR, resR);
-            hpLowR.setParameters (csR.hpLow,  sharpR, resR);
-            lpHighR.setParameters(csR.lpHigh, sharpR, resR);
-            hpHighR.setParameters(csR.hpHigh, sharpR, resR);
-
-            // Envelope follower coefficients
-            float fcLowCenter  = csL.lpLow  * 0.6f;
-            float fcMidCenter  = sqrtf(csL.lpLow * csL.lpHigh) * 0.5f;
-            float fcHighCenter = clamp(csL.hpHigh * 4.0f, 0.001f, 0.499f);
-
-            envLow.setCoeff (fcLowCenter,  followTime, sampleRate);
-            envMid.setCoeff (fcMidCenter,  followTime, sampleRate);
-            envHigh.setCoeff(fcHighCenter, followTime, sampleRate);
-
-            // Display coefficients — copy once per param update, not per sample
             for (int i=0;i<TRITON_STAGES;i++) {
-                dispLpLow[i]  = lpLowL.coeffs[i];
-                dispHpLow[i]  = hpLowL.coeffs[i];
-                dispLpHigh[i] = lpHighL.coeffs[i];
-                dispHpHigh[i] = hpHighL.coeffs[i];
+                dispLpLow[i]   = extractLane(voices[0].filtersA, i, 0);
+                dispHpLow[i]   = extractLane(voices[0].filtersA, i, 1);
+                dispLpLowR[i]  = extractLane(voices[0].filtersA, i, 2);
+                dispHpLowR[i]  = extractLane(voices[0].filtersA, i, 3);
+                dispHpHigh[i]  = extractLane(voices[0].filtersB, i, 0);
+                dispLpHigh[i]  = extractLane(voices[0].filtersB, i, 1);
+                dispHpHighR[i] = extractLane(voices[0].filtersB, i, 2);
+                dispLpHighR[i] = extractLane(voices[0].filtersB, i, 3);
             }
-            dispSharp    = sharpL;
-            displayFcLow = csL.fA;
-            displayFcHigh= csL.fB;
-            for (int i=0;i<TRITON_STAGES;i++) {
-                dispLpLowR[i]  = lpLowR.coeffs[i];
-                dispHpLowR[i]  = hpLowR.coeffs[i];
-                dispLpHighR[i] = lpHighR.coeffs[i];
-                dispHpHighR[i] = hpHighR.coeffs[i];
-            }
-            dispSharpR     = sharpR;
-            displayFcLowR  = csR.fA;
-            displayFcHighR = csR.fB;
+            dispSharp  = sharpL;
+            dispSharpR = sharpR;
 
-            cachedDriveGainL = 1.f + driveL * 9.f;
-            cachedDriveGainR = 1.f + driveR * 9.f;
+            // Cache monophonic level bases and trim factors — audio tier adds poly CV delta
+            cachedLowBase  = params[LOW_LEVEL_PARAM ].getValue();
+            cachedMidBase  = params[MID_LEVEL_PARAM ].getValue();
+            cachedHighBase = params[HIGH_LEVEL_PARAM].getValue();
+            cachedMixBase  = params[MIX_LEVEL_PARAM ].getValue();
+            cachedLowTrim  = params[LOW_LEVEL_TRIM_PARAM ].getValue() * 0.1f;
+            cachedMidTrim  = params[MID_LEVEL_TRIM_PARAM ].getValue() * 0.1f;
+            cachedHighTrim = params[HIGH_LEVEL_TRIM_PARAM].getValue() * 0.1f;
+            cachedMixTrim  = params[MIX_LEVEL_TRIM_PARAM ].getValue() * 0.1f;
+
+            interpPhase = 0;  // restart interpolation window
+
         } // end paramDivider
 
-        // ── AUDIO TIER — runs every sample ────────────────────────────────────
-        float inL = inputs[AUDIO_L_INPUT].getVoltage();
-        float inR = inputs[AUDIO_R_INPUT].isConnected()
-                  ? inputs[AUDIO_R_INPUT].getVoltage() : inL;
-
-        // ── Feedback AGC ──────────────────────────────────────────────────────
+        // ── AUDIO TIER — per-voice loop ───────────────────────────────────────
         const float fbAttack  = 0.9f;
         const float fbRelease = 0.0005f;
         const float fbTarget  = 5.0f;
 
-        float mixLabs = fabsf(mixL);
-        float mixRabs = fabsf(mixR);
-        fbEnvL = mixLabs > fbEnvL ? mixLabs*fbAttack + fbEnvL*(1.f-fbAttack)
-                                  : fbEnvL*(1.f-fbRelease);
-        fbEnvR = mixRabs > fbEnvR ? mixRabs*fbAttack + fbEnvR*(1.f-fbAttack)
-                                  : fbEnvR*(1.f-fbRelease);
+        // Interpolation fraction — advances 0->1 across each PARAM_STRIDE window.
+        // All voices use the same fraction since the param tier updates them together.
+        float interpT = clamp((float)interpPhase / (float)PARAM_STRIDE, 0.f, 1.f);
+        interpPhase++;
 
-        float agcL = (fbEnvL > fbTarget) ? fbTarget / fbEnvL : 1.f;
-        float agcR = (fbEnvR > fbTarget) ? fbTarget / fbEnvR : 1.f;
-        fbGainL += 0.01f * (feedbackL * agcL - fbGainL);
-        fbGainR += 0.01f * (feedbackR * agcR - fbGainR);
-
-        if (feedbackEnabled) {
-            inL += mixL * fbGainL + 0.003f * feedbackL;
-            inR += mixR * fbGainR + 0.003f * feedbackR;
-        }        
-
-        float drivenL = driveL.process(inL, cachedDriveGainL);
-        float drivenR = driveR.process(inR, cachedDriveGainR);
-
-        // ── Band splitting — L ────────────────────────────────────────────────
-        float lowL  = dcBlockL.process(lpLowL.process(drivenL));
-        float midL  = lpHighL.process(hpLowL.process(drivenL));
-        float highL = nyqCapL.process(hpHighL.process(drivenL));
-                        
-        lowL  = clamp(lowL,  -12.f,12.f);
-        midL  = clamp(midL,  -12.f,12.f);
-        highL = clamp(highL, -12.f,12.f);
-
-        // ── Band splitting — R ────────────────────────────────────────────────
-        float lowR  = dcBlockR.process(lpLowR.process(drivenR));
-        float midR  = lpHighR.process(hpLowR.process(drivenR));
-        float highR = nyqCapR.process(hpHighR.process(drivenR));
-        lowR  = clamp(lowR,  -12.f,12.f);
-        midR  = clamp(midR,  -12.f,12.f);
-        highR = clamp(highR, -12.f,12.f);
-
-        // ── Envelope followers (L channel) ────────────────────────────────────
-        
-        float fcMin = 20.f / sampleRate;     // ~20Hz normalised
-        float fcMax = 20000.f / sampleRate;  // ~20kHz normalised
-        
-        float fcL = clamp(displayFcLow  * 0.35f, fcMin, fcMax);
-        float fcM = clamp(sqrtf(displayFcLow * displayFcHigh), fcMin, fcMax);
-        float fcH = clamp(displayFcHigh * 2.5f, fcMin, fcMax);
-        
-        float logRange = log2f(fcMax / fcMin);  // total log range
-        float scaleL = powf(2.f, 2.f * log2f(fcL / fcMin) / logRange);
-        float scaleM = powf(2.f, 2.f * log2f(fcM / fcMin) / logRange);
-        float scaleH = powf(2.f, 2.f * log2f(fcH / fcMin) / logRange);
-               
+        // Frequency scale factors for envelope normalisation — computed once per block
+        float fcMin      = 20.f / sampleRate;
+        float fcMax      = 20000.f / sampleRate;
+        float logRange   = log2f(fcMax / fcMin);
+        float fcL_norm   = clamp(displayFcLow  * 0.35f, fcMin, fcMax);
+        float fcM_norm   = clamp(sqrtf(displayFcLow * displayFcHigh), fcMin, fcMax);
+        float fcH_norm   = clamp(displayFcHigh * 2.5f, fcMin, fcMax);
+        float scaleL     = clamp(powf(2.f, 2.f * log2f(fcL_norm / fcMin) / logRange), 0.25f, 8.0f);
+        float scaleM     = clamp(powf(2.f, 2.f * log2f(fcM_norm / fcMin) / logRange), 0.25f, 8.0f);
+        float scaleH     = clamp(powf(2.f, 2.f * log2f(fcH_norm / fcMin) / logRange), 0.25f, 8.0f);
         const float envScale = 8.0f;
-        float rawL = envLow.process (lowL);
-        float rawM = envMid.process (midL);
-        float rawH = envHigh.process(highL);        
-        
-        // Cap to avoid extreme values at unusual Center/Spread settings
-        scaleL = clamp(scaleL, 0.25f, 8.0f);
-        scaleH = clamp(scaleH, 0.25f, 8.0f);
-        
-        float envL_ = clamp(rawL * envScale * scaleL, 0.f,10.f);
-        float envM_ = clamp(rawM * envScale * scaleM, 0.f,10.f);
-        float envH_ = clamp(rawH * envScale * scaleH, 0.f,10.f);
-        
-        float envMix = clamp((envL_+envM_+envH_)/3.f, 0.f,10.f);
 
-        // ── Outputs ───────────────────────────────────────────────────────────
-        float lowLvl=cachedLowLvl, midLvl=cachedMidLvl, highLvl=cachedHighLvl, mixLvl=cachedMixLvl;
-        outputs[LOW_L_OUTPUT ].setVoltage(clamp(lowL  *lowLvl,  -10.f,10.f));
-        outputs[LOW_R_OUTPUT ].setVoltage(clamp(lowR  *lowLvl,  -10.f,10.f));
-        outputs[MID_L_OUTPUT ].setVoltage(clamp(midL  *midLvl,  -10.f,10.f));
-        outputs[MID_R_OUTPUT ].setVoltage(clamp(midR  *midLvl,  -10.f,10.f));
-        outputs[HIGH_L_OUTPUT].setVoltage(clamp(highL *highLvl, -10.f,10.f));
-        outputs[HIGH_R_OUTPUT].setVoltage(clamp(highR *highLvl, -10.f,10.f));
+        for (int vi=0; vi<nVoices; vi++) {
+            TritonVoice& v = voices[vi];
 
-        mixL = lowL*lowLvl+midL*midLvl+highL*highLvl;
-        mixR = lowR*lowLvl+midR*midLvl+highR*highLvl;
+            float inL = inputs[AUDIO_L_INPUT].getPolyVoltage(vi);
+            float inR = inputs[AUDIO_R_INPUT].isConnected()
+                      ? inputs[AUDIO_R_INPUT].getPolyVoltage(vi) : inL;
 
-        outputs[SUM_L_OUTPUT  ].setVoltage(clamp(mixL*mixLvl,-10.f,10.f));
-        outputs[SUM_R_OUTPUT  ].setVoltage(clamp(mixR*mixLvl,-10.f,10.f));        
+            // ── Feedback AGC ──────────────────────────────────────────────────
+            float mixLabs = fabsf(v.mixL);
+            float mixRabs = fabsf(v.mixR);
+            v.fbEnvL = mixLabs > v.fbEnvL ? mixLabs*fbAttack + v.fbEnvL*(1.f-fbAttack)
+                                          : v.fbEnvL*(1.f-fbRelease);
+            v.fbEnvR = mixRabs > v.fbEnvR ? mixRabs*fbAttack + v.fbEnvR*(1.f-fbAttack)
+                                          : v.fbEnvR*(1.f-fbRelease);
 
-        outputs[LOW_ENV_OUTPUT ].setVoltage(envL_);
-        outputs[MID_ENV_OUTPUT ].setVoltage(envM_);
-        outputs[HIGH_ENV_OUTPUT].setVoltage(envH_);
+            float agcL = (v.fbEnvL > fbTarget) ? fbTarget / v.fbEnvL : 1.f;
+            float agcR = (v.fbEnvR > fbTarget) ? fbTarget / v.fbEnvR : 1.f;
+            v.fbGainL += 0.01f * (v.feedbackL * agcL - v.fbGainL);
+            v.fbGainR += 0.01f * (v.feedbackR * agcR - v.fbGainR);
 
-        outputs[MIX_ENV_OUTPUT].setVoltage(envMix);
+            if (feedbackEnabled) {
+                inL += v.mixL * v.fbGainL + 0.003f * v.feedbackL;
+                inR += v.mixR * v.fbGainR + 0.003f * v.feedbackR;
+            }
 
-        // Display
-        displayEnvLow  = envL_/10.f;
-        displayEnvMid  = envM_/10.f;
-        displayEnvHigh = envH_/10.f;
+            float drivenL = v.driveL.process(inL, v.driveGainL);
+            float drivenR = v.driveR.process(inR, v.driveGainR);
+
+            // ── Band splitting — two SIMD passes ─────────────────────────────
+            // Interpolate coefficients toward their targets before processing —
+            // eliminates zipper noise from the 32-sample param update stride
+            v.filtersA.lerpCoeffs(interpT);
+            v.filtersB.lerpCoeffs(interpT);
+            // Pass A: all lanes take driven as input independently
+            //   [lpLowL, hpLowL, lpLowR, hpLowR] = filtersA(drivenL, drivenL, drivenR, drivenR)
+            rack::simd::float_4 pA = v.filtersA.process(
+                rack::simd::float_4(drivenL, drivenL, drivenR, drivenR));
+
+            // Pass B: hpHigh lanes take driven; lpHigh lanes take hpLow output,
+            //   preserving the serial hpLow->lpHigh chain for the true mid bandpass
+            //   [hpHighL, lpHighL(hpLowL), hpHighR, lpHighR(hpLowR)]
+            rack::simd::float_4 pB = v.filtersB.process(
+                rack::simd::float_4(drivenL, pA[1], drivenR, pA[3]));
+
+            float lowL  = v.dcBlockL.process(pA[0]);
+            float midL  = pB[1];    // lpHighL(hpLowL) — true bandpass L
+            float highL = v.nyqCapL.process(pB[0]);
+            lowL  = clamp(lowL,  -12.f, 12.f);
+            midL  = clamp(midL,  -12.f, 12.f);
+            highL = clamp(highL, -12.f, 12.f);
+
+            float lowR  = v.dcBlockR.process(pA[2]);
+            float midR  = pB[3];    // lpHighR(hpLowR) — true bandpass R
+            float highR = v.nyqCapR.process(pB[2]);
+            lowR  = clamp(lowR,  -12.f, 12.f);
+            midR  = clamp(midR,  -12.f, 12.f);
+            highR = clamp(highR, -12.f, 12.f);
+
+            // ── Envelope followers ────────────────────────────────────────────
+            float rawL = v.envLow.process (lowL);
+            float rawM = v.envMid.process (midL);
+            float rawH = v.envHigh.process(highL);
+
+            float envL_ = clamp(rawL * envScale * scaleL, 0.f, 10.f);
+            float envM_ = clamp(rawM * envScale * scaleM, 0.f, 10.f);
+            float envH_ = clamp(rawH * envScale * scaleH, 0.f, 10.f);
+            float envMix = clamp((envL_+envM_+envH_)/3.f, 0.f, 10.f);
+
+            // ── Outputs ───────────────────────────────────────────────────────
+            // Level CVs are polyphonic — each voice reads its own CV channel and adds
+            // it to the pre-cached monophonic knob base and trim factor, avoiding
+            // repeated params[].getValue() calls (slow engine indirections) per sample.
+            float lowKnobBase  = clamp(cachedLowBase  + inputs[LOW_LEVEL_CV_INPUT ].getPolyVoltage(vi)*cachedLowTrim,  0.f,1.f);
+            float midKnobBase  = clamp(cachedMidBase  + inputs[MID_LEVEL_CV_INPUT ].getPolyVoltage(vi)*cachedMidTrim,  0.f,1.f);
+            float highKnobBase = clamp(cachedHighBase + inputs[HIGH_LEVEL_CV_INPUT].getPolyVoltage(vi)*cachedHighTrim, 0.f,1.f);
+            float mixKnobBase  = clamp(cachedMixBase  + inputs[MIX_LEVEL_CV_INPUT ].getPolyVoltage(vi)*cachedMixTrim,  0.f,1.f);
+            v.lowLvl  = v.smLowLvl.process (lowKnobBase,  0.16f);
+            v.midLvl  = v.smMidLvl.process (midKnobBase,  0.16f);
+            v.highLvl = v.smHighLvl.process(highKnobBase, 0.16f);
+            v.mixLvl  = v.smMixLvl.process (mixKnobBase,  0.16f);
+
+            float lowLvl = v.lowLvl, midLvl = v.midLvl, highLvl = v.highLvl, mixLvl = v.mixLvl;
+            outputs[LOW_L_OUTPUT ].setVoltage(clamp(lowL  *lowLvl,  -10.f,10.f), vi);
+            outputs[LOW_R_OUTPUT ].setVoltage(clamp(lowR  *lowLvl,  -10.f,10.f), vi);
+            outputs[MID_L_OUTPUT ].setVoltage(clamp(midL  *midLvl,  -10.f,10.f), vi);
+            outputs[MID_R_OUTPUT ].setVoltage(clamp(midR  *midLvl,  -10.f,10.f), vi);
+            outputs[HIGH_L_OUTPUT].setVoltage(clamp(highL *highLvl, -10.f,10.f), vi);
+            outputs[HIGH_R_OUTPUT].setVoltage(clamp(highR *highLvl, -10.f,10.f), vi);
+
+            v.mixL = lowL*lowLvl + midL*midLvl + highL*highLvl;
+            v.mixR = lowR*lowLvl + midR*midLvl + highR*highLvl;
+
+            outputs[SUM_L_OUTPUT].setVoltage(clamp(v.mixL*mixLvl, -10.f,10.f), vi);
+            outputs[SUM_R_OUTPUT].setVoltage(clamp(v.mixR*mixLvl, -10.f,10.f), vi);
+
+            outputs[LOW_ENV_OUTPUT ].setVoltage(scaledEnvelopes ? envL_ * lowLvl  : envL_,  vi);
+            outputs[MID_ENV_OUTPUT ].setVoltage(scaledEnvelopes ? envM_ * midLvl  : envM_,  vi);
+            outputs[HIGH_ENV_OUTPUT].setVoltage(scaledEnvelopes ? envH_ * highLvl : envH_,  vi);
+            outputs[MIX_ENV_OUTPUT ].setVoltage(scaledEnvelopes ? envMix * mixLvl : envMix, vi);
+
+            // Voice 0 drives the display and LED values
+            if (vi == 0) {
+                displayEnvLow  = envL_ / 10.f;
+                displayEnvMid  = envM_ / 10.f;
+                displayEnvHigh = envH_ / 10.f;
+            }
+        } // end per-voice loop
+
+        // Set output channel counts
+        outputs[LOW_L_OUTPUT ].setChannels(nVoices);
+        outputs[LOW_R_OUTPUT ].setChannels(nVoices);
+        outputs[MID_L_OUTPUT ].setChannels(nVoices);
+        outputs[MID_R_OUTPUT ].setChannels(nVoices);
+        outputs[HIGH_L_OUTPUT].setChannels(nVoices);
+        outputs[HIGH_R_OUTPUT].setChannels(nVoices);
+        outputs[SUM_L_OUTPUT ].setChannels(nVoices);
+        outputs[SUM_R_OUTPUT ].setChannels(nVoices);
+        outputs[LOW_ENV_OUTPUT ].setChannels(nVoices);
+        outputs[MID_ENV_OUTPUT ].setChannels(nVoices);
+        outputs[HIGH_ENV_OUTPUT].setChannels(nVoices);
+        outputs[MIX_ENV_OUTPUT ].setChannels(nVoices);
     }
 };
 
@@ -737,7 +921,7 @@ struct TritonWidget : ModuleWidget {
         FollowQuantity(Triton* m):module(m){}
         void setValue(float v) override { if (module) module->followTime=clamp(v,0.f,1.f); }
         float getValue() override { return module ? module->followTime : getDefaultValue(); }
-        float getDefaultValue() override { return 0.12f; }
+        float getDefaultValue() override { return 0.30f; }
         float getMinValue() override { return 0.f; }
         float getMaxValue() override { return 1.f; }
         int getDisplayPrecision() override { return 2; }
@@ -774,7 +958,6 @@ struct TritonWidget : ModuleWidget {
         const float yLed=30.f, ySlider=45.5f, ySlTrim=57.f, ySlCV=65.f;
 
         // Left input column
-        const float xIn=7.f;
         addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(sxBase,ySlCV-33)),module,Triton::AUDIO_L_INPUT));
         addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(sxBase,ySlCV-18)),module,Triton::AUDIO_R_INPUT));
         addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(sxBase,ySlCV)),module,Triton::VOCT_INPUT));
@@ -905,6 +1088,10 @@ struct TritonWidget : ModuleWidget {
         auto* fbItem = createMenuItem("Internal Feedback", CHECKMARK(m->feedbackEnabled),
             [m]() { m->feedbackEnabled = !m->feedbackEnabled; });
         menu->addChild(fbItem);
+
+        auto* envScaleItem = createMenuItem("Scaled Envelopes", CHECKMARK(m->scaledEnvelopes),
+            [m]() { m->scaledEnvelopes = !m->scaledEnvelopes; });
+        menu->addChild(envScaleItem);
     }
 };
 
