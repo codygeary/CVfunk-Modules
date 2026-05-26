@@ -382,8 +382,10 @@
     {
       "slug": "Triton",
       "name": "Triton",
-      "description": "A three band filter with envelope followers.",
+      "description": "A three-band filter with envelope followers.",
       "tags": [
+        "Polyphonic",
+        "Envelope follower",
         "Filter"
       ]
     }
