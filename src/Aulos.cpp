@@ -45,7 +45,7 @@ struct AulosVoice {
     float t_reedMorph = 0.5f, a_reedMorph = 0.5f;
     float t_bore      = 0.3f, a_bore      = 0.3f;
     float t_tone      = 0.5f, a_tone      = 0.5f;
-    float t_holes     = 0.8f, a_holes     = 0.8f;
+    float t_lip       = 0.8f, a_lip       = 0.8f;
     float t_noise     = 0.1f, a_noise     = 0.1f;
     float t_decay     = 0.7f, a_decay     = 0.7f;
     float t_damp      = 0.1f, a_damp      = 0.1f;
@@ -122,7 +122,7 @@ struct AulosVoice {
         a_reedMorph = t_reedMorph = 0.5f;
         a_bore      = t_bore      = 0.3f;
         a_tone      = t_tone      = 0.5f;
-        a_holes     = t_holes     = 0.8f;
+        a_lip       = t_lip       = 0.8f;
         a_noise     = t_noise     = 0.1f;
         a_decay     = t_decay     = 0.7f;
         a_damp      = t_damp      = 0.1f;
@@ -146,11 +146,7 @@ struct Aulos : Module {
         CHIFF_PARAM,      CHIFF_ATT,
         R_OFFSET_PARAM,   R_OFFSET_ATT,   // R channel pipe pitch offset -1..+1 oct
         DAMP_PARAM,       DAMP_ATT,
-        // Blend
-        BLEND_PARAM,      BLEND_ATT,
-        // Breath envelope
         BREATH_PARAM,     BREATH_ATT,
-        // Pitch
         FM_ATT,
         PIPE_TUNE_PARAM,
         FINGER_TUNE_PARAM,
@@ -290,8 +286,6 @@ struct Aulos : Module {
         configParam(R_OFFSET_ATT,     -2.f,  2.f,  0.f,  "R Offset Att.");
         configParam(DAMP_PARAM,        0.f,  1.f,  0.1f, "Damp");
         configParam(DAMP_ATT,         -2.f,  2.f,  0.f,  "Damp Att.");
-        configParam(BLEND_PARAM,       0.f,  1.f,  0.7f, "Blend");
-        configParam(BLEND_ATT,        -2.f,  2.f,  0.f,  "Blend Att.");
         configParam(BREATH_PARAM,     0.f,  1.f,  0.8f, "Breath");
         configParam(BREATH_ATT,      -2.f,  2.f,  0.f,  "Breath Att.");
         configParam(FM_ATT,          -2.f,  2.f,  0.f,  "FM / Vibrato Depth");
@@ -432,12 +426,8 @@ struct Aulos : Module {
         primaryDelaySamples = v.a_fingerDelay;
 
         float secondaryRatio        = 0.333f + v.a_bore * (0.5f - 0.333f);
-        
         float secondaryDelaySamples = primaryDelaySamples * secondaryRatio * 0.994f * (1.f - v.safetyDecay * 0.5f);
-
-
         secondaryDelaySamples = rack::clamp( secondaryDelaySamples, 2.f, (float)v.secondaryWaveguide.bufSize - 4.f);
-
 
         // ── Excitation ────────────────────────────────────────────────────────
         float noiseAmp = v.a_noise * v.a_noise * 0.03f * v.breathOut;
@@ -631,7 +621,7 @@ struct Aulos : Module {
                 float blend  = rack::clamp(d / 0.25f, 0.f, 1.f);
                 float freqT  = rack::clamp((d - 0.25f) / 0.75f, 0.f, 1.f);
                 float dFreq  = expf(logf(8000.f) + freqT * (logf(200.f) - logf(8000.f)));
-                sharedDampCoeff = blend * expf(-2.f * float(M_PI) * dFreq / sr)*0.4f;
+                sharedDampCoeff = blend * expf(-2.f * float(M_PI) * dFreq / sr);
             }
 
 
@@ -649,7 +639,7 @@ struct Aulos : Module {
                     v.t_reedMorph         = sliderVal[0];
                     v.t_bore              = sliderVal[1];
                     v.t_tone              = sliderVal[2];
-                    v.t_holes             = sliderVal[3];
+                    v.t_lip               = sliderVal[3];
                     v.t_noise             = sliderVal[4];
                     v.t_chiff             = chiffSlider;
                     v.t_damp              = sliderVal[7];
@@ -686,11 +676,7 @@ struct Aulos : Module {
                ? inputs[BREATH_CV_INPUT].getVoltage() : 0.f) * 0.1f,
             0.f, 1.f);
 
-        // Remap breath: square for low-end resolution, then two-phase mapping.
-        // Bottom ~22% of slider (pre-square) sweeps 0..0.6 quickly — slider at
-        // zero is truly zero. Remaining travel covers expressive range 0.6..1.0.
-        // Tune: threshold (0.05f) — lower = narrower zero zone, faster jump to 0.6.
-        breathRaw = breathRaw * breathRaw;
+        breathRaw = breathRaw * breathRaw; //non-linear breath scaling
         if (breathRaw < 0.05f)
             breathRaw = breathRaw * (0.6f / 0.05f);
         else
@@ -742,7 +728,7 @@ struct Aulos : Module {
                 vs.a_reedMorph += lerpCoeff * (vs.t_reedMorph - vs.a_reedMorph);
                 vs.a_bore      += lerpCoeff * (vs.t_bore      - vs.a_bore);
                 vs.a_tone      += lerpCoeff * (vs.t_tone      - vs.a_tone);
-                vs.a_holes     += lerpCoeff * (vs.t_holes     - vs.a_holes);
+                vs.a_lip       += lerpCoeff * (vs.t_lip       - vs.a_lip);
                 vs.a_noise     += lerpCoeff * (vs.t_noise     - vs.a_noise);
                 vs.a_decay     += lerpCoeff * (vs.t_decay     - vs.a_decay);
                 vs.a_damp      += lerpCoeff * (vs.t_damp      - vs.a_damp);
@@ -798,7 +784,6 @@ struct Aulos : Module {
                 pipeFreqR, fingerFreqR,
                 audioIn, waveguideGain, sharedDecayGain,
                 aulosTrack ? pipeFreqR : pipeFreq);  // tracking: use R pipe as ref; two-pipes: use L pipe
-
 
             voiceOutR *= droneLevel;
 
@@ -867,55 +852,64 @@ struct Aulos : Module {
 // R (bottom): width scaled by pipeFreqL/pipeFreqR, clamped 25%..100%, left-aligned.
 // This makes the relative tube lengths visually apparent.
 // ─────────────────────────────────────────────────────────────────────────────
-struct PipeDisplay : Widget {
+struct PipeDisplay : TransparentWidget {
     Aulos* module = nullptr;
 
-    void draw(const DrawArgs& args) override {
-        nvgBeginPath(args.vg);
-        nvgRoundedRect(args.vg, 0, 0, box.size.x, box.size.y, 4.f);
-        nvgFillColor(args.vg, nvgRGB(18, 18, 18));
-        nvgFill(args.vg);
+    void drawLayer(const DrawArgs& args, int layer) override {
+        if (layer == 1) {
 
-        const float W    = box.size.x;
-        const float H    = box.size.y;
-        const float gap  = 2.f;  // px gap between the two rows
-        const float rowH = (H - gap) * 0.5f;
+            // Self-illuminated display background
+            nvgBeginPath(args.vg);
+            nvgRoundedRect(args.vg, 0, 0, box.size.x, box.size.y, 4.f);
+            nvgFillColor(args.vg, nvgRGBA(12, 12, 20, 220));
+            nvgFill(args.vg);
 
-        if (!module) {
-            // Preview: L half-width, R full-width
-            drawTube(args.vg, 1.f, 0.f, 0.5f, 0.f,  0.f,       0.f, W * 0.5f, rowH);
-            drawTube(args.vg, 1.f, 0.f, 0.5f, 0.f,  0.f,       rowH + gap, W, rowH);
-            return;
+            const float W    = box.size.x;
+            const float H    = box.size.y;
+            const float gap  = 2.f;
+            const float rowH = (H - gap) * 0.5f;
+
+            if (!module) {
+                drawTube(args.vg, 1.f, 0.f, 0.5f, 0.f,
+                         0.f, 0.f, W * 0.5f, rowH);
+
+                drawTube(args.vg, 1.f, 0.f, 0.5f, 0.f,
+                         0.f, rowH + gap, W, rowH);
+            }
+            else {
+                float lWidth = W * 0.5f;
+                float rWidth = rack::clamp(
+                    module->displayPipeRatio * 0.5f,
+                    0.25f,
+                    1.0f
+                ) * W;
+
+                drawTube(args.vg,
+                         module->displayActiveFraction,
+                         module->displayBore,
+                         module->displayBreath,
+                         module->displayOverblow,
+                         0.f, 0.f,
+                         lWidth, rowH);
+
+                drawTube(args.vg,
+                         module->displayActiveFractionR,
+                         module->displayBore,
+                         module->displayBreathR,
+                         module->displayOverblowR,
+                         0.f, rowH + gap,
+                         rWidth, rowH);
+            }
         }
 
-        // L tube: fixed at half total width
-        float lWidth = W * 0.5f;
-
-        // R tube: scaled by pipe ratio (L freq / R freq = L length / R length).
-        // ratio > 1 means R is shorter (higher pitch), ratio < 1 means R is longer.
-        // Clamped to 25%..100% of total width so it stays readable.
-        float rWidth = rack::clamp(module->displayPipeRatio * 0.5f, 0.25f, 1.0f) * W;
-
-        drawTube(args.vg,
-                 module->displayActiveFraction,
-                 module->displayBore,
-                 module->displayBreath,
-                 module->displayOverblow,
-                 0.f, 0.f, lWidth, rowH);
-
-        drawTube(args.vg,
-                 module->displayActiveFractionR,
-                 module->displayBore,
-                 module->displayBreathR,
-                 module->displayOverblowR,
-                 0.f, rowH + gap, rWidth, rowH);
+        TransparentWidget::drawLayer(args, layer);
     }
 
     // bx, by: top-left of the bounding rect for this tube.
     // bw, bh: width and height of the bounding rect.
-void drawTube(NVGcontext* vg,
-                  float activeFraction, float bell, float breath, float overblow,
-                  float bx, float by, float bw, float bh) {
+    void drawTube(NVGcontext* vg,
+          float activeFraction, float bell, float breath, float overblow,
+          float bx, float by, float bw, float bh) {
 
         const float margin  = 3.f;
         const float tubeX   = bx + margin;
@@ -954,19 +948,10 @@ void drawTube(NVGcontext* vg,
         nvgFillColor(vg, nvgRGBAf(0.06f, 0.06f, 0.12f, tubeAlpha));
         nvgFill(vg);
 
-        // ── Standing wave colour ──────────────────────────────────────────────
+        // ── Standing wave color ──────────────────────────────────────────────
         // harmonic driven by overblow state — 1st harmonic normally,
         // 2nd harmonic when overblowing.
         int harmonic = (overblow > 0.3f) ? 2 : 1;
-
-        // markerNorm: finger position along tube.
-        // activeFraction=1.0 -> finger at closed end (left, markerNorm=0).
-        // activeFraction=0.5 -> finger at midpoint (right, markerNorm=1.0).
-        // Clamp to 0..1 — beyond 1.0 is sub-register overblow territory.
-//         float markerNorm = rack::clamp(
-//             (1.f - activeFraction) / 0.5f, 0.f, 1.f);
-//         float markerNorm = rack::clamp((activeFraction - 0.50f) / 0.52f, 0.f, 1.f);
-//         float markerNorm = rack::clamp(activeFraction, 0.5f, 1.0f);
         float markerNorm = rack::clamp((activeFraction - 0.50f) / 0.52f, 0.f, 1.f);
 
         // Standing wave only fills the active tube length (from left to finger).
@@ -979,9 +964,6 @@ void drawTube(NVGcontext* vg,
             float xPix  = tubeX + xNorm * tubeW;
             float segW  = tubeW / (float)N + 1.f;
             float halfH = tubeHalfHeight(xNorm);
-            // Wave pattern spans the active tube length, not the full tube.
-//             float waveNorm = (markerNorm > 0.001f) ? xNorm / markerNorm : 0.f;
-//             float waveNorm = xNorm / markerNorm;
             float waveNorm = xNorm;
             
             float divisor  = rack::crossfade(2.f, 1.f, sqrtf(bell));
