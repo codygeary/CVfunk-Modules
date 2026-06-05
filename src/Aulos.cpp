@@ -624,7 +624,6 @@ struct Aulos : Module {
                 sharedDampCoeff = blend * expf(-2.f * float(M_PI) * dFreq / sr);
             }
 
-
             // Lip -> loop feedback gain. Tune: range 0.75..0.98.
             float sharedFeedback = 0.75f + sliderVal[3] * 0.18f;  // max 0.93
 
@@ -930,7 +929,7 @@ struct PipeDisplay : TransparentWidget {
 
         // ── Tube fill ─────────────────────────────────────────────────────────
         // Opacity scales with breath so tube is dark when silent.
-        float tubeAlpha = 0.3f + breath * 0.5f;
+        float tubeAlpha = 0.5f + breath * 0.5f;
         nvgBeginPath(vg);
         for (int i = 0; i <= CURVE_STEPS; ++i) {
             float xNorm = (float)i / (float)CURVE_STEPS;
@@ -955,7 +954,7 @@ struct PipeDisplay : TransparentWidget {
         float markerNorm = rack::clamp((activeFraction - 0.50f) / 0.52f, 0.f, 1.f);
 
         // Standing wave only fills the active tube length (from left to finger).
-        float brightness = breath ;
+        float brightness = 0.5f + 0.5f*breath ;
         const int N = 64;
         for (int i = 0; i < N; ++i) {
             float xNorm = (float)i / (float)(N - 1);
@@ -976,7 +975,7 @@ struct PipeDisplay : TransparentWidget {
                 0.08f + warm * 0.85f,
                 0.04f + warm * 0.40f,
                 0.10f + cool * 0.85f,
-                breath * 0.9f));
+                0.5f+ breath * 0.5f));
             nvgFill(vg);
         }
 
@@ -990,7 +989,7 @@ struct PipeDisplay : TransparentWidget {
             float halfH = tubeHalfHeight(xNorm);
             nvgBeginPath(vg);
             nvgRect(vg, xPix - segW * 0.5f, centerY - halfH, segW, halfH * 2.f);
-            nvgFillColor(vg, nvgRGBAf(0.12f, 0.12f, 0.22f, breath * 0.9f));
+            nvgFillColor(vg, nvgRGBAf(0.12f, 0.12f, 0.22f, 0.5f + breath * 0.5f));
             nvgFill(vg);
         }
 
@@ -1146,20 +1145,15 @@ struct AulosWidget : ModuleWidget {
         addInput(createInputCentered<ThemedPJ301MPort>(    p(sxBase+2*sPitch, yRow1), module, Aulos::FM_CV_INPUT));
         addParam(createParamCentered<RoundSmallBlackKnob>( p(sxBase+3*sPitch, yRow1), module, Aulos::FM_ATT));
 
-
-
         addInput(createInputCentered<ThemedPJ301MPort>(    p(cx+8.f, yRow1-6.f), module, Aulos::BREATH_CV_INPUT));
         addParam(createParamCentered<Trimpot>(             p(cx+17.f, yRow1-6.f), module, Aulos::BREATH_ATT));
         addParam(createParamCentered<RoundHugeBlackKnob>( p(cx+34.f, yRow1-6.f), module, Aulos::BREATH_PARAM));
-
 
         // Row 2: Breath + Audio In gain (trim + knob)
 
         addParam(createParamCentered<TL1105>(              p(sxBase,  yRow2), module, Aulos::DRONE_BTN));
         addChild(createLightCentered<MediumLight<YellowLight>>(p(sxBase, yRow2), module, Aulos::DRONE_LIGHT));
         addInput(createInputCentered<ThemedPJ301MPort>(    p(sxBase+sPitch,  yRow2), module, Aulos::DRONE_CV_INPUT));
-
-
 
         addInput(createInputCentered<ThemedPJ301MPort>(    p(sxBase+3*sPitch, yRow2), module, Aulos::AUDIO_IN_INPUT));
         addInput(createInputCentered<ThemedPJ301MPort>(    p(cx+8.f, yRow2), module, Aulos::AUDIO_IN_CV_INPUT));
@@ -1276,5 +1270,4 @@ struct AulosWidget : ModuleWidget {
         menu->addChild(new PanicItem(m));
     }
 };
-
 Model* modelAulos = createModel<Aulos, AulosWidget>("Aulos");
