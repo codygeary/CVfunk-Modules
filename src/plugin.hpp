@@ -48,6 +48,7 @@ extern Model* modelAlloy;
 extern Model* modelOnion;
 extern Model* modelStrata;
 extern Model* modelTriton;
+extern Model* modelAulos;
 
 
 

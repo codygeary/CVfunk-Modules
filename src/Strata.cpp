@@ -641,7 +641,7 @@ struct Strata : Module {
     Strata() {
         config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
     
-        // === MAIN SEQUENCER KNOBS (–2..2 V/oct) ===
+        // === MAIN SEQUENCER KNOBS (-2..2 V/oct) ===
         for (int i = 0; i < 4; i++) {
             configParam(SEQ_1_KNOB + i, -2.f, 2.f, 0.f, string::f("Stage L%d Pitch (V)", i + 1) );
         }
@@ -657,7 +657,7 @@ struct Strata : Module {
             configButton(SEQ_5_BUTTON + i, string::f("Stage R%d Enable", i + 1));
         }
     
-        // === SEMITONE KNOBS (–12..12 semitones) ===
+        // === SEMITONE KNOBS (-12..12 semitones) ===
         for (int i = 0; i < 7; i++) {
             configParam(SEMI_1_KNOB + i,  -12.f, 12.f, 0.f, string::f("Semitone %d", i + 1))->snapEnabled=true;
         }
@@ -667,7 +667,7 @@ struct Strata : Module {
             configButton(SEMI_1_BUTTON + i, string::f("Semitone %d Enable", i + 1));
         }
     
-        // === OCTAVE KNOBS (–2..2) ===
+        // === OCTAVE KNOBS (-2..2) ===
         for (int i = 0; i < 4; i++) {
             configParam(OCT_1_KNOB + i, -3.f, 3.f, 0.f, string::f("Octave %d", i + 1))->snapEnabled=true;
         }
@@ -685,9 +685,9 @@ struct Strata : Module {
     
         // === BEATS DOWN BUTTONS ===
         for (int i = 0; i < 8; i++)
-            configButton(STAGE_1_BEATS_DOWN + i, string::f("Stage %d Beats –", i + 1));
-        configButton(SEMI_BEATS_DOWN, "Semitone Beats –");
-        configButton(OCT_BEATS_DOWN,  "Octave Beats –");
+            configButton(STAGE_1_BEATS_DOWN + i, string::f("Stage %d Beats -", i + 1));
+        configButton(SEMI_BEATS_DOWN, "Semitone Beats -");
+        configButton(OCT_BEATS_DOWN,  "Octave Beats -");
     
         // === STEPS UP BUTTONS ===
         for (int i = 0; i < 8; i++)
@@ -697,11 +697,11 @@ struct Strata : Module {
     
         // === STEPS DOWN BUTTONS ===
         for (int i = 0; i < 8; i++)
-            configButton(STAGE_1_STEPS_DOWN + i, string::f("Stage %d Steps –", i + 1));
-        configButton(SEMI_STEPS_DOWN, "Semitone Steps –");
-        configButton(OCT_STEPS_DOWN,  "Octave Steps –");
+            configButton(STAGE_1_STEPS_DOWN + i, string::f("Stage %d Steps -", i + 1));
+        configButton(SEMI_STEPS_DOWN, "Semitone Steps -");
+        configButton(OCT_STEPS_DOWN,  "Octave Steps -");
     
-        // === PATTERN SELECT BUTTONS (1–24) ===
+        // === PATTERN SELECT BUTTONS (1-24) ===
         for (int i = 0; i < 24; i++) {
             configButton(PATTERN_1_BUTTON + i, string::f("Pattern %d", i + 1));
         }
@@ -809,20 +809,20 @@ struct Strata : Module {
         for (int i = 0; i < PATTERNS; i++)
             patternState[i][strataLayer] = (int)(random::u32() % 3);
     
-        // --- SEQ_1…SEQ_8_KNOB  (–2…2 V in 1/12 increments) ---
+        // --- SEQ_1…SEQ_8_KNOB  (-2…2 V in 1/12 increments) ---
         for (int i = 0; i < 8; i++) {
             int steps = randomInt(-24, 24);          // -24…24 semitones
             float v = steps / 12.f;
             params[SEQ_1_KNOB + i].setValue(v);
         }
     
-        // --- SEMI_1…SEMI_7_KNOB  (int –12…12) ---
+        // --- SEMI_1…SEMI_7_KNOB  (int -12…12) ---
         for (int i = 0; i < 7; i++) {
             int v = randomInt(-12, 12);
             params[SEMI_1_KNOB + i].setValue((float)v);
         }
     
-        // --- OCT_1…OCT_4_KNOB (int –2…2) ---
+        // --- OCT_1…OCT_4_KNOB (int -2…2) ---
         for (int i = 0; i < 4; i++) {
             int v = randomInt(-2, 2);
             params[OCT_1_KNOB + i].setValue((float)v);
@@ -854,10 +854,10 @@ struct Strata : Module {
             }
         };
     
-        ensureOne(0, 4);   // Group 0–3
-        ensureOne(4, 4);   // Group 4–7
-        ensureOne(8, 8);   // Group 8–15
-        ensureOne(16, 3);  // Group 16–18        
+        ensureOne(0, 4);   // Group 0-3
+        ensureOne(4, 4);   // Group 4-7
+        ensureOne(8, 8);   // Group 8-15
+        ensureOne(16, 3);  // Group 16-18        
                 
     }
 
@@ -2023,7 +2023,7 @@ struct StrataWidget : ModuleWidget {
             // True mathematical floor for octave:
             int octave = std::floor(totalSemi / 12.f);
             
-            // Semitone as 0–11:
+            // Semitone as 0-11:
             int semitone = ((totalSemi % 12) + 12) % 12;
             
             // Reference shift (0V = C4)
