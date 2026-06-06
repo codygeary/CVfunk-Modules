@@ -209,7 +209,7 @@ struct Aulos : Module {
 
     float followTime    = 0.25f;
     float attackCurve   = 0.3f;
-    float releaseCurve  = 0.0f;
+    float releaseCurve  = -0.5f;
     float waveguideGain = 1.0f;
     float decayValue    = 0.7f;
     float attackValue   = 0.1f;   // attack time 0..1, set in context menu
@@ -270,33 +270,33 @@ struct Aulos : Module {
     Aulos() {
         config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
 
-        configParam(REED_PARAM,        0.f,  1.f,  0.5f, "Flute / Reed");
-        configParam(REED_ATT,         -2.f,  2.f,  0.f,  "Flute / Reed Att.");
-        configParam(BORE_PARAM,        0.f,  1.f,  0.3f, "Bore");
-        configParam(BORE_ATT,         -2.f,  2.f,  0.f,  "Bore Att.");
-        configParam(TONE_PARAM,        0.f,  1.f,  0.5f, "Tone");
-        configParam(TONE_ATT,         -2.f,  2.f,  0.f,  "Tone Att.");
-        configParam(LIP_PARAM,         0.f,  1.f,  0.8f, "Lip");
-        configParam(LIP_ATT,          -2.f,  2.f,  0.f,  "Lip Att.");
-        configParam(NOISE_PARAM,       0.f,  1.f,  0.1f, "Noise");
-        configParam(NOISE_ATT,        -2.f,  2.f,  0.f,  "Noise Att.");
-        configParam(CHIFF_PARAM,       0.f,  1.f,  0.0f, "Chiff");
-        configParam(CHIFF_ATT,        -2.f,  2.f,  0.f,  "Chiff Att.");
+        configParam(REED_PARAM,        0.f,  1.f,  0.1f, "Flute / Reed");
+        configParam(REED_ATT,         -1.f,  1.f,  0.f,  "Flute / Reed Att.");
+        configParam(BORE_PARAM,        0.f,  1.f,  0.0f, "Bore");
+        configParam(BORE_ATT,         -1.f,  1.f,  0.f,  "Bore Att.");
+        configParam(TONE_PARAM,        0.f,  1.f,  0.6f, "Tone");
+        configParam(TONE_ATT,         -1.f,  1.f,  0.f,  "Tone Att.");
+        configParam(LIP_PARAM,         0.f,  1.f,  0.6f, "Lip");
+        configParam(LIP_ATT,          -1.f,  1.f,  0.f,  "Lip Att.");
+        configParam(NOISE_PARAM,       0.f,  1.f,  0.3f, "Noise");
+        configParam(NOISE_ATT,        -1.f,  1.f,  0.f,  "Noise Att.");
+        configParam(CHIFF_PARAM,       0.f,  1.f,  0.4f, "Chiff");
+        configParam(CHIFF_ATT,        -1.f,  1.f,  0.f,  "Chiff Att.");
         configParam(R_OFFSET_PARAM,   -1.f,  1.f,  0.0f, "R Voice Pitch Offset");
-        configParam(R_OFFSET_ATT,     -2.f,  2.f,  0.f,  "R Offset Att.");
+        configParam(R_OFFSET_ATT,     -1.f,  1.f,  0.f,  "R Offset Att.");
         configParam(DAMP_PARAM,        0.f,  1.f,  0.1f, "Damp");
-        configParam(DAMP_ATT,         -2.f,  2.f,  0.f,  "Damp Att.");
-        configParam(BREATH_PARAM,     0.f,  1.f,  0.8f, "Breath");
-        configParam(BREATH_ATT,      -2.f,  2.f,  0.f,  "Breath Att.");
-        configParam(FM_ATT,          -2.f,  2.f,  0.f,  "FM / Vibrato Depth");
-        configParam(PIPE_TUNE_PARAM,  -1.f,  4.f,  1.f,  "Pipe Tune", " oct");
+        configParam(DAMP_ATT,         -1.f,  1.f,  0.f,  "Damp Att.");
+        configParam(BREATH_PARAM,      0.f,  1.f,  0.7f, "Breath");
+        configParam(BREATH_ATT,       -1.f,  1.f,  0.f,  "Breath Att.");
+        configParam(FM_ATT,           -1.f,  1.f,  0.f,  "FM / Vibrato Depth");
+        configParam(PIPE_TUNE_PARAM,  -1.f,  4.f,  0.f,  "Pipe Tune", " oct");
         configParam(FINGER_TUNE_PARAM,-1.f,  1.f,  0.f,  "Finger Tune", " oct");
-        configParam(MANUAL_GATE_BTN,  0.f,  1.f,  0.f,  "Manual Gate");
-        configParam(DRONE_BTN,        0.f,  1.f,  0.f,  "Drone Mode");
-        configParam(VOLUME_PARAM,     0.f,  1.f,  0.8f, "Volume");
-        configParam(VOLUME_ATT,      -2.f,  2.f,  0.f,  "Volume Att.");
+        configParam(MANUAL_GATE_BTN,   0.f,  1.f,  0.f,  "Manual Gate");
+        configParam(DRONE_BTN,         0.f,  1.f,  0.f,  "Drone Mode");
+        configParam(VOLUME_PARAM,      0.f,  1.f,  0.5f, "Volume");
+        configParam(VOLUME_ATT,       -1.f,  1.f,  0.f,  "Volume Att.");
         configParam(AUDIO_IN_GAIN_PARAM, 0.f, 1.f, 0.5f, "Audio In Gain");
-        configParam(AUDIO_IN_GAIN_ATT,  -2.f, 2.f, 0.f,  "Audio In Gain Att.");
+        configParam(AUDIO_IN_GAIN_ATT,  -1.f, 1.f, 0.f,  "Audio In Gain Att.");
 
         configInput(PIPE_VOCT_INPUT,   "Pipe V/Oct");
         configInput(FINGER_VOCT_INPUT, "Finger V/Oct");
@@ -338,8 +338,8 @@ struct Aulos : Module {
         }
         followTime    = 0.25f;
         attackCurve   = 0.3f;
-        releaseCurve  = 0.0f;
-        waveguideGain = 1.3f;
+        releaseCurve  = -0.5f;
+        waveguideGain = 1.0f;
         decayValue    = 0.7f;
         droneActive   = false;
         moduleTime    = 0.f;
@@ -370,7 +370,7 @@ struct Aulos : Module {
         aulosTrack    = gb("aulosTrack",   false);
         followTime    = gr("followTime",   0.25f);
         attackCurve   = gr("attackCurve",  0.3f);
-        releaseCurve  = gr("releaseCurve", 0.0f);
+        releaseCurve  = gr("releaseCurve", -0.5f);
         waveguideGain = gr("waveguideGain",1.0f);
         decayValue    = gr("decayValue",   0.7f);
         attackValue   = gr("attackValue",  0.1f);
@@ -414,7 +414,7 @@ struct Aulos : Module {
         // ── Pitch ─────────────────────────────────────────────────────────────
         float refFreq    = (refPipeFreq > 0.f) ? refPipeFreq : pipeFreq;
         float activeFraction = refFreq / fingerFreq;
-        activeFraction = rack::clamp(activeFraction, 0.50f, 1.02f);
+        activeFraction = clamp(activeFraction, 0.50f, 1.02f);
         
         float fullPipeDelaySamples = freqToDelaySamples(pipeFreq, v.a_bore, sr);        
         float primaryDelaySamples  = fullPipeDelaySamples * activeFraction;
@@ -427,7 +427,7 @@ struct Aulos : Module {
 
         float secondaryRatio        = 0.333f + v.a_bore * (0.5f - 0.333f);
         float secondaryDelaySamples = primaryDelaySamples * secondaryRatio * 0.994f * (1.f - v.safetyDecay * 0.5f);
-        secondaryDelaySamples = rack::clamp( secondaryDelaySamples, 2.f, (float)v.secondaryWaveguide.bufSize - 4.f);
+        secondaryDelaySamples = clamp( secondaryDelaySamples, 2.f, (float)v.secondaryWaveguide.bufSize - 4.f);
 
         // ── Excitation ────────────────────────────────────────────────────────
         float noiseAmp = v.a_noise * v.a_noise * 0.03f * v.breathOut;
@@ -443,8 +443,8 @@ struct Aulos : Module {
         float jetBias = breathLevel * (0.8f - v.a_bore * 0.6f);
 
         float jetInput = tubeEndSample + jetBias + noiseVal;                
-        float jetOut          = aulosJetFunction(rack::clamp(jetInput, -3.f, 3.f));
-        float jetDelaySamples = rack::clamp( sr * 0.00107f * (440.f / fingerFreq), 2.f, sr * 0.003f);
+        float jetOut          = aulosJetFunction(clamp(jetInput, -3.f, 3.f));
+        float jetDelaySamples = clamp( sr * 0.00107f * (440.f / fingerFreq), 2.f, sr * 0.003f);
         
         float fluteExcite = v.jetDelay.process(jetOut, jetDelaySamples)*1.3f;
 
@@ -493,17 +493,17 @@ struct Aulos : Module {
         // ── Waveguides ────────────────────────────────────────────────────────
         float loopSat = v.loopSaturator.process(excite, effectiveDrive);
 
-        float envelopeGate = rack::clamp(v.breathOut * 0.15f, 0.f, 1.f);
+        float envelopeGate = clamp(v.breathOut * 0.15f, 0.f, 1.f);
         float loopFeedback = rack::crossfade(cachedDecayGainV * 0.8f, v.cachedFeedback, envelopeGate); //feedback dampens when we don't blow
         
-        float boreDamp = (0.35f - v.a_bore * 0.28f) * rack::clamp(261.63f / fingerFreq, 0.25f, 1.0f);
+        float boreDamp = (0.35f - v.a_bore * 0.28f) * clamp(261.63f / fingerFreq, 0.25f, 1.0f);
         // At C4 (261.63Hz): full boreDamp value.
         // Above C4: scales down proportionally — higher pitch = less damping.
         // Clamp prevents over-brightening below C4 and going negative above.
         // Tune: the clamp ceiling (1.0f keeps C4 and below at full damp).
 
         float reedDamp  = (1.f - v.a_reedMorph) * 0.5f;
-        float totalDamp = rack::clamp(v.cachedDampCoeff + reedDamp, 0.f, 0.95f);
+        float totalDamp = clamp(v.cachedDampCoeff + reedDamp, 0.f, 0.95f);
         
         float primaryOut = v.primaryWaveguide.process(
             loopSat,
@@ -557,7 +557,7 @@ struct Aulos : Module {
             v.dynEnvOut   = v.dynFollower.process(midBand);
         }
         
-        voiceOut *= rack::clamp(powf(440.f / fingerFreq, 0.5f), 0.25f, 3.0f); //pitch loudness correction
+        voiceOut *= clamp(powf(440.f / fingerFreq, 0.5f), 0.25f, 3.0f); //pitch loudness correction
         return voiceOut;
     }
 
@@ -586,7 +586,7 @@ struct Aulos : Module {
                 n = std::max(n, inputs[FINGER_VOCT_INPUT].getChannels());
             if (inputs[PIPE_VOCT_INPUT].isConnected())
                 n = std::max(n, inputs[PIPE_VOCT_INPUT].getChannels());
-            nVoices = rack::clamp(n, 1, AULOS_MAX_POLY);
+            nVoices = clamp(n, 1, AULOS_MAX_POLY);
         }
         if (nVoices != prevVoices) {
             for (int vi = nVoices; vi < prevVoices; ++vi) {
@@ -603,14 +603,14 @@ struct Aulos : Module {
 
             // Read all 8 slider values with their CV inputs.
             float sliderVal[8];
-            sliderVal[0] = rack::clamp(getCV(REED_CV_INPUT,  REED_ATT,  params[REED_PARAM].getValue()),  0.f, 1.f);
-            sliderVal[1] = rack::clamp(getCV(BORE_CV_INPUT,  BORE_ATT,  params[BORE_PARAM].getValue()),  0.f, 1.f);
-            sliderVal[2] = rack::clamp(getCV(TONE_CV_INPUT,  TONE_ATT,  params[TONE_PARAM].getValue()),  0.f, 1.f);
-            sliderVal[3] = rack::clamp(getCV(LIP_CV_INPUT,   LIP_ATT,   params[LIP_PARAM].getValue()),   0.f, 1.f);
-            sliderVal[4] = rack::clamp(getCV(NOISE_CV_INPUT, NOISE_ATT, params[NOISE_PARAM].getValue()), 0.f, 1.f);
-            sliderVal[5] = rack::clamp(getCV(CHIFF_CV_INPUT, CHIFF_ATT, params[CHIFF_PARAM].getValue()), 0.f, 1.f);
+            sliderVal[0] = clamp(getCV(REED_CV_INPUT,  REED_ATT,  params[REED_PARAM].getValue()),  0.f, 1.f);
+            sliderVal[1] = clamp(getCV(BORE_CV_INPUT,  BORE_ATT,  params[BORE_PARAM].getValue()),  0.f, 1.f);
+            sliderVal[2] = clamp(getCV(TONE_CV_INPUT,  TONE_ATT,  params[TONE_PARAM].getValue()),  0.f, 1.f);
+            sliderVal[3] = clamp(getCV(LIP_CV_INPUT,   LIP_ATT,   params[LIP_PARAM].getValue()),   0.f, 1.f);
+            sliderVal[4] = clamp(getCV(NOISE_CV_INPUT, NOISE_ATT, params[NOISE_PARAM].getValue()), 0.f, 1.f);
+            sliderVal[5] = clamp(getCV(CHIFF_CV_INPUT, CHIFF_ATT, params[CHIFF_PARAM].getValue()), 0.f, 1.f);
             // sliderVal[6] = R_OFFSET_PARAM — read per-sample below
-            sliderVal[7] = rack::clamp(getCV(DAMP_CV_INPUT,  DAMP_ATT,  params[DAMP_PARAM].getValue()),  0.f, 1.f);
+            sliderVal[7] = clamp(getCV(DAMP_CV_INPUT,  DAMP_ATT,  params[DAMP_PARAM].getValue()),  0.f, 1.f);
 
             // Damp -> loop LPF coefficient, two-phase mapping from Droplet:
             // Phase 1 (0->0.25):   blend in 8kHz LPF.
@@ -618,8 +618,8 @@ struct Aulos : Module {
             float sharedDampCoeff;
             {
                 float d      = sliderVal[7];
-                float blend  = rack::clamp(d / 0.25f, 0.f, 1.f);
-                float freqT  = rack::clamp((d - 0.25f) / 0.75f, 0.f, 1.f);
+                float blend  = clamp(d / 0.25f, 0.f, 1.f);
+                float freqT  = clamp((d - 0.25f) / 0.75f, 0.f, 1.f);
                 float dFreq  = expf(logf(8000.f) + freqT * (logf(200.f) - logf(8000.f)));
                 sharedDampCoeff = blend * expf(-2.f * float(M_PI) * dFreq / sr);
             }
@@ -665,10 +665,10 @@ struct Aulos : Module {
                       * 0.0167f;
                       
         // Attack and release come from context menu stored values.
-        float attackRaw  = rack::clamp(attackValue,  0.f, 1.f);
-        float releaseRaw = rack::clamp(releaseValue, 0.f, 1.f);
+        float attackRaw  = clamp(attackValue,  0.f, 1.f);
+        float releaseRaw = clamp(releaseValue, 0.f, 1.f);
 
-        float breathRaw = rack::clamp(
+        float breathRaw = clamp(
             params[BREATH_PARAM].getValue()
             + params[BREATH_ATT].getValue()
             * (inputs[BREATH_CV_INPUT].isConnected()
@@ -684,7 +684,7 @@ struct Aulos : Module {
         float attackSamples  = sr * 0.002f * powf(2000.f, attackRaw);
         float releaseSamples = sr * 0.002f * powf(2000.f, releaseRaw);
 
-        float audioInGain = rack::clamp(
+        float audioInGain = clamp(
             params[AUDIO_IN_GAIN_PARAM].getValue()
             + params[AUDIO_IN_GAIN_ATT].getValue()
             * (inputs[AUDIO_IN_CV_INPUT].isConnected()
@@ -693,20 +693,18 @@ struct Aulos : Module {
         float audioIn = inputs[AUDIO_IN_INPUT].isConnected()
                       ? inputs[AUDIO_IN_INPUT].getVoltage() * 0.1f * audioInGain : 0.f;
 
-        float volume = rack::clamp(
+        float volume = clamp(
             params[VOLUME_PARAM].getValue()
             + params[VOLUME_ATT].getValue()
             * (inputs[VOLUME_CV_INPUT].isConnected()
-               ? inputs[VOLUME_CV_INPUT].getVoltage() : 0.f) * 0.1f,
-            0.f, 1.f) * 2.f;
+               ? inputs[VOLUME_CV_INPUT].getVoltage() : 0.f) * 0.1f, 0.f, 1.f) * 3.f;
 
         // R voice pipe pitch offset in octaves. 0 = unison with L.
-        float aulosOffset = rack::clamp(
+        float aulosOffset = clamp(
             params[R_OFFSET_PARAM].getValue()
             + params[R_OFFSET_ATT].getValue()
             * (inputs[R_OFFSET_CV_INPUT].isConnected()
-               ? inputs[R_OFFSET_CV_INPUT].getVoltage() : 0.f) * 0.1f,
-            -1.f, 1.f);
+               ? inputs[R_OFFSET_CV_INPUT].getVoltage() : 0.f), -1.f, 1.f);
 
         // Shared decay gain (recomputed per-sample since decayValue can change).
         float sharedDecayGain = 0.80f + decayValue * 0.17f;
@@ -793,14 +791,14 @@ struct Aulos : Module {
             }
 
             // ── Per-voice outputs ─────────────────────────────────────────────
-            outputs[AUDIO_L_OUTPUT].setVoltage(voiceOut  * volume, vi);
-            outputs[AUDIO_R_OUTPUT].setVoltage(voiceOutR * volume, vi);
+            outputs[AUDIO_L_OUTPUT].setVoltage(clamp(voiceOut  * volume, -10.f, 10.f), vi);
+            outputs[AUDIO_R_OUTPUT].setVoltage(clamp(voiceOutR * volume,  -10.f, 10.f), vi);
 
             if (outputs[ENV_OUTPUT].isConnected())
                 outputs[ENV_OUTPUT].setVoltage(v.breathOut, vi);
             if (outputs[RMS_OUTPUT].isConnected())
                 outputs[RMS_OUTPUT].setVoltage(
-                    rack::clamp(v.dynEnvOut * 10.f, 0.f, 10.f), vi);
+                    clamp(v.dynEnvOut * 10.f, 0.f, 10.f), vi);
         }
 
         // ── Channel counts ────────────────────────────────────────────────────
@@ -820,17 +818,17 @@ struct Aulos : Module {
                          + params[PIPE_TUNE_PARAM].getValue()
                        : params[PIPE_TUNE_PARAM].getValue();
             float frac = displayPipeFreq / voct2freq(fv + fingerTune + fmDepth);
-            displayActiveFraction = rack::clamp(frac, 0.30f, 1.80f);
+            displayActiveFraction = clamp(frac, 0.30f, 1.80f);
             displayBore           = voices[displayVoice].a_bore;
             displayBreath         = voices[displayVoice].breathOut * 0.1f;
             float fracR = aulosTrack
                         ? displayActiveFraction
                         : displayPipeFreqR / voct2freq(fv + fingerTune + fmDepth);
-            displayActiveFractionR = rack::clamp(fracR, 0.30f, 1.80f);
+            displayActiveFractionR = clamp(fracR, 0.30f, 1.80f);
             displayBreathR         = voicesR[displayVoice].breathOut * 0.1f;
             displayOverblow        = voices[displayVoice].safetyDecay;
             displayOverblowR       = voicesR[displayVoice].safetyDecay;
-            displayPipeRatio       = rack::clamp(displayPipeFreq / displayPipeFreqR, 0.25f, 2.0f);
+            displayPipeRatio       = clamp(displayPipeFreq / displayPipeFreqR, 0.25f, 2.0f);
         }
 
         for (int seg = 0; seg < 10; ++seg) {
@@ -877,7 +875,7 @@ struct PipeDisplay : TransparentWidget {
             }
             else {
                 float lWidth = W * 0.5f;
-                float rWidth = rack::clamp(
+                float rWidth = clamp(
                     module->displayPipeRatio * 0.5f,
                     0.25f,
                     1.0f
@@ -951,7 +949,7 @@ struct PipeDisplay : TransparentWidget {
         // harmonic driven by overblow state — 1st harmonic normally,
         // 2nd harmonic when overblowing.
         int harmonic = (overblow > 0.3f) ? 2 : 1;
-        float markerNorm = rack::clamp((activeFraction - 0.50f) / 0.52f, 0.f, 1.f);
+        float markerNorm = clamp((activeFraction - 0.50f) / 0.52f, 0.f, 1.f);
 
         // Standing wave only fills the active tube length (from left to finger).
         float brightness = 0.5f + 0.5f*breath ;
@@ -967,8 +965,8 @@ struct PipeDisplay : TransparentWidget {
             
             float divisor  = rack::crossfade(2.f, 1.f, sqrtf(bell));
             float pressure = cosf((float)harmonic * float(M_PI) * waveNorm / divisor);
-            float warm = rack::clamp( pressure, 0.f, 1.f) * brightness;
-            float cool = rack::clamp(-pressure, 0.f, 1.f) * brightness;
+            float warm = clamp( pressure, 0.f, 1.f) * brightness;
+            float cool = clamp(-pressure, 0.f, 1.f) * brightness;
             nvgBeginPath(vg);
             nvgRect(vg, xPix - segW * 0.5f, centerY - halfH, segW, halfH * 2.f);
             nvgFillColor(vg, nvgRGBAf(
@@ -1207,7 +1205,7 @@ struct AulosWidget : ModuleWidget {
             float* val; float mn, mx, def; std::string lbl;
             FloatQ(float* v, float lo, float hi, float d, std::string l)
                 : val(v), mn(lo), mx(hi), def(d), lbl(l) {}
-            void  setValue(float v) override { if (val) *val = rack::clamp(v, mn, mx); }
+            void  setValue(float v) override { if (val) *val = clamp(v, mn, mx); }
             float getValue() override        { return val ? *val : def; }
             float getDefaultValue() override { return def; }
             float getMinValue() override     { return mn; }
