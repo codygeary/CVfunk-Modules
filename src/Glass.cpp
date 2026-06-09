@@ -14,7 +14,6 @@
 #include "plugin.hpp"
 #include <cmath>
 // #include <GLFW/glfw3.h>
-// #include <arm_neon.h>  // ARM SIMD intrinsics  //not needed
 #include <algorithm>
 #include <vector>
 #include "FilterGlass.h"
@@ -675,35 +674,18 @@ struct Glass : Module {
             bowlRawAbs[b] = fabsf(bowlRaw);
         }
 
-        // ── SIMD energy update + dormancy check (single pass) ────────────────
-        // Integrates the anyBowlActive check to avoid a separate 37-element scan.
-        // bowlRawAbs[b] = 0 for skipped bowls -> they take the release path.
+        // ── Energy envelope update + dormancy check ──────────────────────────
+        // Single pass over all bowls. bowlRawAbs[b] = 0 for skipped bowls
+        // so they always take the slow release path and decay to dormant.
         {
-            const float32x4_t vAttack    = vdupq_n_f32(0.3f);
-            const float32x4_t vRelease   = vdupq_n_f32(0.001f);
-            const float32x4_t vThreshold = vdupq_n_f32(idleThreshold);
-            uint32x4_t vAnyActive = vdupq_n_u32(0);
-            int b = 0;
-            for (; b <= GLASS_BOWLS - 4; b += 4) {
-                float32x4_t vE    = vld1q_f32(&bowlEnergy[b]);
-                float32x4_t vAbs  = vld1q_f32(&bowlRawAbs[b]);
-                uint32x4_t  vMask = vcgtq_f32(vAbs, vE);
-                float32x4_t vCoeff= vbslq_f32(vMask, vAttack, vRelease);
-                vE = vaddq_f32(vE, vmulq_f32(vCoeff, vsubq_f32(vAbs, vE)));
-                vst1q_f32(&bowlEnergy[b], vE);
-                // Accumulate active flag: any lane above threshold?
-                vAnyActive = vorrq_u32(vAnyActive, vcgtq_f32(vE, vThreshold));
-            }
-            // Collapse 4-lane active flag to scalar
-            uint32_t anyLane = vgetq_lane_u32(vAnyActive, 0)
-                             | vgetq_lane_u32(vAnyActive, 1)
-                             | vgetq_lane_u32(vAnyActive, 2)
-                             | vgetq_lane_u32(vAnyActive, 3);
-            anyBowlActive = (anyLane != 0);
-            for (; b < GLASS_BOWLS; ++b) {
+            anyBowlActive = false;
+            const float vAttack  = 0.3f;
+            const float vRelease = 0.001f;
+            for (int b = 0; b < GLASS_BOWLS; ++b) {
                 float energy = bowlRawAbs[b];
                 float& e     = bowlEnergy[b];
-                e += (energy > e) ? 0.3f * (energy - e) : 0.001f * (energy - e);
+                float coeff  = (energy > e) ? vAttack : vRelease;
+                e += coeff * (energy - e);
                 if (e > idleThreshold) anyBowlActive = true;
             }
         }
@@ -979,7 +961,7 @@ struct GlassWidget : ModuleWidget {
 
         // ── Left column: play inputs ──────────────────────────────────────────
         // x positions for 4 jacks in left half
-        const float xL0 =  7.f, xL1 = 12.f, xL2 = 27.f, xL3 = 37.f;  // left of slider bank
+        const float xL1 = 12.f;  // left input column x position
 
         // Row at ySlider height: V/OCT, GATE, PRESSURE, DAMP gate
         addInput(createInputCentered<ThemedPJ301MPort>(p(xL1, 40.f), module, Glass::VOCT_INPUT));
@@ -993,12 +975,9 @@ struct GlassWidget : ModuleWidget {
 
 
         // ── Bottom rows ───────────────────────────────────────────────────────
-        const float yRow0 = 90.f;
-        const float yRow1 = 100.f;
         const float yRow2 = 104.f;
         const float yRow3 = 116.f;
         const float yRow4 = 110.f;
-        const float xL4 = 44.5f;
         const float cx = panelW * 0.5f;
 
         // Row 0: Root knob | FM (CV + trim + knob) | Damp button (momentary)
