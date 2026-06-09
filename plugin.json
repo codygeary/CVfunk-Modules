@@ -1,7 +1,7 @@
 {
   "slug": "CVfunk",
   "name": "CV funk Modules",
-  "version": "2.0.45",
+  "version": "2.0.46",
   "license": "MIT",
   "brand": "CV funk",
   "author": "Cody Geary",
@@ -392,7 +392,17 @@
     {
       "slug": "Aulos",
       "name": "Aulos",
-      "description": "A dual wind instrument module.",
+      "description": "A dual wind instrument physical model.",
+      "tags": [
+        "Physical modeling",
+        "Polyphonic",
+        "Oscillator"
+      ]
+    },
+    {
+      "slug": "Glass",
+      "name": "Glass",
+      "description": "A glass armonica physical model.",
       "tags": [
         "Physical modeling",
         "Polyphonic",
