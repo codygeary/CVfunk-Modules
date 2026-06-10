@@ -376,6 +376,8 @@ struct Aulos : Module {
         decayValue    = 0.7f;
         droneActive   = false;
         moduleTime    = 0.f;
+        attackValue   = 0.1f;
+        releaseValue  = 0.3f;
     }
 
     json_t* dataToJson() override {
@@ -463,7 +465,10 @@ struct Aulos : Module {
         float primaryDelaySamples  = fullPipeDelaySamples * activeFraction;
         primaryDelaySamples = clamp(primaryDelaySamples, 2.f, (float)v.primaryWaveguide.bufSize - 4.f);
     
-        float overblowTarget = primaryDelaySamples * (1.f - v.safetyDecay * 0.5f);  //shorten delay by half when safety kicks in
+        float overblowAmt = clamp(v.safetyDecay, 0.f, 1.f);
+        float targetMode = (overblowAmt > 0.5f) ? 0.5f : 1.0f;
+        float overblowTarget = primaryDelaySamples * targetMode;        
+        
         if (v.a_fingerDelay < 2.f) v.a_fingerDelay = overblowTarget;
         v.a_fingerDelay += 0.05f * (overblowTarget - v.a_fingerDelay);
         primaryDelaySamples = v.a_fingerDelay;
@@ -530,18 +535,21 @@ struct Aulos : Module {
         float secondaryFeed = (0.5f - v.a_bore * 0.35f) * (1.f - v.safetyDecay);        
         float secondaryOut = v.secondaryWaveguide.process( loopSat * secondaryFeed, secondaryDelaySamples, 0.01f, 0.99f);
     
-    
         // ── Overblow tracking ─────────────────────────────────────────────────
         // safetyRMS tracks peak loop energy. safetyDecay rises when energy
         // exceeds threshold, used for display outline and embouchure effects.
         float peakEnergy = fmaxf(fabsf(primaryOut), fabsf(secondaryOut));
     
         {
-            float rmsTarget = peakEnergy;
+            float instEnergy = primaryOut * primaryOut + secondaryOut * secondaryOut;
+            instEnergy *= 0.5f; // normalize 2-path energy
+            
+            float rmsTarget = sqrtf(instEnergy);
+
             float rmsCoeff  = rmsTarget > v.safetyRMS ? 0.1f : 0.002f;  // fast attack, slow release
             v.safetyRMS    += rmsCoeff * (rmsTarget - v.safetyRMS);
                         
-            float overblowThreshold = 0.9f + activeFraction * 1.5f;
+            float overblowThreshold = 1.6f + (activeFraction - 1.f) * 0.4f;
     
             if (v.safetyRMS > overblowThreshold) {
                 v.safetyDecay = fminf(v.safetyDecay + 0.001f, 1.f);
@@ -558,31 +566,36 @@ struct Aulos : Module {
         voiceOut = v.outputDCBlocker.process(voiceOut);
         if (!std::isfinite(voiceOut)) voiceOut = 0.f;
     
-        // ── Emergency drain ───────────────────────────────────────────────────
-        // Replicates the original per-sample drain(emergencyDrain) behavior:
-        // buffer energy decays at a fixed ~0.9997/sample rate via drainGain,
-        // while excitation can still push back in, producing the original
-        // sputtering raspberry character at extreme overblow. O(1) cost per
-        // sample — drainGain is applied inside lagrangeRead and the write path.
-        {
-            v.emergencyRMS = fmaxf(peakEnergy, v.emergencyRMS * 0.98f);
-            if (v.emergencyRMS > 6.f && v.emergencyDrain <= 0.f) {
-                v.emergencyDrain = 0.99f;
-                v.emergencyRMS   = 0.f;
-            }
-            if (v.emergencyDrain > 0.f) {
-                // Fixed per-sample buffer attenuation — matches original drain(0.9997).
-                v.primaryWaveguide.drainGain   = 0.9997f;
-                v.secondaryWaveguide.drainGain = 0.9997f;
-                voiceOut         *= v.emergencyDrain;
-                v.emergencyDrain *= 0.9997f;
-                if (v.emergencyDrain < 0.001f) {
-                    v.emergencyDrain = 0.f;
-                    v.primaryWaveguide.drainGain   = 1.f;
-                    v.secondaryWaveguide.drainGain = 1.f;
-                }
-            }
-        }
+        // ── Stability control (RMS → tone duck, no waveguide intervention) ──
+        
+        // compute energy estimate
+        float instEnergy = (primaryOut * primaryOut + secondaryOut * secondaryOut) * 0.5f;        
+        // smooth RMS
+        float rmsTarget = sqrtf(instEnergy);
+        
+        float rmsCoeff =
+            rmsTarget > v.safetyRMS ? 0.08f : 0.0015f;
+        
+        v.safetyRMS += rmsCoeff * (rmsTarget - v.safetyRMS);
+        
+        // detect excessive excitation
+        float overdrive = clamp((v.safetyRMS - 1.2f) * 0.5f, 0.f, 1.f);
+        
+        // tone duck (prevents HF runaway without collapsing feedback)
+        float toneDuck = 1.f - overdrive * 0.75f;
+        
+        // apply duck to tone control path (choose ONE of these depending on your architecture)
+        v.a_tone *= toneDuck;   // if tone is already active smoothed state
+        // v.t_tone *= toneDuck; // if tone is still target-domain
+        
+        // optional: keep safetyDecay usable for UI / overblow display only
+        if (v.safetyRMS > 1.6f)
+            v.safetyDecay = fminf(v.safetyDecay + 0.001f, 1.f);
+        else
+            v.safetyDecay *= 0.9995f;
+        
+        if (v.safetyDecay < 0.001f)
+            v.safetyDecay = 0.f;
     
         // ── RMS follower ──────────────────────────────────────────────────────
         {
@@ -916,14 +929,18 @@ struct Aulos : Module {
                          + params[PIPE_TUNE_PARAM].getValue()
                        : params[PIPE_TUNE_PARAM].getValue();
             displayPipeFreq  = cachedPipeFreq[displayVoice];
-            float frac = displayPipeFreq / voct2freq(fv + fingerTune + fmDepth);
-            displayActiveFraction = clamp(frac, 0.30f, 1.80f);
             displayBore           = voices[displayVoice].a_bore;
             displayBreath         = voices[displayVoice].breathOut * 0.1f;
-            float fracR = aulosTrack
-                        ? displayActiveFraction
-                        : displayPipeFreq / voct2freq(fv + fingerTune + fmDepth);
-            displayActiveFractionR = clamp(fracR, 0.30f, 1.80f);
+
+            float fingerF = voct2freq(fv + fingerTune + fmDepth);
+            
+            float fracL = fingerF / displayPipeFreq;
+            float fracR = fingerF / cachedPipeFreqR[displayVoice];
+            
+            // clamp consistently (IMPORTANT: same domain)
+            displayActiveFraction  = clamp(fracL, 0.2f, 2.0f);
+            displayActiveFractionR = clamp(fracR, 0.2f, 2.0f);
+
             displayBreathR         = processR ? voicesR[displayVoice].breathOut * 0.1f : 0.f;
             displayOverblow        = voices[displayVoice].safetyDecay;
             displayOverblowR       = processR ? voicesR[displayVoice].safetyDecay : 0.f;
@@ -1051,54 +1068,81 @@ struct PipeDisplay : TransparentWidget {
 
         // ── Standing wave color ──────────────────────────────────────────────
         // harmonic driven by overblow state — 1st harmonic normally,
-        // 2nd harmonic when overblowing.
+        // higher modes when overblowing.
+        
         int harmonic = (overblow > 0.3f) ? 2 : 1;
-        float markerNorm = clamp((activeFraction - 0.50f) / 0.52f, 0.f, 1.f);
-
-        // Standing wave only fills the active tube length (from left to finger).
-        float brightness = 0.5f + 0.5f*breath ;
+        
+        float effectiveLength = fmaxf(0.05f, activeFraction);
+        // float markerNorm = activeFraction / effectiveLength;
+        // markerNorm = clamp(markerNorm, 0.f, 1.f);
+        
+        float k = float(M_PI);
+        float harmonicBlend = (overblow > 0.3f) ? 2.f : 1.f;
+        
+        float brightness = 0.5f + 0.5f * breath;
+        
         const int N = 64;
+        
         for (int i = 0; i < N; ++i) {
             float xNorm = (float)i / (float)(N - 1);
-            if (xNorm > markerNorm) break;  // beyond finger hole — no wave
-
+        
             float xPix  = tubeX + xNorm * tubeW;
             float segW  = tubeW / (float)N + 1.f;
             float halfH = tubeHalfHeight(xNorm);
-            float waveNorm = xNorm;
-            
-            float divisor  = rack::crossfade(2.f, 1.f, sqrtf(bell));
-            float pressure = cosf((float)harmonic * float(M_PI) * waveNorm / divisor);
-            float warm = clamp( pressure, 0.f, 1.f) * brightness;
-            float cool = clamp(-pressure, 0.f, 1.f) * brightness;
+        
+            // ── unified physical coordinate system ───────────────────────────
+            float xPhys     = xNorm * effectiveLength;
+            float fingerPhys = effectiveLength;
+        
+            float xDist = xPhys - fingerPhys;
+        
+            // ── finger-hole acoustic leak (true damping, not just fade) ──────
+            float leakGain =
+                (xDist <= 0.f)
+                    ? 1.f
+                    : expf(-xDist * 6.5f);
+        
+            // ── standing wave physics ────────────────────────────────────────
+            float phase = harmonicBlend * k * xPhys;
+            float pressure = cosf(phase);
+        
+            float amp = pressure * pressure;
+            amp *= leakGain;
+        
+            float glow = amp * brightness;
+        
             nvgBeginPath(vg);
-            nvgRect(vg, xPix - segW * 0.5f, centerY - halfH, segW, halfH * 2.f);
-            nvgFillColor(vg, nvgRGBAf(
-                0.08f + warm * 0.85f,
-                0.04f + warm * 0.40f,
-                0.10f + cool * 0.85f,
-                0.5f+ breath * 0.5f));
+            nvgRect(
+                vg,
+                xPix - segW * 0.5f,
+                centerY - halfH,
+                segW,
+                halfH * 2.f
+            );
+        
+            // ── original warm/cool scheme ────────────────────────────────────
+            float warm = fmaxf(pressure, 0.f);
+            float cool = fmaxf(-pressure, 0.f);
+        
+            float r = 0.08f + warm * 0.90f;
+            float g = 0.05f + warm * 0.35f;
+            float b = 0.12f + cool * 0.90f;
+        
+            // important: leak affects visibility AND perceived decay
+            float a = (0.40f + glow * 0.60f) * leakGain;
+        
+            nvgFillColor(vg, nvgRGBAf(r, g, b, a));
             nvgFill(vg);
         }
-
-        // ── Inactive tube section (beyond finger) ─────────────────────────────
-        // Always slightly visible so tube shape reads against background.
-        for (int i = 0; i < N; ++i) {
-            float xNorm = (float)i / (float)(N - 1);
-            if (xNorm <= markerNorm) continue;  // skip active section
-            float xPix  = tubeX + xNorm * tubeW;
-            float segW  = tubeW / (float)N + 1.f;
-            float halfH = tubeHalfHeight(xNorm);
-            nvgBeginPath(vg);
-            nvgRect(vg, xPix - segW * 0.5f, centerY - halfH, segW, halfH * 2.f);
-            nvgFillColor(vg, nvgRGBAf(0.12f, 0.12f, 0.22f, 0.5f + breath * 0.5f));
-            nvgFill(vg);
-        }
-
+        
         // ── Fingering marker ──────────────────────────────────────────────────
         // Always shown when breath is active.
         // Normal: vertical line at finger position.
         // Overblowing: hollow ellipse growing with overblow amount.
+        float length = clamp(activeFraction, 0.2f, 2.0f);
+        float markerNorm = 1.f / length;
+        markerNorm = clamp(markerNorm, 0.f, 1.f);
+
         if (breath > 0.02f) {
             float markerX = tubeX + markerNorm * tubeW;
             float markerH = tubeHalfHeight(markerNorm);
@@ -1347,7 +1391,7 @@ struct AulosWidget : ModuleWidget {
 
         menu->addChild(new MenuSeparator());
         menu->addChild(createMenuLabel("Resonator"));
-        addFSlider(&m->waveguideGain, 0.f, 5.f,  1.0f, "Waveguide Gain");
+        addFSlider(&m->waveguideGain, 0.f, 1.75f,  1.0f, "Waveguide Gain");
         addFSlider(&m->decayValue,    0.f, 1.f,  0.7f, "Decay (ring-off time)");
 
         menu->addChild(new MenuSeparator());
