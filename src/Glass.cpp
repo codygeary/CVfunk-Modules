@@ -13,7 +13,6 @@
 
 #include "plugin.hpp"
 #include <cmath>
-// #include <GLFW/glfw3.h>
 #include <algorithm>
 #include <vector>
 #include "FilterGlass.h"
@@ -21,46 +20,13 @@
 static constexpr int GLASS_BOWLS    = 37;
 static constexpr int GLASS_MAX_POLY = 16;
 
-// Bowl pitches in V/oct. C4 = 0V, C3 = -1V, C6 = +2V.
-static const float BOWL_VOCT[GLASS_BOWLS] = {
-    -1.0f,              // C3
-    -1.0f + 1.f/12.f,   // C#3
-    -1.0f + 2.f/12.f,   // D3
-    -1.0f + 3.f/12.f,   // D#3
-    -1.0f + 4.f/12.f,   // E3
-    -1.0f + 5.f/12.f,   // F3
-    -1.0f + 6.f/12.f,   // F#3
-    -1.0f + 7.f/12.f,   // G3
-    -1.0f + 8.f/12.f,   // G#3
-    -1.0f + 9.f/12.f,   // A3
-    -1.0f + 10.f/12.f,  // A#3
-    -1.0f + 11.f/12.f,  // B3
-     0.0f,              // C4
-     1.f/12.f,          // C#4
-     2.f/12.f,          // D4
-     3.f/12.f,          // D#4
-     4.f/12.f,          // E4
-     5.f/12.f,          // F4
-     6.f/12.f,          // F#4
-     7.f/12.f,          // G4
-     8.f/12.f,          // G#4
-     9.f/12.f,          // A4
-    10.f/12.f,          // A#4
-    11.f/12.f,          // B4
-     1.0f,              // C5
-     1.0f + 1.f/12.f,   // C#5
-     1.0f + 2.f/12.f,   // D5
-     1.0f + 3.f/12.f,   // D#5
-     1.0f + 4.f/12.f,   // E5
-     1.0f + 5.f/12.f,   // F5
-     1.0f + 6.f/12.f,   // F#5
-     1.0f + 7.f/12.f,   // G5
-     1.0f + 8.f/12.f,   // G#5
-     1.0f + 9.f/12.f,   // A5
-     1.0f + 10.f/12.f,  // A#5
-     1.0f + 11.f/12.f,  // B5
-     2.0f,              // C6
-};
+static float BOWL_VOCT[GLASS_BOWLS];
+
+static void initBowlVoct() {
+    for (int i = 0; i < GLASS_BOWLS; ++i) {
+        BOWL_VOCT[i] = (i - 12) * (1.f / 12.f);
+    }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GlassBowlState
@@ -71,11 +37,9 @@ struct GlassBowlState {
     GlassDCBlocker    dcBlocker;
 
     float baseDelaySamples = 100.f;  // nominal delay for this bowl's pitch
-    float delaySamples     = 100.f;  // actual delay after FM/FM, updated each sample
+    float delaySamples     = 100.f;  // actual delay after FM, updated each sample
     float envOut           = 0.f;
-    float dampGate         = 0.f;
     float sinePhase        = 0.f;
-    bool  lastDampHigh     = false;  // detects falling edge of damp gate
 
     void init(float sr, float pitchHz, int bowlIndex = 0) {
         waveguide.init(sr, 130.81f);
@@ -84,10 +48,8 @@ struct GlassBowlState {
         baseDelaySamples = sr / pitchHz;
         delaySamples     = baseDelaySamples;
         envOut        = 0.f;
-        dampGate      = 0.f;
         // Stagger starting phases across bowls using the golden ratio.
         sinePhase     = fmodf((float)bowlIndex * 0.6180339f, 1.f);
-        lastDampHigh  = false;
     }
 
     void clear() {
@@ -96,9 +58,7 @@ struct GlassBowlState {
         pressureEnv.reset();
         delaySamples  = baseDelaySamples;
         envOut        = 0.f;
-        dampGate      = 0.f;
         sinePhase     = 0.f;
-        lastDampHigh  = false;
     }
 };
 
@@ -126,7 +86,7 @@ struct Glass : Module {
         VOCT_INPUT,
         GATE_INPUT,
         PRESSURE_INPUT,
-        DAMP_GATE_INPUT,
+        MUTE_GATE_INPUT,
         SPEED_CV_INPUT,
         WATER_CV_INPUT,
         DECAY_CV_INPUT,
@@ -134,7 +94,7 @@ struct Glass : Module {
         WOBBLE_CV_INPUT,
         FM_CV_INPUT,
         VOLUME_CV_INPUT,
-        DAMPER_GATE_INPUT,
+        DAMP_GATE_INPUT,
         AUDIO_IN_INPUT,
         AUDIO_IN_CV_INPUT,
         INPUTS_LEN
@@ -183,11 +143,13 @@ struct Glass : Module {
     float tremoloPhase      = 0.f;    // global axis wobble phase, shared across all bowls
 
     float cachedFeedback    = 0.9997f;
-    float cachedLpfCoeff    = 0.02f;
+    float cachedLpfCoeff    = 0.02f;     // feedback LPF coeff with current global damp state
+    float cachedMutedLpfCoeff = 0.02f;   // feedback LPF coeff as if damp were engaged (per-note mute)
     float cachedNoiseLpfZ   = 0.f;    // one-pole LPF state for excitation noise
     float cachedNoiseLpfA   = 0.5f;   // LPF coefficient, updated in sub-rate block
-    int   lastVoctChannels  = 0;
-    int   lastVoctBowl[GLASS_MAX_POLY] = {};
+    float cachedWobbleDepth = 0.15f;  // axis wobble depth, cached sub-rate
+    float cachedRootOffset  = 0.f;    // root transpose, cached sub-rate
+    float cachedFmRatioInv  = 1.f;    // 1/cachedFmRatio -- multiply instead of divide per bowl
     int   cachedBowlForChannel[GLASS_MAX_POLY] = {};  // cached nearestBowl per VOCT channel
     float cachedVoctForChannel[GLASS_MAX_POLY] = {};  // last V/oct read per channel
     bool  anyBowlActive = false;
@@ -201,11 +163,11 @@ struct Glass : Module {
     bool  cachedVoctConnected = false;
     bool  cachedGateConnected = false;
     bool  cachedPressConn     = false;
-    bool  cachedDampConn      = false;
+    bool  cachedMuteConn      = false;
     int   cachedNVoct  = 0;
     int   cachedNGate  = 0;
     int   cachedNPress = 0;
-    int   cachedNDamp  = 0;
+    int   cachedNMute  = 0;
 
     // Written by DSP, read by draw().
     float bowlEnergy[GLASS_BOWLS] = {};
@@ -278,7 +240,6 @@ struct Glass : Module {
 
     Glass() {
         config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
-
         configParam(SPEED_PARAM,  0.f,  6.f,  3.14f, "Rotation Speed", " Hz");
         configParam(SPEED_ATT,   -2.f,  2.f,  0.f,   "Speed Att.");
         configParam(WATER_PARAM,  0.f,  1.f,  0.85f, "Water");
@@ -289,7 +250,7 @@ struct Glass : Module {
         configParam(DAMP_ATT,    -2.f,  2.f,  0.f,   "Damp Att.");
         configParam(WOBBLE_PARAM, 0.f,  0.5f, 0.15f, "Axis Wobble Depth");
         configParam(WOBBLE_ATT,  -2.f,  2.f,  0.f,   "Wobble Att.");
-        configParam(DAMP_BUTTON,  0.f,  1.f,  0.f,   "Damper (all bowls)");
+        configParam(DAMP_BUTTON,  0.f,  1.f,  0.f,   "Damp (all bowls)");
         configParam(SPREAD_PARAM, -1.f, 1.f,  1.0f,  "Stereo Spread");
         configParam(ROOT_PARAM,  -2.f,  2.f,  0.f,   "Root (transpose)", " oct");
         configParam(FM_PARAM,    -1.f,  1.f,  0.f,   "FM");
@@ -300,11 +261,11 @@ struct Glass : Module {
         configInput(VOCT_INPUT,      "V/Oct (polyphonic)");
         configInput(GATE_INPUT,      "Gate (polyphonic)");
         configInput(PRESSURE_INPUT,  "Pressure (polyphonic)");
-        configInput(DAMP_GATE_INPUT, "Damp Gate (polyphonic)");
+        configInput(MUTE_GATE_INPUT, "Mute Gate (polyphonic)");
         configInput(SPEED_CV_INPUT,  "Speed CV");
         configInput(WATER_CV_INPUT,  "Water CV");
         configInput(DECAY_CV_INPUT,  "Decay CV");
-        configInput(DAMPER_GATE_INPUT, "Damper Gate (all bowls)");        
+        configInput(DAMP_GATE_INPUT, "Damp Gate (all bowls)");        
         configInput(DAMP_CV_INPUT,   "Damp Amount CV");
         configInput(WOBBLE_CV_INPUT, "Axis Wobble CV");
         configInput(FM_CV_INPUT,     "FM CV");
@@ -318,6 +279,7 @@ struct Glass : Module {
         configOutput(ENV_OUTPUT,     "Envelope (RMS)");
         initBowls(48000.f);
         envFollower.setCoeff(sqrtf(150.f * 5000.f) / 48000.f, 0.4f, 48000.f);
+        initBowlVoct();
     }
 
     void onSampleRateChange() override {
@@ -371,8 +333,8 @@ struct Glass : Module {
                 0.f, 1.f);
             // Global damp: button or CV gate triggers damp at level set by DAMP slider.
             float buttonHeld  = params[DAMP_BUTTON].getValue() > 0.5f ? 1.f : 0.f;
-            float dampGateIn  = (inputs[DAMPER_GATE_INPUT].isConnected() &&
-                                 inputs[DAMPER_GATE_INPUT].getVoltage() > 0.5f) ? 1.f : 0.f;
+            float dampGateIn  = (inputs[DAMP_GATE_INPUT].isConnected() &&
+                                 inputs[DAMP_GATE_INPUT].getVoltage() > 0.5f) ? 1.f : 0.f;
             float dampSlider  = rack::clamp(
                 getCV(DAMP_CV_INPUT, DAMP_ATT, params[DAMP_PARAM].getValue()), 0.f, 1.f);
             // Button and gate input both trigger global damp at the slider level.
@@ -387,10 +349,13 @@ struct Glass : Module {
             // LPF on feedback path: models glass material absorption.
             // At damp=0 almost transparent (~20kHz), glass is very bright.
             // At damp=1 sweeps down to ~300Hz, killing high harmonics quickly.
+            // cachedMutedLpfCoeff is the coefficient the global damper would
+            // use when engaged -- per-note mute applies it to individual bowls.
             {
                 float baseDamp = expf(-2.f * float(M_PI) * 20000.f / sr);
                 float maxDamp  = expf(-2.f * float(M_PI) *   300.f / sr);
-                cachedLpfCoeff = baseDamp + dampRaw * (maxDamp - baseDamp);
+                cachedLpfCoeff      = baseDamp + dampRaw    * (maxDamp - baseDamp);
+                cachedMutedLpfCoeff = baseDamp + dampSlider * (maxDamp - baseDamp);
             }
 
             // Noise excitation LPF coefficient, updated from waterRaw.
@@ -430,7 +395,7 @@ struct Glass : Module {
                 + params[VOLUME_ATT].getValue()
                 * (inputs[VOLUME_CV_INPUT].isConnected()
                    ? inputs[VOLUME_CV_INPUT].getVoltage() : 0.f) * 0.1f,
-                0.f, 1.f) * 2.f;
+                0.f, 1.f) * 4.f;  // 0..4x gain, pushes into ADAA saturation at high levels
 
             // Audio in gain: cached sub-rate, matching Aulos usage.
             float audioInGain = rack::clamp(
@@ -444,6 +409,13 @@ struct Glass : Module {
 
             cachedFmRatio = rack::dsp::exp2_taylor5(
                 clamp(getCV(FM_CV_INPUT, FM_ATT, params[FM_PARAM].getValue()) * 0.167f, -0.5f, 0.5f));
+            cachedFmRatioInv = 1.f / cachedFmRatio;
+
+            // Wobble depth and root transpose: slow-changing, read here so the
+            // bowl loop never touches params or inputs at audio rate.
+            cachedWobbleDepth = clamp(
+                getCV(WOBBLE_CV_INPUT, WOBBLE_ATT, params[WOBBLE_PARAM].getValue()), 0.f, 0.5f);
+            cachedRootOffset = params[ROOT_PARAM].getValue();
 
             cachedAttackSamples  = sr * 0.002f * powf(2000.f, attackValue);
             cachedReleaseSamples = sr * 0.002f * powf(2000.f, releaseValue);
@@ -455,11 +427,11 @@ struct Glass : Module {
             cachedVoctConnected  = inputs[VOCT_INPUT].isConnected();
             cachedGateConnected  = inputs[GATE_INPUT].isConnected();
             cachedPressConn      = inputs[PRESSURE_INPUT].isConnected();
-            cachedDampConn       = inputs[DAMP_GATE_INPUT].isConnected();
+            cachedMuteConn       = inputs[MUTE_GATE_INPUT].isConnected();
             cachedNVoct  = cachedVoctConnected  ? inputs[VOCT_INPUT].getChannels()      : 0;
             cachedNGate  = cachedGateConnected  ? inputs[GATE_INPUT].getChannels()      : 0;
             cachedNPress = cachedPressConn      ? inputs[PRESSURE_INPUT].getChannels()  : 0;
-            cachedNDamp  = cachedDampConn       ? inputs[DAMP_GATE_INPUT].getChannels() : 0;
+            cachedNMute  = cachedMuteConn       ? inputs[MUTE_GATE_INPUT].getChannels() : 0;
         }
 
         // ── Gate accumulation (sub-rate cached) ───────────────────────────────
@@ -471,13 +443,13 @@ struct Glass : Module {
         bool  dampHigh[GLASS_BOWLS]     = {};
         bool  anyGateEvent = false;
 
-        float rootOffset = params[ROOT_PARAM].getValue();
+        float rootOffset = cachedRootOffset;
 
         // Use cached connection state (updated sub-rate).
         int  nVoctCh  = cachedNVoct;
         int  nGateCh  = cachedNGate;
         int  nPressCh = cachedNPress;
-        int  nDampCh  = cachedNDamp;
+        int  nMuteCh  = cachedNMute;
         bool gateConnected     = cachedGateConnected;
         bool pressureConnected = cachedPressConn;
 
@@ -488,10 +460,11 @@ struct Glass : Module {
 
                 // Only recompute nearestBowl when V/oct changes -- saves 37
                 // float comparisons per channel per sample when notes are held.
-                if (voct != cachedVoctForChannel[ch]) {
-                    cachedVoctForChannel[ch] = voct;
-                    cachedBowlForChannel[ch] = nearestBowl(voct);
-                }
+                 if (fabsf(voct - cachedVoctForChannel[ch]) > 1e-5f) {
+                     cachedVoctForChannel[ch] = voct;
+                     cachedBowlForChannel[ch] = nearestBowl(voct);
+                 }
+
                 int bowl = cachedBowlForChannel[ch];
 
                 float level = 1.f;
@@ -505,23 +478,29 @@ struct Glass : Module {
                 if (gateConnected) {
                     float gateV = (ch < nGateCh)
                                 ? inputs[GATE_INPUT].getPolyVoltage(ch) : 0.f;
-                    if (gateV > 0.5f) { gateHigh[bowl] = true; anyGateEvent = true; }
+                    if (gateV > 0.05f) { gateHigh[bowl] = true; anyGateEvent = true; }
                 } else {
                     // No gate patched: VOCT acts as a permanent gate.
                     // All active VOCT channels hold their bowls continuously.
                     // Use the damper to stop notes.
                     gateHigh[bowl] = true; anyGateEvent = true;
                 }
-                lastVoctBowl[ch] = bowl;
             }
         }
-        lastVoctChannels = nVoctCh;
 
-        for (int ch = 0; ch < nDampCh; ++ch) {
-            float voct = inputs[VOCT_INPUT].getPolyVoltage(ch) + rootOffset;
-            int   bowl = nearestBowl(voct);
-            if (inputs[DAMP_GATE_INPUT].getPolyVoltage(ch) > 0.5f) {
-                dampHigh[bowl] = true; anyGateEvent = true;
+        // ── Per-note mute ─────────────────────────────────────────────────────
+        // Strict 1:1 channel mapping: mute channel ch mutes the bowl currently
+        // assigned to V/oct channel ch. Extra mute channels beyond the V/oct
+        // count are ignored. Muting works like the global damper but per bowl:
+        // it darkens the feedback LPF (cachedMutedLpfCoeff) in the bowl loop.
+        // Note: mute does not count as a gate event -- a muted bowl with no
+        // ring energy stays dormant, and a ringing one is already processed
+        // via anyBowlActive.
+        if (cachedMuteConn && nVoctCh > 0) {
+            int nCh = std::min(std::min(nMuteCh, nVoctCh), GLASS_MAX_POLY);
+            for (int ch = 0; ch < nCh; ++ch) {
+                if (inputs[MUTE_GATE_INPUT].getPolyVoltage(ch) > 0.05f)
+                    dampHigh[cachedBowlForChannel[ch]] = true;
             }
         }
 
@@ -549,7 +528,7 @@ struct Glass : Module {
         float globalTremoloSine = (cachedSpeedHz > 0.01f)
             ? glassDspSin(tremoloPhase * 2.f * float(M_PI)) : 0.f;
 
-        float fmRatio = cachedFmRatio;
+        float fmRatioInv = cachedFmRatioInv;
 
 
         // ── Bowl DSP loop ─────────────────────────────────────────────────────
@@ -565,8 +544,9 @@ struct Glass : Module {
             GlassBowlState& state = bowls[b];
 
             // Dormancy check: skip entirely when no gate and no ringing energy.
-            bool hasGateEvent = gateHigh[b] || dampHigh[b];
-            bool bowlDormant  = !hasGateEvent && (bowlEnergy[b] < idleThreshold);
+            // Mute (dampHigh) intentionally does not wake a bowl -- damping a
+            // silent bowl is a no-op, and a ringing one is already processing.
+            bool bowlDormant = !gateHigh[b] && (bowlEnergy[b] < idleThreshold);
             if (bowlDormant) {
                 bowlRawAbs[b] = 0.f;
                 continue;
@@ -581,52 +561,12 @@ struct Glass : Module {
             if (!bowlAudible) continue;
 
             // FM: apply FM ratio to base delay length each sample.
-            state.delaySamples = state.baseDelaySamples / fmRatio;
-
-            // Per-bowl damp gate.
-            // While damp is high: drain the buffer each sample, suppress excitation.
-            // On damp falling edge: reset the pressure envelope to IDLE so excitation
-            // does not immediately restart when damp releases. The bowl stays silent
-            // until a new gate-on event arrives. This is the physical behavior --
-            // touching the rim stops the bowl; removing your finger doesn't restart it.
-            {
-                bool dampIsHigh = dampHigh[b];
-                float dampTarget = dampIsHigh ? 1.f : 0.f;
-                state.dampGate  += 0.1f * (dampTarget - state.dampGate);
-
-                if (state.dampGate > 0.01f) {
-                    // Pitch-compensated drain: scale per-sample loss by period
-                    // so all bowls damp at the same rate in time, not in cycles.
-                    // ref = C4 period (~184 samples at 48kHz). Shorter delays
-                    // (high notes) get smaller per-sample loss to compensate for
-                    // their higher circulation rate.
-                    // Tune the 0.15f base: lower = slower damp, higher = faster.
-                    const float refDelay = 184.f;
-                    float pitchComp  = state.delaySamples / refDelay;
-                    float lossAmount = state.dampGate * 0.15f * pitchComp;
-                    lossAmount = clamp(lossAmount, 0.f, 0.5f);
-                    state.waveguide.drain(1.f - lossAmount);
-                }
-
-                // Falling edge of damp gate: fully silence bowl.
-                // Reset envelope, zero energy tracking, and clear waveguide
-                // so the bowl cannot re-enter the audible path and retrigger.
-                if (state.lastDampHigh && !dampIsHigh) {
-                    state.pressureEnv.reset();
-                    state.waveguide.clear();
-                    state.dcBlocker.reset();
-                    state.envOut    = 0.f;
-                    state.sinePhase = 0.f;
-                    bowlEnergy[b]   = 0.f;
-                }
-                state.lastDampHigh = dampIsHigh;
-            }
+            state.delaySamples = state.baseDelaySamples * fmRatioInv;
 
             // ── Friction excitation (gate-driven) ────────────────────────────
             float excitation = 0.f;
-            bool bowlDamped = (state.dampGate > 0.1f);
 
-            if (state.envOut > 0.0001f && !bowlDamped) {
+            if (state.envOut > 0.0001f) {
                 state.sinePhase += 1.f / state.delaySamples;
                 if (state.sinePhase >= 1.f) state.sinePhase -= 1.f;
                 float sineVal = glassDspSin(state.sinePhase * 2.f * float(M_PI));
@@ -636,10 +576,7 @@ struct Glass : Module {
                 // the contact pressure varies sinusoidally once per revolution.
                 // This happens before the tremolo depth scaling so both effects
                 // use the same oscillator phase but are controlled separately.
-                // Wobble depth from panel slider + CV.
-                float wobbleDepth = clamp(
-                    getCV(WOBBLE_CV_INPUT, WOBBLE_ATT, params[WOBBLE_PARAM].getValue()), 0.f, 0.5f);
-                float pressureModulation = 1.f + wobbleDepth * globalTremoloSine;
+                float pressureModulation = 1.f + cachedWobbleDepth * globalTremoloSine;
                 float modulatedEnv = state.envOut * pressureModulation;
 
                 excitation = (filteredNoise * cachedNoiseWeight + sineVal * cachedSineWeight)
@@ -657,12 +594,19 @@ struct Glass : Module {
             // ── Waveguide ─────────────────────────────────────────────────────
             // Ext input is summed only while gate is held (envOut > 0).
             // When gate releases, ext stops and the bowl decays freely.
+            // Per-note mute: identical mechanism to the global damper, applied
+            // per bowl. While the bowl's mute gate is high, the feedback LPF
+            // sweeps to the damped coefficient (level set by the DAMP slider)
+            // and the bowl rings down through the darkening filter. Switching
+            // a one-pole coefficient causes no discontinuity, so no smoothing
+            // is needed -- same as the sub-rate global damp switch.
             float extContrib = (state.envOut > 0.0001f) ? cachedAudioIn : 0.f;
+            float lpfCoeff   = dampHigh[b] ? cachedMutedLpfCoeff : cachedLpfCoeff;
 
             float bowlRaw = state.waveguide.process(
                 excitation + extContrib,
                 state.delaySamples,
-                cachedLpfCoeff,
+                lpfCoeff,
                 cachedFeedback);
 
             bowlRaw = state.dcBlocker.process(bowlRaw);
@@ -692,21 +636,25 @@ struct Glass : Module {
 
         // ── Outputs ───────────────────────────────────────────────────────────
         // Tune mixScale if output clips at full bowl activity.
-        const float mixScale = 2.5f;  // Tune: raise if still too quiet, lower if clips
-
-        // ADAA tanh saturator on the final mix -- alias-free soft limiting.
-        // Drive 0.4: modest saturation at normal levels, clips gracefully when
-        // many bowls interfere constructively.
-        // Tune mixDriveGain: lower = cleaner, higher = more saturation.
-        const float mixDriveGain = 0.5f;
-        float satL = mixSaturatorL.process(mixL * mixScale, mixDriveGain);
-        float satR = mixSaturatorR.process(mixR * mixScale, mixDriveGain);
-        outputs[AUDIO_L_OUTPUT].setVoltage(clamp(satL * cachedVolume, -10.f, 10.f));
-        outputs[AUDIO_R_OUTPUT].setVoltage(clamp(satR * cachedVolume, -10.f, 10.f));
+        // Signal path matches Node.cpp exactly:
+        //   mixL * baseScale  -> fixed scale to normalise bowl mix to audio range
+        //   * cachedVolume    -> user gain, pushes into ADAA saturation at high levels
+        //   process(inV)      -> clamp +-13.14, /10, ADAA tanh, *6.9
+        //   clamp +-10V       -> output protection
+        //
+        // baseScale converts the summed bowl outputs to a useful voltage range.
+        // Tune: lower if the output is too loud at moderate volume settings.
+        const float baseScale = 0.2f;
+        float inL = mixL * baseScale * cachedVolume;
+        float inR = mixR * baseScale * cachedVolume;
+        float satL = mixSaturatorL.process(inL)*1.9f;
+        float satR = mixSaturatorR.process(inR)*1.9f;
+        outputs[AUDIO_L_OUTPUT].setVoltage(clamp(satL, -12.f, 12.f));
+        outputs[AUDIO_R_OUTPUT].setVoltage(clamp(satR, -12.f, 12.f));
 
         // ── ENV output and VU lights ──────────────────────────────────────────
         // RMS follower on the mixed output, matching Aulos ENV/RMS pattern.
-        float rmsIn = (fabsf(satL) + fabsf(satR)) * 0.5f * cachedVolume;
+        float rmsIn = (fabsf(satL) + fabsf(satR)) * 0.5f;
         float envOut = envFollower.process(rmsIn);
         if (outputs[ENV_OUTPUT].isConnected())
             outputs[ENV_OUTPUT].setVoltage(rack::clamp(envOut * 10.f, 0.f, 10.f));
@@ -967,12 +915,10 @@ struct GlassWidget : ModuleWidget {
         addInput(createInputCentered<ThemedPJ301MPort>(p(xL1, 40.f), module, Glass::VOCT_INPUT));
         addInput(createInputCentered<ThemedPJ301MPort>(p(xL1, 50.f), module, Glass::GATE_INPUT));
         addInput(createInputCentered<ThemedPJ301MPort>(p(xL1, 60.f), module, Glass::PRESSURE_INPUT));
-        addInput(createInputCentered<ThemedPJ301MPort>(p(xL1, 75.f), module, Glass::DAMP_GATE_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(p(xL1, 75.f), module, Glass::MUTE_GATE_INPUT));
 
-        addInput(createInputCentered<ThemedPJ301MPort>(    p(xL1, 85.f), module, Glass::DAMPER_GATE_INPUT));        
+        addInput(createInputCentered<ThemedPJ301MPort>(    p(xL1, 85.f), module, Glass::DAMP_GATE_INPUT));        
         addParam(createParamCentered<TL1105>(              p(xL1+10.f, 85.f), module, Glass::DAMP_BUTTON));
-
-
 
         // ── Bottom rows ───────────────────────────────────────────────────────
         const float yRow2 = 104.f;
@@ -985,8 +931,6 @@ struct GlassWidget : ModuleWidget {
         addInput(createInputCentered<ThemedPJ301MPort>(    p( cx+8.f+5.f, 85.f), module, Glass::FM_CV_INPUT));
         addParam(createParamCentered<Trimpot>(             p(cx+17.f+5.f, 85.f), module, Glass::FM_ATT));
         addParam(createParamCentered<RoundBlackKnob>(      p(cx+26.f+5.f, 85.f), module, Glass::FM_PARAM));
-
-
 
         // Row 1: Spread knob | Volume (CV + trim + knob)
         addParam(createParamCentered<RoundSmallBlackKnob>(      p(44.5f, yRow3), module, Glass::SPREAD_PARAM));
@@ -1069,8 +1013,6 @@ struct GlassWidget : ModuleWidget {
         menu->addChild(new MenuSeparator());
         menu->addChild(createMenuLabel("Water (Grip) Noise Color"));
         addFSlider(&m->noiseCutoffMax, 100.f, 4000.f, 500.f, "Max Noise Cutoff Hz (dry setting)");
-
-
 
         menu->addChild(new MenuSeparator());
         struct PanicItem : MenuItem {

@@ -220,6 +220,13 @@ struct AulosWaveguide {
     float lastInput  = 0.f;   // retained for ADAA continuity (not currently used
                                // inside this struct, but useful for future ADAA here)
 
+    // Per-sample drain scalar. Setting this below 1.0 causes all reads and
+    // writes to be attenuated, equivalent to multiplying every buffer sample
+    // each sample — but at O(1) cost instead of O(bufSize).
+    // Set to emergencyDrain each sample to replicate the original drain behavior
+    // without iterating the buffer.
+    float drainGain  = 1.f;
+
     // Higher compressionAmount = more gain reduction at high amplitudes.
     // Aulos runs a single tight feedback loop with continuous excitation, so it
     // needs more compression than Droplet's parallel nodes to stay stable at
@@ -241,6 +248,7 @@ struct AulosWaveguide {
         writeIndex = 0;
         dampZ1     = 0.f;
         lastInput  = 0.f;
+        drainGain  = 1.f;
     }
 
     // Lagrange fractional delay read. Does NOT advance the write pointer.
@@ -253,7 +261,7 @@ struct AulosWaveguide {
         float y1   = buf[base & bufMask];
         float y2   = buf[(base + 1) & bufMask];
         float y3   = buf[(base + 2) & bufMask];
-        return aulosLagrange(y0, y1, y2, y3, frac);
+        return drainGain * aulosLagrange(y0, y1, y2, y3, frac);
     }
 
     // Read the tube's far (bell) end — used by the flute jet feedback path.
@@ -275,7 +283,7 @@ struct AulosWaveguide {
 
         // One-pole LPF on write path — material absorption / damping.
         float effectiveDamp = fmaxf(dampCoeff, boreDamp);
-        dampZ1 = (1.f - effectiveDamp) * loopIn + effectiveDamp * dampZ1;
+        dampZ1 = (1.f - effectiveDamp) * loopIn * drainGain + effectiveDamp * dampZ1;
 
         if (!std::isfinite(dampZ1)) dampZ1 = 0.f;
 
@@ -291,24 +299,32 @@ struct AulosWaveguide {
         writeIndex = 0;
         dampZ1     = 0.f;
         lastInput  = 0.f;
+        drainGain  = 1.f;
     }
 
+    void idleTick() {}
+
     // Scale all buffer contents by gain — soft energy drain without a hard clear.
+    // Kept for non-realtime use (e.g. panic). In the audio loop, set drainGain
+    // instead for O(1) cost.
     void drain(float gain) {
         for (auto& s : buf) s *= gain;
         dampZ1    *= gain;
         lastInput *= gain;
+        drainGain  = 1.f;  // buffer is already scaled, reset the live scalar
     }
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AulosJetDelay
-// Short pure delay line for the flute jet travel path (~1-3ms).
+// Short pure delay line for the flute jet travel path.
 // No feedback loop — just write-then-read with Lagrange interpolation.
 //
 // The jet delay models the travel time of a vortex from the embouchure hole
-// to the resonator opening. It is pitch-scaled by the caller:
-//   delaySamples = clamp(sr * 0.001 * (440 / fingerFreq), 2, sr * 0.003)
+// to the resonator opening, ~0.47 of the played period. It is pitch-scaled
+// by the caller:
+//   delaySamples = clamp(sr * 0.00107 * (440 / fingerFreq), 2, sr * 0.028)
+// The buffer must cover half the period of the lowest playable fundamental.
 // ─────────────────────────────────────────────────────────────────────────────
 struct AulosJetDelay {
     std::vector<float> buf;
@@ -316,7 +332,7 @@ struct AulosJetDelay {
     int bufMask    = 0;
     int writeIndex = 0;
 
-    void init(float sr, float maxDelaySec = 0.004f) {
+    void init(float sr, float maxDelaySec = 0.03f) {
         int needed = (int)ceilf(maxDelaySec * sr) + 8;
         bufSize = 1;
         while (bufSize < needed) bufSize <<= 1;

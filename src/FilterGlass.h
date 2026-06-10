@@ -104,10 +104,13 @@ struct GlassEnvFollower {
 struct GlassADAADrive {
     float lastInput = 0.f;
 
+    // Polynomial tanh approximation -- valid for |x| <= 1.
+    // Matched to the antiderivative below (same Taylor series).
     static float polyTanh(float x) {
         float x2 = x * x;
         return x - x * x2 * (1.f/3.f - x2 * (2.f/15.f - 17.f/315.f * x2));
     }
+    // Antiderivative of polyTanh -- valid for |x| <= 1.
     static float antiderivative(float x) {
         float x2 = x * x;
         return 0.5f*x2 - (1.f/12.f)*x2*x2 + (1.f/45.f)*x2*x2*x2
@@ -119,15 +122,18 @@ struct GlassADAADrive {
              ? (antiderivative(input) - antiderivative(last)) / d
              : polyTanh(input);
     }
-    float process(float inV, float driveGain) {
-        float sig  = rack::clamp(inV * driveGain, -13.14f, 13.14f);
-        float norm = sig / 10.f;
+    // Clamp norm to [-1,1] before the polynomial so it stays in its valid range.
+    // tanh(x) for |x|>1 is already deep into saturation so clamping is correct.
+    float process(float inV) {
+        float norm = rack::clamp(inV, -13.14f, 13.14f) / 10.f;
+        norm = rack::clamp(norm, -1.f, 1.f);
         float out  = applyADAA(norm, lastInput);
         lastInput  = norm;
         return rack::clamp(out * 6.9f, -10.f, 10.f);
     }
     void reset() { lastInput = 0.f; }
 };
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GlassBowl
@@ -188,12 +194,6 @@ struct GlassBowl {
 
         lastOut = delayed;
         return delayed;
-    }
-
-    void drain(float gain) {
-        for (auto& s : buf) s *= gain;
-        lpfZ    *= gain;
-        lastOut *= gain;
     }
 
     void clear() {

@@ -41,9 +41,12 @@ public:
 // Simple averaging decimation is sufficient -- the mild HF rolloff does not
 // affect fundamental detection.
 //
-// AC computation is spread across audio callbacks via a state machine so no
-// single callback does a burst of work.  lagsPerCall is set at runtime so
-// the CPU menu has a real effect.
+// AC computation is spread evenly across every full-rate audio sample by a
+// budgeted state machine.  Each sample performs at most workBudget units of
+// work (1 unit = one float_4 correlation iteration), crossing state
+// boundaries as needed, so the per-sample cost is flat instead of bursty.
+// The mean/DC-removal passes and the peak/candidate scans are chunked under
+// the same budget -- no state does a full-buffer pass in a single sample.
 //
 // Smoothing only runs on confident results, preventing stale or default
 // values from leaking into the display when no signal is present.
@@ -67,7 +70,8 @@ struct DecimatedFrequencyTracker {
     int   decimCount = 0;
     int   decimationFactor = 8;
 
-    // AC state machine: 0=idle, 1=dc-remove, 2=compute, 3=peak
+    // Incremental AC engine.
+    // States: 0=idle, 1=mean, 2=dc-remove, 3=correlate, 4=peak-scan, 5=candidate+finalize
     std::vector<float> ac;
     std::vector<float> win;
     std::vector<float> dcRemovedSignal;
@@ -77,9 +81,24 @@ struct DecimatedFrequencyTracker {
     float acMean  = 0.f;
     bool  bufferReady = false;
 
-    // lagsPerCall: how many AC lags computed per processing tick.
-    // Higher = faster lock, more CPU per tick.
+    int     chunkPos = 0;            // element/lag position within the current state
+    float_4 partNum  = float_4(0.f); // partial correlation sums carried across calls
+    float_4 partSq0  = float_4(0.f);
+    float_4 partSqL  = float_4(0.f);
+    float   acGlobalPeak    = -2.f;
+    int     acGlobalPeakLag = 1;
+    float   acThreshold     = 0.f;
+    int     acCandidateLag  = 0;
+
+    // lagsPerCall scales the per-sample work budget; 8 is the baseline where
+    // a full analysis completes in about half the buffer refill time.
     int lagsPerCall = 8;
+
+    // workBudget: units of analysis work permitted per full-rate sample.
+    // 1 unit = one float_4 correlation iteration = 4 element operations.
+    // baseWorkBudget is derived from buffer geometry in setDecimation().
+    int baseWorkBudget = 32;
+    int workBudget     = 32;
 
     // analysisSkip: skip this many buffer fills between analyses.
     // 0 = analyse every fill (highest CPU, fastest lock).
@@ -113,10 +132,35 @@ struct DecimatedFrequencyTracker {
         rebuildWindow();
         // ~50ms smoothing time constant regardless of decimation rate
         smoothFactor = expf(-1.f / (0.05f * decimatedSampleRate));
+
+        // Per-sample analysis budget.  Total correlation work is roughly
+        // (bufferSize/2) lags * (simdLen/4) float_4 iterations each.  Spread
+        // it so a full analysis completes in about half the buffer refill
+        // time (bufferSize * decimationFactor full-rate samples).  The 0.5f
+        // completion fraction can be hand-tuned: smaller spreads the work
+        // thinner (lower peak CPU, slower lock).  The floor of 8 keeps
+        // heavily decimated trackers (LFO range) locking promptly even
+        // though their refill time would allow a much smaller budget.
+        float totalWork   = (float)(bufferSize / 2) * (simdLen / 4);
+        float fillSamples = (float)bufferSize * decimationFactor;
+        baseWorkBudget = std::max(8, (int)ceilf(totalWork / (0.5f * fillSamples)));
+        workBudget     = std::max(1, baseWorkBudget * lagsPerCall / 8);
+
+        // Abort any in-flight analysis -- the buffer geometry just changed.
+        acState     = 0;
+        bufferReady = false;
+        chunkPos    = 0;
+        writeIndex  = 0;
+        decimAccum  = 0.f;
+        decimCount  = 0;
+        analysisSkipCounter = 0;
     }
 
     void setConfidenceFloor(float floor) { confidenceFloor = floor; }
-    void setLagsPerCall(int lags)        { lagsPerCall = std::max(1, lags); }
+    void setLagsPerCall(int lags) {
+        lagsPerCall = std::max(1, lags);
+        workBudget  = std::max(1, baseWorkBudget * lagsPerCall / 8);
+    }
     void setAnalysisSkip(int skip)       { analysisSkip = std::max(0, skip); }
 
     void rebuildWindow() {
@@ -146,16 +190,19 @@ struct DecimatedFrequencyTracker {
                         analysisSkipCounter = 0;
                         std::memcpy(processBuffer, writeBuffer, bufferSize * sizeof(float));
                         bufferReady = true;
+                        acHalf      = bufferSize / 2;
+                        acMean      = 0.f;
+                        chunkPos    = 0;
                         acState     = 1;
                     }
                 }
             }
         }
 
-        // Only do AC work when a new decimated sample was just produced.
-        // This reduces processChunk calls by decimationFactor -- 4x for audio
-        // tracker, 128x for LFO tracker -- with no change to analysis quality.
-        if (bufferReady && decimCount == 0) processChunk();
+        // Run a small, fixed slice of analysis work on every full-rate sample.
+        // Total work per analysis is unchanged; spreading it over every sample
+        // (instead of bursting on decimated ticks) flattens the CPU profile.
+        if (bufferReady) processChunk();
 
         // Only smooth when a new decimated sample was just produced --
         // running this every full-rate sample wastes CPU since the value
@@ -174,123 +221,182 @@ struct DecimatedFrequencyTracker {
         return smoothedFreq;
     }
 
-    void processChunk() {
-        switch (acState) {
-            case 1: {
-                acHalf = bufferSize / 2;
-                acMean = 0.f;
-                for (int i = 0; i < bufferSize; ++i) acMean += processBuffer[i];
-                acMean /= bufferSize;
-                for (int i = 0; i < bufferSize; ++i)
-                    dcRemovedSignal[i] = processBuffer[i] - acMean;
-                // No need to zero ac[] -- every ac[acLag] is written before being read
-                acLag   = 1;
-                acState = 2;
-                break;
-            }
-            case 2: {
-                const float* w   = win.data();
-                const float* sig = dcRemovedSignal.data();
-                int done = 0;
-                while (acLag < acHalf && done < lagsPerCall) {
-                    float_4 vNum(0.f), vSq0(0.f), vSqL(0.f);
-                    for (int i = 0; i < simdLen; i += 4) {
-                        float_4 wi = float_4::load(w   + i);
-                        float_4 a  = float_4::load(sig + i)         * wi;
-                        float_4 b  = float_4::load(sig + i + acLag) * wi;
-                        vNum += a * b;
-                        vSq0 += a * a;
-                        vSqL += b * b;
-                    }
-                    float num = vNum[0] + vNum[1] + vNum[2] + vNum[3];
-                    float sq0 = vSq0[0] + vSq0[1] + vSq0[2] + vSq0[3];
-                    float sqL = vSqL[0] + vSqL[1] + vSqL[2] + vSqL[3];
-                    // Scalar tail for remaining samples
-                    for (int i = simdLen; i < acHalf; ++i) {
-                        float a = sig[i]         * w[i];
-                        float b = sig[i + acLag] * w[i];
-                        num += a * b;
-                        sq0 += a * a;
-                        sqL += b * b;
-                    }
-                    ac[acLag] = std::min(1.f, std::max(-1.f,
-                                    num / (sqrtf(sq0 * sqL) + 1e-12f)));
-                    acLag++;
-                    done++;
-                }
-                if (acLag >= acHalf) acState = 3;
-                break;
-            }
-            case 3: {
-                float result = computeFrequency();
-                if      (result > 0.f)   lastFreq = result;
-                else if (result == -1.f) lastFreq = -1.f;
-                // result == -2: weak signal, hold lastFreq unchanged
-                bufferReady = false;
-                acState     = 0;
-                break;
-            }
-        }
+    // Apply a finished analysis result and return to idle.
+    // result: >0 confident Hz, -1 noise floor, -2 weak (hold previous)
+    void finishAnalysis(float result) {
+        if      (result > 0.f)   lastFreq = result;
+        else if (result == -1.f) lastFreq = -1.f;
+        // result == -2: weak signal, hold lastFreq unchanged
+        bufferReady = false;
+        acState     = 0;
+        chunkPos    = 0;
     }
 
-    // Returns: >0 confident Hz, -1 noise floor, -2 weak (hold previous)
-    float computeFrequency() {
-        int half = acHalf;
+    // Incremental analysis engine.  Called once per full-rate sample while an
+    // analysis is in flight.  Each call consumes at most workBudget units of
+    // work (1 unit = one float_4 iteration = 4 element operations), crossing
+    // state boundaries as needed, so the per-sample cost stays flat.
+    void processChunk() {
+        int budget = workBudget;
+        while (budget > 0 && acState != 0) {
+            switch (acState) {
 
-        float globalPeak    = -2.f;
-        int   globalPeakLag = 1;
-        for (int lag = 1; lag < half; ++lag) {
-            if (ac[lag] > globalPeak) {
-                globalPeak    = ac[lag];
-                globalPeakLag = lag;
+                case 1: { // accumulate mean of the captured frame
+                    int elems = std::min(bufferSize - chunkPos, budget * 4);
+                    for (int i = chunkPos; i < chunkPos + elems; ++i)
+                        acMean += processBuffer[i];
+                    chunkPos += elems;
+                    budget   -= (elems + 3) / 4;
+                    if (chunkPos >= bufferSize) {
+                        acMean  /= bufferSize;
+                        chunkPos = 0;
+                        acState  = 2;
+                    }
+                    break;
+                }
+
+                case 2: { // subtract mean (DC removal)
+                    int elems = std::min(bufferSize - chunkPos, budget * 4);
+                    for (int i = chunkPos; i < chunkPos + elems; ++i)
+                        dcRemovedSignal[i] = processBuffer[i] - acMean;
+                    chunkPos += elems;
+                    budget   -= (elems + 3) / 4;
+                    if (chunkPos >= bufferSize) {
+                        // No need to zero ac[] -- every ac[acLag] is written before being read
+                        acLag    = 1;
+                        chunkPos = 0;
+                        partNum  = float_4(0.f);
+                        partSq0  = float_4(0.f);
+                        partSqL  = float_4(0.f);
+                        acState  = 3;
+                    }
+                    break;
+                }
+
+                case 3: { // normalised autocorrelation, partial lags carried across calls
+                    const float* w   = win.data();
+                    const float* sig = dcRemovedSignal.data();
+                    int iters = std::min((simdLen - chunkPos) / 4, budget);
+                    for (int n = 0; n < iters; ++n) {
+                        float_4 wi = float_4::load(w   + chunkPos);
+                        float_4 a  = float_4::load(sig + chunkPos)         * wi;
+                        float_4 b  = float_4::load(sig + chunkPos + acLag) * wi;
+                        partNum += a * b;
+                        partSq0 += a * a;
+                        partSqL += b * b;
+                        chunkPos += 4;
+                    }
+                    budget -= iters;
+                    if (chunkPos >= simdLen) {
+                        float num = partNum[0] + partNum[1] + partNum[2] + partNum[3];
+                        float sq0 = partSq0[0] + partSq0[1] + partSq0[2] + partSq0[3];
+                        float sqL = partSqL[0] + partSqL[1] + partSqL[2] + partSqL[3];
+                        // Scalar tail for remaining samples of this lag
+                        for (int i = simdLen; i < acHalf; ++i) {
+                            float a = sig[i]         * w[i];
+                            float b = sig[i + acLag] * w[i];
+                            num += a * b;
+                            sq0 += a * a;
+                            sqL += b * b;
+                        }
+                        ac[acLag] = std::min(1.f, std::max(-1.f,
+                                        num / (sqrtf(sq0 * sqL) + 1e-12f)));
+                        acLag++;
+                        chunkPos = 0;
+                        partNum  = float_4(0.f);
+                        partSq0  = float_4(0.f);
+                        partSqL  = float_4(0.f);
+                        budget--;  // tail + normalisation counted as one unit
+                        if (acLag >= acHalf) {
+                            acGlobalPeak    = -2.f;
+                            acGlobalPeakLag = 1;
+                            chunkPos        = 1;
+                            acState         = 4;
+                        }
+                    }
+                    break;
+                }
+
+                case 4: { // global peak scan over ac[1 .. acHalf-1]
+                    int last = std::min(acHalf, chunkPos + budget * 4);
+                    for (int lag = chunkPos; lag < last; ++lag) {
+                        if (ac[lag] > acGlobalPeak) {
+                            acGlobalPeak    = ac[lag];
+                            acGlobalPeakLag = lag;
+                        }
+                    }
+                    budget  -= (last - chunkPos + 3) / 4;
+                    chunkPos = last;
+                    if (chunkPos >= acHalf) {
+                        acPeakValue = acGlobalPeak;
+                        if (acGlobalPeak < confidenceFloor) {
+                            finishAnalysis(-1.f);
+                            break;
+                        }
+                        if (acGlobalPeak < confidenceFloor + 0.10f) {
+                            finishAnalysis(-2.f);
+                            break;
+                        }
+                        acThreshold = std::min(0.88f, std::max(confidenceFloor + 0.10f,
+                                          0.55f + 0.1f * (acGlobalPeak - 0.8f)));
+                        acCandidateLag = 0;
+                        chunkPos       = 2;
+                        acState        = 5;
+                    }
+                    break;
+                }
+
+                case 5: { // first-peak candidate scan, then finalize
+                    int last = std::min(acHalf - 1, chunkPos + budget * 4);
+                    int lag  = chunkPos;
+                    for (; lag < last; ++lag) {
+                        if (ac[lag] > ac[lag-1] && ac[lag] >= ac[lag+1]
+                            && ac[lag] >= acThreshold) {
+                            acCandidateLag = lag;
+                            break;
+                        }
+                    }
+                    budget  -= (lag - chunkPos) / 4 + 1;
+                    chunkPos = lag;
+                    if (acCandidateLag == 0 && chunkPos < acHalf - 1) break;
+
+                    // Finalize: constant-time selection and refinement.
+                    int bestLag = (acCandidateLag >= 2) ? acCandidateLag
+                                                        : std::max(2, acGlobalPeakLag);
+
+                    // Sub-harmonic correction: harmonic-rich waveforms (square, pulse, saw) produce
+                    // strong AC peaks at sub-multiples of the true period (lag/2, lag/3, lag/4).
+                    // The first-peak search can land on one of these instead of the fundamental.
+                    // If a shorter lag is itself a local peak and nearly as strong, it wins.
+                    for (int divisor = 2; divisor <= 4; ++divisor) {
+                        int subLag = bestLag / divisor;
+                        if (subLag < 2 || subLag >= acHalf - 1) continue;
+                        bool isLocalMax   = ac[subLag] > ac[subLag - 1] && ac[subLag] >= ac[subLag + 1];
+                        bool isComparable = ac[subLag] >= ac[bestLag] * 0.85f;
+                        if (isLocalMax && isComparable) bestLag = subLag;
+                    }
+
+                    // Parabolic sub-sample interpolation
+                    float freq = -1.f;
+                    if (bestLag > 1 && bestLag < acHalf - 1) {
+                        float y0    = ac[bestLag - 1];
+                        float y1    = ac[bestLag];
+                        float y2    = ac[bestLag + 1];
+                        float denom = y0 - 2.f * y1 + y2;
+                        float shift = (fabsf(denom) > 1e-12f) ? (0.5f * (y0 - y2) / denom) : 0.f;
+                        float refinedLag = (float)bestLag + shift;
+                        if (refinedLag > 1.f)
+                            freq = decimatedSampleRate / refinedLag;
+                    }
+                    if (!(std::isfinite(freq) && freq > 0.f)) {
+                        freq = decimatedSampleRate / (float)bestLag;
+                        if (!(std::isfinite(freq) && freq > 0.f)) freq = -1.f;
+                    }
+                    finishAnalysis(freq);
+                    break;
+                }
             }
         }
-        acPeakValue = globalPeak;
-
-        if (globalPeak < confidenceFloor)         return -1.f;
-        if (globalPeak < confidenceFloor + 0.10f) return -2.f;
-
-        float threshold = std::min(0.88f, std::max(confidenceFloor + 0.10f,
-                                   0.55f + 0.1f * (globalPeak - 0.8f)));
-
-        int candidateLag = 0;
-        for (int lag = 2; lag < half - 1; ++lag) {
-            if (ac[lag] > ac[lag-1] && ac[lag] >= ac[lag+1] && ac[lag] >= threshold) {
-                candidateLag = lag;
-                break;
-            }
-        }
-
-        int bestLag = (candidateLag >= 2) ? candidateLag : std::max(2, globalPeakLag);
-
-        // Sub-harmonic correction: harmonic-rich waveforms (square, pulse, saw) produce
-        // strong AC peaks at sub-multiples of the true period (lag/2, lag/3, lag/4).
-        // The first-peak search can land on one of these instead of the fundamental.
-        // If a shorter lag is itself a local peak and nearly as strong, it wins.
-        for (int divisor = 2; divisor <= 4; ++divisor) {
-            int subLag = bestLag / divisor;
-            if (subLag < 2 || subLag >= half - 1) continue;
-            bool isLocalMax   = ac[subLag] > ac[subLag - 1] && ac[subLag] >= ac[subLag + 1];
-            bool isComparable = ac[subLag] >= ac[bestLag] * 0.85f;
-            if (isLocalMax && isComparable) bestLag = subLag;
-        }
-
-        // Parabolic sub-sample interpolation
-        if (bestLag > 1 && bestLag < half - 1) {
-            float y0    = ac[bestLag - 1];
-            float y1    = ac[bestLag];
-            float y2    = ac[bestLag + 1];
-            float denom = y0 - 2.f * y1 + y2;
-            float shift = (fabsf(denom) > 1e-12f) ? (0.5f * (y0 - y2) / denom) : 0.f;
-            float refinedLag = (float)bestLag + shift;
-            if (refinedLag > 1.f) {
-                float freq = decimatedSampleRate / refinedLag;
-                if (std::isfinite(freq) && freq > 0.f) return freq;
-            }
-        }
-
-        float freq = decimatedSampleRate / (float)bestLag;
-        return (std::isfinite(freq) && freq > 0.f) ? freq : -1.f;
     }
 };
 

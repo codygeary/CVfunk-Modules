@@ -19,10 +19,6 @@
 
 static constexpr int AULOS_MAX_POLY = 16;
 
-// ─────────────────────────────────────────────────────────────────────────────
-// AulosVoice — all per-voice DSP state
-// Taken verbatim from Aulos-stable.cpp which has confirmed working DSP.
-// ─────────────────────────────────────────────────────────────────────────────
 struct AulosVoice {
     AulosWaveguide   primaryWaveguide;
     AulosWaveguide   secondaryWaveguide;
@@ -73,10 +69,18 @@ struct AulosVoice {
     float emergencyRMS   = 0.f;
     float emergencyDrain = 0.f;
 
+    // Sleep flag — set when the voice is fully idle (gate low, breath and
+    // overblow energy below threshold). A sleeping voice costs one gate
+    // compare per sample in the voice loop; it wakes sample-accurately on
+    // gate rise.
+    bool asleep = true;
+
     void init(float sr) {
         primaryWaveguide.init(sr,   0.055f);
         secondaryWaveguide.init(sr, 0.028f);
-        jetDelay.init(sr, 0.004f);
+        // Jet buffer must cover ~half the period of the lowest fundamental
+        // (jet delay = 0.47 * period). 0.03s reaches down to ~16Hz.
+        jetDelay.init(sr, 0.03f);
         dcBlocker.setSampleRate(sr);
         outputDCBlocker.setSampleRate(sr);
         outputCap.setSampleRate(sr);
@@ -95,6 +99,7 @@ struct AulosVoice {
         emergencyRMS      = 0.f;
         emergencyDrain    = 0.f;
         a_fingerDelay     = 0.f;
+        asleep            = true;
     }
 
     void clear() {
@@ -119,6 +124,7 @@ struct AulosVoice {
         emergencyRMS      = 0.f;
         emergencyDrain    = 0.f;
         a_fingerDelay     = 0.f;
+        asleep            = true;
         a_reedMorph = t_reedMorph = 0.5f;
         a_bore      = t_bore      = 0.3f;
         a_tone      = t_tone      = 0.5f;
@@ -204,8 +210,26 @@ struct Aulos : Module {
     float sampleRate = 48000.f;
     float moduleTime = 0.f;
 
-    int  skipCounter = 0;
+    int  skipCounter = SKIP_MAX;  // start at max so the first process() call runs the skip block
     static constexpr int SKIP_MAX = 200;
+
+    // Pitch path decimation — voct2freq and related transcendentals are
+    // recomputed every PITCH_DECIM samples (~6kHz update at 48kHz). The
+    // resulting delay lengths are already smoothed per-sample by a_fingerDelay.
+    static constexpr int PITCH_DECIM = 8;
+    int   pitchCounter = 0;
+    float cachedPipeFreq[AULOS_MAX_POLY];
+    float cachedFingerFreq[AULOS_MAX_POLY];
+    float cachedPipeFreqR[AULOS_MAX_POLY];
+    float cachedFingerFreqR[AULOS_MAX_POLY];
+
+    // Set in the skip block — attack/release only change via context menu.
+    float cachedAttackSamples  = 1000.f;
+    float cachedReleaseSamples = 1000.f;
+
+    // R output connection state — R voices are skipped entirely when unpatched,
+    // and cleared on reconnect so stale buffer energy doesn't play back.
+    bool prevRConnected = false;
 
     float followTime    = 0.25f;
     float attackCurve   = 0.3f;
@@ -229,7 +253,9 @@ struct Aulos : Module {
     float displayOverblowR       = 0.0f;
     float displayPipeRatio       = 1.0f;
     float displayPipeFreq        = 261.63f;
-    float displayPipeFreqR       = 261.63f;  // pipeFreqL / pipeFreqR -> R tube relative length
+
+    int safetyCounter = 0;
+    const float idleThreshold = 0.0005f;
 
     // R channel fingering mode:
     // false = Two Pipes (finger fixed, each pipe has its own register)
@@ -321,6 +347,13 @@ struct Aulos : Module {
         configOutput(AUDIO_R_OUTPUT, "Audio R");
         configOutput(ENV_OUTPUT,     "Breath Envelope");
         configOutput(RMS_OUTPUT,     "Excitation (RMS)");
+
+        for (int vi = 0; vi < AULOS_MAX_POLY; ++vi) {
+            cachedPipeFreq[vi]    = 261.63f;
+            cachedFingerFreq[vi]  = 261.63f;
+            cachedPipeFreqR[vi]   = 261.63f;
+            cachedFingerFreqR[vi] = 261.63f;
+        }
     }
 
     void onSampleRateChange() override {
@@ -378,7 +411,6 @@ struct Aulos : Module {
     }
 
     // ── DSP helper: process one voice, one sample ─────────────────────────────
-    // Exact copy of the stable DSP loop. Both L and R voices call this.
     float processVoice(AulosVoice& v,
                        float sr,
                        bool  gateHigh,
@@ -393,7 +425,7 @@ struct Aulos : Module {
                        float waveguideGainV,
                        float cachedDecayGainV,
                        float refPipeFreq = 0.f) {
-
+    
         // ── Gate rise ─────────────────────────────────────────────────────────
         if (gateHigh && !v.lastGateHigh) {
             v.chiffCounter  = 0;
@@ -402,15 +434,26 @@ struct Aulos : Module {
             v.a_fingerDelay = 0.f;
         }
         v.lastGateHigh = gateHigh;
-
+    
         // ── Breath envelope ───────────────────────────────────────────────────
-        v.breathOut = v.breathEnv.process(
-            gateHigh,
-            breathRaw,
+        v.breathOut = v.breathEnv.process(  gateHigh,  breathRaw,
             attackSamples, releaseSamples,
             attackCurveV,  releaseCurveV);
         float breathLevel = v.breathOut * 0.1f * breathRaw;
 
+        // ── Sleep detector ────────────────────────────────────────────────────
+        // Gate low and all energy below threshold: snap residual state to zero
+        // and flag the voice asleep. The outer voice loop skips sleeping voices
+        // entirely until the gate rises again.
+        float activity = v.breathOut + fabsf(v.safetyDecay);
+        if (!gateHigh && activity < idleThreshold && v.emergencyDrain <= 0.f) {
+            v.asleep    = true;
+            v.breathOut = 0.f;
+            v.safetyRMS = 0.f;
+            v.dynEnvOut = 0.f;
+            return 0.f;
+        }
+    
         // ── Pitch ─────────────────────────────────────────────────────────────
         float refFreq    = (refPipeFreq > 0.f) ? refPipeFreq : pipeFreq;
         float activeFraction = refFreq / fingerFreq;
@@ -419,43 +462,41 @@ struct Aulos : Module {
         float fullPipeDelaySamples = freqToDelaySamples(pipeFreq, v.a_bore, sr);        
         float primaryDelaySamples  = fullPipeDelaySamples * activeFraction;
         primaryDelaySamples = clamp(primaryDelaySamples, 2.f, (float)v.primaryWaveguide.bufSize - 4.f);
-
+    
         float overblowTarget = primaryDelaySamples * (1.f - v.safetyDecay * 0.5f);  //shorten delay by half when safety kicks in
         if (v.a_fingerDelay < 2.f) v.a_fingerDelay = overblowTarget;
         v.a_fingerDelay += 0.05f * (overblowTarget - v.a_fingerDelay);
         primaryDelaySamples = v.a_fingerDelay;
-
+    
         float secondaryRatio        = 0.333f + v.a_bore * (0.5f - 0.333f);
         float secondaryDelaySamples = primaryDelaySamples * secondaryRatio * 0.994f * (1.f - v.safetyDecay * 0.5f);
         secondaryDelaySamples = clamp( secondaryDelaySamples, 2.f, (float)v.secondaryWaveguide.bufSize - 4.f);
-
+    
         // ── Excitation ────────────────────────────────────────────────────────
         float noiseAmp = v.a_noise * v.a_noise * 0.03f * v.breathOut;
         float noiseVal = lcgRandf() * noiseAmp;
         float toneGain       = 1.5f + v.a_tone * 1.7f;
         
         float effectiveDrive = toneGain * (0.3f + v.a_reedMorph * 0.3f) * (1.0f + v.a_bore * 0.3f);
-      
-        float reedExcite = breathLevel + noiseVal;
-
+        float reedExcite = breathLevel + noiseVal; 
         float tubeEndSample   = v.primaryWaveguide.readEnd(primaryDelaySamples);
         
-        float jetBias = breathLevel * (0.8f - v.a_bore * 0.6f);
-
+        float jetBias = breathLevel * (0.8f - v.a_bore * 0.6f); 
         float jetInput = tubeEndSample + jetBias + noiseVal;                
         float jetOut          = aulosJetFunction(clamp(jetInput, -3.f, 3.f));
-        float jetDelaySamples = clamp( sr * 0.00107f * (440.f / fingerFreq), 2.f, sr * 0.003f);
+        // Jet travel time ~0.47 of the played period — the phase relationship
+        // that lets the flute regeneration speak. The ceiling only guards the
+        // buffer; it must stay above half the period of the lowest fundamental
+        // or low notes get a mistimed jet and sound underblown.
+        float jetDelaySamples = clamp( sr * 0.00107f * (440.f / fingerFreq), 2.f, sr * 0.028f);
         
         float fluteExcite = v.jetDelay.process(jetOut, jetDelaySamples)*1.3f;
-
         float fluteAmt  = 0.3f + (1.f - v.a_reedMorph) * 0.55f;
         float reedAmt = 0.15f + v.a_reedMorph * 0.70f;
-
         float excite   = reedExcite * reedAmt + fluteExcite * fluteAmt;
-        
         excite += audioIn;
         excite *= waveguideGainV;
-
+    
         // ── Chiff transient ───────────────────────────────────────────────────
         if (v.chiffCounter < (int)v.cachedChiffDuration) {
             float env        = 1.f - (float)v.chiffCounter / v.cachedChiffDuration;
@@ -464,24 +505,44 @@ struct Aulos : Module {
             excite          += (chiffNoise - v.chiffZ1);
             v.chiffCounter++;
         }
+        
+        // ── Waveguides ────────────────────────────────────────────────────────
+        float loopSat = v.loopSaturator.process(excite, effectiveDrive);    
+        float envelopeGate = clamp(v.breathOut * 0.15f, 0.f, 1.f);
+        float loopFeedback = rack::crossfade(cachedDecayGainV * 0.8f, v.cachedFeedback, envelopeGate); //feedback dampens when we don't blow
 
+        // Emergency feedback limiter — when loop energy exceeds a hard ceiling,
+        // reduce loopFeedback toward zero smoothly. This keeps stored energy from
+        // growing further without any buffer manipulation, which caused audible
+        // artifacts. The energy naturally dissipates through the existing damping
+        // once recirculation is reduced. emergencyDrain here is a 0..1 suppression
+        // amount, not a drain gain.
+        if (v.emergencyDrain > 0.f)
+            loopFeedback *= (1.f - v.emergencyDrain);
+        
+        float boreDamp = (0.35f - v.a_bore * 0.28f) * clamp(261.63f / fingerFreq, 0.25f, 1.0f);
+        // At C4 (261.63Hz): full boreDamp value.
+        // Above C4: scales down proportionally — higher pitch = less damping.
+    
+        float reedDamp  = (1.f - v.a_reedMorph) * 0.5f;
+        float totalDamp = clamp(v.cachedDampCoeff + reedDamp, 0.f, 0.95f);
+        float primaryOut = v.primaryWaveguide.process(  loopSat,  primaryDelaySamples,  totalDamp, loopFeedback, boreDamp);
+        float secondaryFeed = (0.5f - v.a_bore * 0.35f) * (1.f - v.safetyDecay);        
+        float secondaryOut = v.secondaryWaveguide.process( loopSat * secondaryFeed, secondaryDelaySamples, 0.01f, 0.99f);
+    
+    
         // ── Overblow tracking ─────────────────────────────────────────────────
         // safetyRMS tracks peak loop energy. safetyDecay rises when energy
-        // exceeds threshold, used for display outline and future embouchure effects.
-        // Threshold scales with activeFraction so overblow is harder to trigger
-        // at the fundamental and easier near the top of the register.
-        // Tune: base (2.0f), sensitivity (3.0f).
+        // exceeds threshold, used for display outline and embouchure effects.
+        float peakEnergy = fmaxf(fabsf(primaryOut), fabsf(secondaryOut));
+    
         {
-            float peakEnergy = fmaxf(
-                fabsf(v.primaryWaveguide.lagrangeRead(primaryDelaySamples)),
-                fabsf(v.secondaryWaveguide.lagrangeRead(secondaryDelaySamples)));
-
             float rmsTarget = peakEnergy;
             float rmsCoeff  = rmsTarget > v.safetyRMS ? 0.1f : 0.002f;  // fast attack, slow release
             v.safetyRMS    += rmsCoeff * (rmsTarget - v.safetyRMS);
                         
             float overblowThreshold = 0.9f + activeFraction * 1.5f;
-
+    
             if (v.safetyRMS > overblowThreshold) {
                 v.safetyDecay = fminf(v.safetyDecay + 0.001f, 1.f);
             } else {
@@ -489,75 +550,47 @@ struct Aulos : Module {
                 if (v.safetyDecay < 0.001f) v.safetyDecay = 0.f;
             }
         }
-        
-        // ── Waveguides ────────────────────────────────────────────────────────
-        float loopSat = v.loopSaturator.process(excite, effectiveDrive);
-
-        float envelopeGate = clamp(v.breathOut * 0.15f, 0.f, 1.f);
-        float loopFeedback = rack::crossfade(cachedDecayGainV * 0.8f, v.cachedFeedback, envelopeGate); //feedback dampens when we don't blow
-        
-        float boreDamp = (0.35f - v.a_bore * 0.28f) * clamp(261.63f / fingerFreq, 0.25f, 1.0f);
-        // At C4 (261.63Hz): full boreDamp value.
-        // Above C4: scales down proportionally — higher pitch = less damping.
-        // Clamp prevents over-brightening below C4 and going negative above.
-        // Tune: the clamp ceiling (1.0f keeps C4 and below at full damp).
-
-        float reedDamp  = (1.f - v.a_reedMorph) * 0.5f;
-        float totalDamp = clamp(v.cachedDampCoeff + reedDamp, 0.f, 0.95f);
-        
-        float primaryOut = v.primaryWaveguide.process(
-            loopSat,
-            primaryDelaySamples,
-            totalDamp,
-            loopFeedback,
-            boreDamp);
-
-        float secondaryFeed = (0.5f - v.a_bore * 0.35f) * (1.f - v.safetyDecay);        
-        
-        float secondaryOut = v.secondaryWaveguide.process(
-            loopSat * secondaryFeed,
-            secondaryDelaySamples,
-            0.01f,
-            0.99f);
-
-        // in the gate-rise block, also handle gate-fall:
-        if (!gateHigh && v.lastGateHigh) {
-            v.primaryWaveguide.drain(0.98f);
-            v.secondaryWaveguide.drain(0.98f);
-        }
-
+    
         // ── Output mix ────────────────────────────────────────────────────────
         float voiceOut = primaryOut * 0.5f + secondaryOut * 0.5f;
         voiceOut = v.dcBlocker.process(voiceOut);
         voiceOut = v.outputCap.process(voiceOut);
         voiceOut = v.outputDCBlocker.process(voiceOut);
         if (!std::isfinite(voiceOut)) voiceOut = 0.f;
-
+    
         // ── Emergency drain ───────────────────────────────────────────────────
+        // Replicates the original per-sample drain(emergencyDrain) behavior:
+        // buffer energy decays at a fixed ~0.9997/sample rate via drainGain,
+        // while excitation can still push back in, producing the original
+        // sputtering raspberry character at extreme overblow. O(1) cost per
+        // sample — drainGain is applied inside lagrangeRead and the write path.
         {
-            float peakEnergy = fmaxf(fabsf(primaryOut), fabsf(secondaryOut));
             v.emergencyRMS = fmaxf(peakEnergy, v.emergencyRMS * 0.98f);
-            if (v.emergencyRMS > 6.f) {
+            if (v.emergencyRMS > 6.f && v.emergencyDrain <= 0.f) {
                 v.emergencyDrain = 0.99f;
                 v.emergencyRMS   = 0.f;
             }
             if (v.emergencyDrain > 0.f) {
-                v.primaryWaveguide.drain(v.emergencyDrain);
-                v.secondaryWaveguide.drain(v.emergencyDrain);
+                // Fixed per-sample buffer attenuation — matches original drain(0.9997).
+                v.primaryWaveguide.drainGain   = 0.9997f;
+                v.secondaryWaveguide.drainGain = 0.9997f;
                 voiceOut         *= v.emergencyDrain;
                 v.emergencyDrain *= 0.9997f;
-                if (v.emergencyDrain < 0.001f) v.emergencyDrain = 0.f;
+                if (v.emergencyDrain < 0.001f) {
+                    v.emergencyDrain = 0.f;
+                    v.primaryWaveguide.drainGain   = 1.f;
+                    v.secondaryWaveguide.drainGain = 1.f;
+                }
             }
         }
-
+    
         // ── RMS follower ──────────────────────────────────────────────────────
         {
             float midBand = v.envHPF.process(voiceOut);
             midBand       = v.envLPF.process(midBand);
             v.dynEnvOut   = v.dynFollower.process(midBand);
-        }
-        
-        voiceOut *= clamp(powf(440.f / fingerFreq, 0.5f), 0.25f, 3.0f); //pitch loudness correction
+        }        
+        voiceOut *= clamp(sqrtf(440.f / fingerFreq), 0.25f, 3.0f); //pitch loudness correction
         return voiceOut;
     }
 
@@ -614,13 +647,17 @@ struct Aulos : Module {
 
             // Damp -> loop LPF coefficient, two-phase mapping from Droplet:
             // Phase 1 (0->0.25):   blend in 8kHz LPF.
-            // Phase 2 (0.25->1.0): sweep cutoff 8kHz -> 200Hz logarithmically.
+            // Phase 2 (0.25->1.0): sweep cutoff 8kHz -> 200Hz logarithmically.                
+            static constexpr float LOG_8000 = 8.98719723f; // precomputed
+            static constexpr float LOG_200  = 5.29831737f;
+            static constexpr float LOG_RANGE = LOG_200 - LOG_8000;
             float sharedDampCoeff;
             {
-                float d      = sliderVal[7];
-                float blend  = clamp(d / 0.25f, 0.f, 1.f);
-                float freqT  = clamp((d - 0.25f) / 0.75f, 0.f, 1.f);
-                float dFreq  = expf(logf(8000.f) + freqT * (logf(200.f) - logf(8000.f)));
+                float d     = sliderVal[7];
+                float blend = clamp(d / 0.25f, 0.f, 1.f);
+                float freqT = clamp((d - 0.25f) / 0.75f, 0.f, 1.f);        
+                float dFreq = expf(LOG_8000 + freqT * LOG_RANGE);
+            
                 sharedDampCoeff = blend * expf(-2.f * float(M_PI) * dFreq / sr);
             }
 
@@ -631,6 +668,21 @@ struct Aulos : Module {
             float sharedDecayGain = 0.80f + decayValue * 0.17f;
 
             float chiffSlider = sliderVal[5];
+
+            // Dynamics follower coefficient — identical for all voices, computed once.
+            // Mirrors AulosEnvFollower::setCoeff with bandCenterNorm = sqrt(150*5000)/sr.
+            float sharedDynCoeff;
+            {
+                float bandCenterNorm = sqrtf(150.f * 5000.f) / sr;
+                float periodMs = (1.f / (bandCenterNorm * sr)) * 1000.f;
+                periodMs = clamp(periodMs, 0.5f, 2000.f);
+                float scale = 0.5f + followTime * followTime * 299.5f;
+                sharedDynCoeff = 1.f - expf(-1.f / ((periodMs * scale * 0.001f) * sr));
+            }
+
+            // Attack/release only change via the context menu — sub-rate is plenty.
+            cachedAttackSamples  = sr * 0.002f * powf(2000.f, clamp(attackValue,  0.f, 1.f));
+            cachedReleaseSamples = sr * 0.002f * powf(2000.f, clamp(releaseValue, 0.f, 1.f));
 
             for (int vi = 0; vi < nVoices; ++vi) {
                 for (int side = 0; side < 2; ++side) {
@@ -647,33 +699,38 @@ struct Aulos : Module {
                     v.cachedDampCoeff     = sharedDampCoeff;
                     v.cachedChiffDuration = chiffSlider * chiffSlider * sr * 0.15f;
                     v.cachedChiffAmp      = chiffSlider * chiffSlider * 0.5f;
-                    v.dynFollower.setCoeff(sqrtf(150.f * 5000.f) / sr, followTime, sr);
+                    v.dynFollower.coeff   = sharedDynCoeff;
+
+                    // Sleeping voices don't run the per-sample smoothing —
+                    // snap them to target here so they wake with current values.
+                    if (v.asleep) {
+                        v.a_reedMorph = v.t_reedMorph;
+                        v.a_bore      = v.t_bore;
+                        v.a_tone      = v.t_tone;
+                        v.a_lip       = v.t_lip;
+                        v.a_noise     = v.t_noise;
+                        v.a_decay     = v.t_decay;
+                        v.a_damp      = v.t_damp;
+                        v.a_chiff     = v.t_chiff;
+                    }
                 }
             }
         }
-
-        const float lerpCoeff = 1.f - expf(-8.f / (float)SKIP_MAX);
+        // Smoothing coefficient for skip-block targets — constant, computed once.
+        static const float lerpCoeff = 1.f - expf(-8.f / (float)SKIP_MAX);
 
         // ── Global audio-rate reads ───────────────────────────────────────────
         float fingerTune = params[FINGER_TUNE_PARAM].getValue();
 
         // FM depth: attenuator ±2 * CV * scale gives ±2 semitones max at full throw.
         // Tune: semitone scale (0.0833f = 1 semitone per unit).
-        float fmDepth = params[FM_ATT].getValue()
-                      * (inputs[FM_CV_INPUT].isConnected()
-                         ? inputs[FM_CV_INPUT].getVoltage() : 0.f)
-                      * 0.0167f;
+        float fmDepth = params[FM_ATT].getValue() * (inputs[FM_CV_INPUT].isConnected()
+                         ? inputs[FM_CV_INPUT].getVoltage() : 0.f) * 0.0167f;
                       
-        // Attack and release come from context menu stored values.
-        float attackRaw  = clamp(attackValue,  0.f, 1.f);
-        float releaseRaw = clamp(releaseValue, 0.f, 1.f);
-
-        float breathRaw = clamp(
-            params[BREATH_PARAM].getValue()
-            + params[BREATH_ATT].getValue()
-            * (inputs[BREATH_CV_INPUT].isConnected()
-               ? inputs[BREATH_CV_INPUT].getVoltage() : 0.f) * 0.1f,
-            0.f, 1.f);
+        // Attack and release are computed in the skip block (cachedAttackSamples /
+        // cachedReleaseSamples) since they only change via the context menu.
+        float breathRaw = clamp(  params[BREATH_PARAM].getValue() + params[BREATH_ATT].getValue()
+            * (inputs[BREATH_CV_INPUT].isConnected() ? inputs[BREATH_CV_INPUT].getVoltage() : 0.f) * 0.1f,  0.f, 1.f);
 
         breathRaw = breathRaw * breathRaw; //non-linear breath scaling
         if (breathRaw < 0.05f)
@@ -681,23 +738,13 @@ struct Aulos : Module {
         else
             breathRaw = 0.6f + (breathRaw - 0.05f) * (0.4f / 0.95f);
 
-        float attackSamples  = sr * 0.002f * powf(2000.f, attackRaw);
-        float releaseSamples = sr * 0.002f * powf(2000.f, releaseRaw);
-
-        float audioInGain = clamp(
-            params[AUDIO_IN_GAIN_PARAM].getValue()
-            + params[AUDIO_IN_GAIN_ATT].getValue()
-            * (inputs[AUDIO_IN_CV_INPUT].isConnected()
-               ? inputs[AUDIO_IN_CV_INPUT].getVoltage() : 0.f) * 0.1f,
-            0.f, 1.f);
-        float audioIn = inputs[AUDIO_IN_INPUT].isConnected()
-                      ? inputs[AUDIO_IN_INPUT].getVoltage() * 0.1f * audioInGain : 0.f;
-
-        float volume = clamp(
-            params[VOLUME_PARAM].getValue()
-            + params[VOLUME_ATT].getValue()
-            * (inputs[VOLUME_CV_INPUT].isConnected()
-               ? inputs[VOLUME_CV_INPUT].getVoltage() : 0.f) * 0.1f, 0.f, 1.f) * 3.f;
+        float attackSamples  = cachedAttackSamples;
+        float releaseSamples = cachedReleaseSamples;
+        float audioInGain = clamp(  params[AUDIO_IN_GAIN_PARAM].getValue() + params[AUDIO_IN_GAIN_ATT].getValue()
+            * (inputs[AUDIO_IN_CV_INPUT].isConnected() ? inputs[AUDIO_IN_CV_INPUT].getVoltage() : 0.f) * 0.1f, 0.f, 1.f);
+        float audioIn = inputs[AUDIO_IN_INPUT].isConnected() ? inputs[AUDIO_IN_INPUT].getVoltage() * 0.1f * audioInGain : 0.f;
+        float volume = clamp( params[VOLUME_PARAM].getValue() + params[VOLUME_ATT].getValue()
+            * (inputs[VOLUME_CV_INPUT].isConnected()  ? inputs[VOLUME_CV_INPUT].getVoltage() : 0.f) * 0.1f, 0.f, 1.f) * 3.f;
 
         // R voice pipe pitch offset in octaves. 0 = unison with L.
         float aulosOffset = clamp(
@@ -711,83 +758,133 @@ struct Aulos : Module {
 
         // Drone: R voice locked to pipe fundamental, gate always on.
         bool droneEffective = droneActive;
-
         const int displayVoice = 0;
+
+        // R voices are only processed when the R output is patched. On reconnect,
+        // clear them so stale buffer energy doesn't play back.
+        const bool processR = outputs[AUDIO_R_OUTPUT].isConnected();
+        if (processR && !prevRConnected) {
+            for (int vi = 0; vi < AULOS_MAX_POLY; ++vi) voicesR[vi].clear();
+        }
+        prevRConnected = processR;
+
+        // Pitch path decimation — recompute frequencies every PITCH_DECIM samples.
+        const bool doPitch = (pitchCounter == 0);
+        if (++pitchCounter >= PITCH_DECIM) pitchCounter = 0;
 
         // ── Voice loop ────────────────────────────────────────────────────────
         for (int vi = 0; vi < nVoices; ++vi) {
             AulosVoice& v  = voices[vi];
             AulosVoice& vR = voicesR[vi];
 
-            // Smooth all targets.
-            for (int side = 0; side < 2; ++side) {
-                AulosVoice& vs = (side == 0) ? v : vR;
-                vs.a_reedMorph += lerpCoeff * (vs.t_reedMorph - vs.a_reedMorph);
-                vs.a_bore      += lerpCoeff * (vs.t_bore      - vs.a_bore);
-                vs.a_tone      += lerpCoeff * (vs.t_tone      - vs.a_tone);
-                vs.a_lip       += lerpCoeff * (vs.t_lip       - vs.a_lip);
-                vs.a_noise     += lerpCoeff * (vs.t_noise     - vs.a_noise);
-                vs.a_decay     += lerpCoeff * (vs.t_decay     - vs.a_decay);
-                vs.a_damp      += lerpCoeff * (vs.t_damp      - vs.a_damp);
-                vs.a_chiff     += lerpCoeff * (vs.t_chiff     - vs.a_chiff);
-            }
-
-            // ── Per-voice pipe pitch ──────────────────────────────────────────
-            float pipeVoct = (inputs[PIPE_VOCT_INPUT].isConnected()
-                             ? inputs[PIPE_VOCT_INPUT].getPolyVoltage(vi) : 0.f)
-                           + params[PIPE_TUNE_PARAM].getValue();
-            float pipeFreq = voct2freq(pipeVoct);
-
-            // ── Left voice gate ───────────────────────────────────────────────
+            // ── Gate and wake/sleep ───────────────────────────────────────────
+            // Gate is read every sample so wake is sample-accurate. A sleeping
+            // voice pays only for this compare. Waking forces a pitch recompute
+            // so the voice doesn't start on a stale cached frequency.
             float gateV   = inputs[GATE_INPUT].getPolyVoltage(vi);
             bool gateHigh = (gateV > 1.f) || manualGateActive;
+            bool gateHighR = droneEffective ? true : gateHigh;
 
-            // ── Left voice pitch ──────────────────────────────────────────────
-            float fingerVoct = inputs[FINGER_VOCT_INPUT].isConnected()
-                             ? inputs[FINGER_VOCT_INPUT].getPolyVoltage(vi)
-                               + fmDepth + fingerTune
-                             : pipeVoct + fmDepth + fingerTune;
-            float fingerFreq = voct2freq(fingerVoct);
+            bool wokeL = v.asleep && gateHigh;
+            if (wokeL) v.asleep = false;
+            bool wokeR = processR && vR.asleep && gateHighR;
+            if (wokeR) vR.asleep = false;
+
+            const bool activeL = !v.asleep;
+            const bool activeR = processR && !vR.asleep;
+
+            if (!activeL && !activeR) {
+                // Fully idle: outputs stay at zero, skip everything else.
+                outputs[AUDIO_L_OUTPUT].setVoltage(0.f, vi);
+                outputs[AUDIO_R_OUTPUT].setVoltage(0.f, vi);
+                if (outputs[ENV_OUTPUT].isConnected())
+                    outputs[ENV_OUTPUT].setVoltage(0.f, vi);
+                if (outputs[RMS_OUTPUT].isConnected())
+                    outputs[RMS_OUTPUT].setVoltage(0.f, vi);
+                continue;
+            }
+
+            // Smooth targets for awake sides only. Sleeping sides are snapped
+            // to their targets in the skip block.
+            if (activeL) {
+                v.a_reedMorph += lerpCoeff * (v.t_reedMorph - v.a_reedMorph);
+                v.a_bore      += lerpCoeff * (v.t_bore      - v.a_bore);
+                v.a_tone      += lerpCoeff * (v.t_tone      - v.a_tone);
+                v.a_lip       += lerpCoeff * (v.t_lip       - v.a_lip);
+                v.a_noise     += lerpCoeff * (v.t_noise     - v.a_noise);
+                v.a_decay     += lerpCoeff * (v.t_decay     - v.a_decay);
+                v.a_damp      += lerpCoeff * (v.t_damp      - v.a_damp);
+                v.a_chiff     += lerpCoeff * (v.t_chiff     - v.a_chiff);
+            }
+            if (activeR) {
+                vR.a_reedMorph += lerpCoeff * (vR.t_reedMorph - vR.a_reedMorph);
+                vR.a_bore      += lerpCoeff * (vR.t_bore      - vR.a_bore);
+                vR.a_tone      += lerpCoeff * (vR.t_tone      - vR.a_tone);
+                vR.a_lip       += lerpCoeff * (vR.t_lip       - vR.a_lip);
+                vR.a_noise     += lerpCoeff * (vR.t_noise     - vR.a_noise);
+                vR.a_decay     += lerpCoeff * (vR.t_decay     - vR.a_decay);
+                vR.a_damp      += lerpCoeff * (vR.t_damp      - vR.a_damp);
+                vR.a_chiff     += lerpCoeff * (vR.t_chiff     - vR.a_chiff);
+            }
+
+            // ── Per-voice pitch (decimated) ───────────────────────────────────
+            // All voct2freq calls run every PITCH_DECIM samples, and on wake.
+            // The resulting delay lengths are smoothed per-sample inside
+            // processVoice (a_fingerDelay), so the decimation is inaudible for
+            // pitch CV and vibrato-rate FM.
+            if (doPitch || wokeL || wokeR) {
+                float pipeVoct = (inputs[PIPE_VOCT_INPUT].isConnected()
+                                 ? inputs[PIPE_VOCT_INPUT].getPolyVoltage(vi) : 0.f)
+                               + params[PIPE_TUNE_PARAM].getValue();
+                cachedPipeFreq[vi] = voct2freq(pipeVoct);
+
+                float fingerVoct = inputs[FINGER_VOCT_INPUT].isConnected()
+                                 ? inputs[FINGER_VOCT_INPUT].getPolyVoltage(vi)
+                                   + fmDepth + fingerTune
+                                 : pipeVoct + fmDepth + fingerTune;
+                cachedFingerFreq[vi] = voct2freq(fingerVoct);
+
+                // aulosOffset shifts the R pipe voct -> different tube length / timbre.
+                // When aulosOffset=0 and not in drone mode, R is identical to L.
+                cachedPipeFreqR[vi] = voct2freq(pipeVoct + aulosOffset + fmDepth);
+
+                // Two Pipes mode: finger stays fixed, each pipe has its own register.
+                // Tracking mode: finger shifts with the pipe offset, interval preserved.
+                cachedFingerFreqR[vi] = droneEffective ? cachedPipeFreqR[vi]
+                                      : (aulosTrack ? voct2freq(fingerVoct + aulosOffset)
+                                                    : cachedFingerFreq[vi]);
+            }
+            float pipeFreq    = cachedPipeFreq[vi];
+            float fingerFreq  = cachedFingerFreq[vi];
+            float pipeFreqR   = cachedPipeFreqR[vi];
+            float fingerFreqR = cachedFingerFreqR[vi];
 
             // ── Left voice ────────────────────────────────────────────────────
-            float voiceOut = processVoice(v,
-                sr, gateHigh,
-                breathRaw, attackSamples, releaseSamples,
-                attackCurve, releaseCurve,
-                pipeFreq, fingerFreq,
-                audioIn, waveguideGain, sharedDecayGain);
+            float voiceOut = 0.f;
+            if (activeL) {
+                voiceOut = processVoice(v,
+                    sr, gateHigh,
+                    breathRaw, attackSamples, releaseSamples,
+                    attackCurve, releaseCurve,
+                    pipeFreq, fingerFreq,
+                    audioIn, waveguideGain, sharedDecayGain);
+            }
 
             // ── Right voice ───────────────────────────────────────────────────
-            // aulosOffset shifts the R pipe voct -> different tube length / timbre.
-            // When aulosOffset=0 and not in drone mode, R is identical to L.
-            float pipeVoctR   = pipeVoct + aulosOffset + fmDepth;
-            float pipeFreqR   = voct2freq(pipeVoctR);
+            float voiceOutR = 0.f;
+            if (activeR) {
+                // Drone mode ducks R slightly so it sits behind the melody.
+                float droneLevel = droneEffective ? 0.6f : 1.0f;
 
-            // Two Pipes mode: finger stays fixed, each pipe has its own register.
-            // Tracking mode: finger shifts with the pipe offset, interval preserved.
-            float fingerFreqR = droneEffective ? pipeFreqR
-                              : (aulosTrack ? voct2freq(fingerVoct + aulosOffset)
-                                            : fingerFreq);
+                voiceOutR = processVoice(vR,
+                    sr, gateHighR,
+                    breathRaw, attackSamples, releaseSamples,
+                    attackCurve, releaseCurve,
+                    pipeFreqR, fingerFreqR,
+                    audioIn, waveguideGain, sharedDecayGain,
+                    aulosTrack ? pipeFreqR : pipeFreq);  // tracking: use R pipe as ref; two-pipes: use L pipe
 
-            bool  gateHighR   = droneEffective ? true : gateHigh;
-
-            // Drone mode ducks R slightly so it sits behind the melody.
-            float droneLevel = droneEffective ? 0.6f : 1.0f;
-
-            float voiceOutR = processVoice(vR,
-                sr, gateHighR,
-                breathRaw, attackSamples, releaseSamples,
-                attackCurve, releaseCurve,
-                pipeFreqR, fingerFreqR,
-                audioIn, waveguideGain, sharedDecayGain,
-                aulosTrack ? pipeFreqR : pipeFreq);  // tracking: use R pipe as ref; two-pipes: use L pipe
-
-            voiceOutR *= droneLevel;
-
-            // Capture pipe freqs for display voice
-            if (vi == displayVoice) {
-                displayPipeFreq  = pipeFreq;
-                displayPipeFreqR = pipeFreqR;
+                voiceOutR *= droneLevel;
             }
 
             // ── Per-voice outputs ─────────────────────────────────────────────
@@ -810,25 +907,32 @@ struct Aulos : Module {
             outputs[RMS_OUTPUT].setChannels(nVoices);
 
         // ── Display data ──────────────────────────────────────────────────────
-        if (nVoices > 0 && displayVoice < nVoices) {
+        // Updated at the pitch decimation rate — far above frame rate.
+        if (doPitch && nVoices > 0 && displayVoice < nVoices) {
             float fv = inputs[FINGER_VOCT_INPUT].isConnected()
                      ? inputs[FINGER_VOCT_INPUT].getPolyVoltage(displayVoice)
                      : inputs[PIPE_VOCT_INPUT].isConnected()
                        ? inputs[PIPE_VOCT_INPUT].getPolyVoltage(displayVoice)
                          + params[PIPE_TUNE_PARAM].getValue()
                        : params[PIPE_TUNE_PARAM].getValue();
+            displayPipeFreq  = cachedPipeFreq[displayVoice];
             float frac = displayPipeFreq / voct2freq(fv + fingerTune + fmDepth);
             displayActiveFraction = clamp(frac, 0.30f, 1.80f);
             displayBore           = voices[displayVoice].a_bore;
             displayBreath         = voices[displayVoice].breathOut * 0.1f;
             float fracR = aulosTrack
                         ? displayActiveFraction
-                        : displayPipeFreqR / voct2freq(fv + fingerTune + fmDepth);
+                        : displayPipeFreq / voct2freq(fv + fingerTune + fmDepth);
             displayActiveFractionR = clamp(fracR, 0.30f, 1.80f);
-            displayBreathR         = voicesR[displayVoice].breathOut * 0.1f;
+            displayBreathR         = processR ? voicesR[displayVoice].breathOut * 0.1f : 0.f;
             displayOverblow        = voices[displayVoice].safetyDecay;
-            displayOverblowR       = voicesR[displayVoice].safetyDecay;
-            displayPipeRatio       = clamp(displayPipeFreq / displayPipeFreqR, 0.25f, 2.0f);
+            displayOverblowR       = processR ? voicesR[displayVoice].safetyDecay : 0.f;
+
+            // R tube width: derived directly from the aulosOffset slider + CV so
+            // it updates immediately regardless of whether either voice is active.
+            // aulosOffset in octaves -> frequency ratio = 2^aulosOffset, so the
+            // R pipe is longer/shorter by exactly that factor relative to L.
+            displayPipeRatio = clamp(rack::dsp::exp2_taylor5(-aulosOffset), 0.25f, 2.0f);
         }
 
         for (int seg = 0; seg < 10; ++seg) {
