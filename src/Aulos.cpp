@@ -60,14 +60,15 @@ struct AulosVoice {
     // Smoothed primary delay — lerped each sample to avoid pitch CV clicks.
     float a_fingerDelay = 0.f;
 
-    // Overblow: safetyDecay rises when loop energy exceeds threshold,
-    // bending tube toward overblow register. Falls slowly after.
+    // Overblow / stability: safetyRMS tracks loop energy, safetyDecay rises
+    // when energy exceeds threshold. Used for display and energy-overblow.
     float safetyRMS   = 0.f;
     float safetyDecay = 0.f;
 
-    // Emergency drain — last-resort backstop above a hard energy ceiling.
-    float emergencyRMS   = 0.f;
-    float emergencyDrain = 0.f;
+    // Register: smoothed 0..1..2 value tracking the detected fingering register.
+    // 0 = fundamental, 1 = first overblown (octave), 2 = second overblown (2 oct).
+    // Smoothed per-sample so register transitions don't cause abrupt timbre jumps.
+    float registerSmooth = 0.f;
 
     // Sleep flag — set when the voice is fully idle (gate low, breath and
     // overblow energy below threshold). A sleeping voice costs one gate
@@ -96,8 +97,7 @@ struct AulosVoice {
         chiffZ1           = 0.f;
         safetyRMS         = 0.f;
         safetyDecay       = 0.f;
-        emergencyRMS      = 0.f;
-        emergencyDrain    = 0.f;
+        registerSmooth    = 0.f;
         a_fingerDelay     = 0.f;
         asleep            = true;
     }
@@ -121,8 +121,7 @@ struct AulosVoice {
         chiffZ1           = 0.f;
         safetyRMS         = 0.f;
         safetyDecay       = 0.f;
-        emergencyRMS      = 0.f;
-        emergencyDrain    = 0.f;
+        registerSmooth    = 0.f;
         a_fingerDelay     = 0.f;
         asleep            = true;
         a_reedMorph = t_reedMorph = 0.5f;
@@ -434,74 +433,138 @@ struct Aulos : Module {
             v.safetyRMS     = 0.f;
             v.safetyDecay   = 0.f;
             v.a_fingerDelay = 0.f;
+            // Do not reset registerSmooth on gate rise — legato register
+            // transitions carry over smoothly between notes.
         }
         v.lastGateHigh = gateHigh;
-    
+
         // ── Breath envelope ───────────────────────────────────────────────────
-        v.breathOut = v.breathEnv.process(  gateHigh,  breathRaw,
+        v.breathOut = v.breathEnv.process(gateHigh, breathRaw,
             attackSamples, releaseSamples,
             attackCurveV,  releaseCurveV);
         float breathLevel = v.breathOut * 0.1f * breathRaw;
 
         // ── Sleep detector ────────────────────────────────────────────────────
-        // Gate low and all energy below threshold: snap residual state to zero
-        // and flag the voice asleep. The outer voice loop skips sleeping voices
-        // entirely until the gate rises again.
         float activity = v.breathOut + fabsf(v.safetyDecay);
-        if (!gateHigh && activity < idleThreshold && v.emergencyDrain <= 0.f) {
-            v.asleep    = true;
-            v.breathOut = 0.f;
-            v.safetyRMS = 0.f;
-            v.dynEnvOut = 0.f;
+        if (!gateHigh && activity < idleThreshold) {
+            v.asleep         = true;
+            v.breathOut      = 0.f;
+            v.safetyRMS      = 0.f;
+            v.dynEnvOut      = 0.f;
+            v.registerSmooth = 0.f;
             return 0.f;
         }
-    
+
+        // ── Register detection ────────────────────────────────────────────────
+        // The ratio of finger frequency to pipe fundamental determines which
+        // register the player is targeting. Each register octave folds the
+        // finger frequency down so the bore reuses the same [0.5, 1.02] range
+        // and the jet phase selects which comb mode locks.
+        //
+        // Thresholds are set half a semitone below each octave boundary so
+        // slightly flat CV still resolves to the correct register:
+        //   ratio < 0.97:        below fundamental  -> underblown
+        //   0.97 .. 1.94:        first octave       -> register 1 (fundamental)
+        //   1.94 .. 3.88:        second octave      -> register 2 (overblown 8va)
+        //   >= 3.88:             above              -> register 3 (overblown 15ma)
+        float refFreq     = (refPipeFreq > 0.f) ? refPipeFreq : pipeFreq;
+        float fingerRatio = fingerFreq / refFreq;
+
+        float registerTarget;
+        float foldedFingerFreq;
+        if (fingerRatio >= 3.88f) {
+            registerTarget   = 2.f;
+            foldedFingerFreq = fingerFreq * 0.25f; // fold 2 octaves down
+        } else if (fingerRatio >= 1.94f) {
+            registerTarget   = 1.f;
+            foldedFingerFreq = fingerFreq * 0.5f;  // fold 1 octave down
+        } else {
+            registerTarget   = 0.f;
+            foldedFingerFreq = fingerFreq;          // no fold
+        }
+
+        // Smooth the register value so timbre morphs over ~200ms rather than
+        // snapping. Tune the coefficient for faster/slower register transitions.
+        const float registerLerpCoeff = 0.002f;
+        v.registerSmooth += registerLerpCoeff * (registerTarget - v.registerSmooth);
+
         // ── Pitch ─────────────────────────────────────────────────────────────
-        float refFreq    = (refPipeFreq > 0.f) ? refPipeFreq : pipeFreq;
-        float activeFraction = refFreq / fingerFreq;
+        // activeFraction uses the folded finger frequency so all registers
+        // map into the same bore-length range, reusing the same tube geometry.
+        float activeFraction = refFreq / foldedFingerFreq;
         activeFraction = clamp(activeFraction, 0.50f, 1.02f);
-        
-        float fullPipeDelaySamples = freqToDelaySamples(pipeFreq, v.a_bore, sr);        
+
+        float fullPipeDelaySamples = freqToDelaySamples(pipeFreq, v.a_bore, sr);
         float primaryDelaySamples  = fullPipeDelaySamples * activeFraction;
         primaryDelaySamples = clamp(primaryDelaySamples, 2.f, (float)v.primaryWaveguide.bufSize - 4.f);
-    
-        float overblowAmt = clamp(v.safetyDecay, 0.f, 1.f);
-        float targetMode = (overblowAmt > 0.5f) ? 0.5f : 1.0f;
-        float overblowTarget = primaryDelaySamples * targetMode;        
-        
+
+        // Energy-overblow: very loud playing pushes safetyDecay above 0.5,
+        // halving the tube period so the mode bumps up. This is independent of
+        // register and composes with it — blowing hard in register 1 can tip
+        // into a brief register-2 excitation.
+        float overblowAmt    = clamp(v.safetyDecay, 0.f, 1.f);
+        float overblowTarget = primaryDelaySamples * ((overblowAmt > 0.5f) ? 0.5f : 1.0f);
+
         if (v.a_fingerDelay < 2.f) v.a_fingerDelay = overblowTarget;
         v.a_fingerDelay += 0.05f * (overblowTarget - v.a_fingerDelay);
         primaryDelaySamples = v.a_fingerDelay;
-    
-        float secondaryRatio        = 0.333f + v.a_bore * (0.5f - 0.333f);
+
+        // Secondary waveguide ratio: tuned toward the played mode's sub-harmonic
+        // to reinforce mode lock and add the characteristic hollow upper-register
+        // tone. Register 1 base tracks bore (0.333..0.5). Register 2 moves to 0.5
+        // (reinforces 2nd harmonic). Register 3 moves to 0.25 (reinforces 4th).
+        float secondaryRatioBase = 0.333f + v.a_bore * (0.5f - 0.333f);
+        float secondaryRatio;
+        if (v.registerSmooth >= 1.f) {
+            float blend    = clamp(v.registerSmooth - 1.f, 0.f, 1.f);
+            secondaryRatio = 0.5f + blend * (0.25f - 0.5f);  // reg2 -> reg3
+        } else {
+            secondaryRatio = secondaryRatioBase + v.registerSmooth * (0.5f - secondaryRatioBase); // reg1 -> reg2
+        }
         float secondaryDelaySamples = primaryDelaySamples * secondaryRatio * 0.994f * (1.f - v.safetyDecay * 0.5f);
-        secondaryDelaySamples = clamp( secondaryDelaySamples, 2.f, (float)v.secondaryWaveguide.bufSize - 4.f);
-    
+        secondaryDelaySamples = clamp(secondaryDelaySamples, 2.f, (float)v.secondaryWaveguide.bufSize - 4.f);
+
         // ── Excitation ────────────────────────────────────────────────────────
-        float noiseAmp = v.a_noise * v.a_noise * 0.03f * v.breathOut;
+        // Noise increases per register — upper registers are inherently breathy.
+        // Tune noiseRegScale to adjust how much breath noise each register adds.
+        const float noiseRegScale = 0.4f;
+        float noiseAmp = v.a_noise * v.a_noise * 0.03f * v.breathOut
+                       * (1.f + v.registerSmooth * noiseRegScale);
         float noiseVal = lcgRandf() * noiseAmp;
-        float toneGain       = 1.5f + v.a_tone * 1.7f;
-        
+
+        // toneGain drives the reed saturator. Computed fresh each sample so
+        // the stability duck never accumulates into a_tone state.
+        float toneGain = 1.5f + v.a_tone * 1.7f;
+
+        // Stability tone duck — reduces drive when loop energy is too high,
+        // preventing HF runaway without corrupting a_tone.
+        // Tune 0.75 for more/less aggressiveness.
+        float overdrive = clamp((v.safetyRMS - 1.2f) * 0.5f, 0.f, 1.f);
+        toneGain *= (1.f - overdrive * 0.75f);
+
         float effectiveDrive = toneGain * (0.3f + v.a_reedMorph * 0.3f) * (1.0f + v.a_bore * 0.3f);
-        float reedExcite = breathLevel + noiseVal; 
-        float tubeEndSample   = v.primaryWaveguide.readEnd(primaryDelaySamples);
-        
-        float jetBias = breathLevel * (0.8f - v.a_bore * 0.6f); 
-        float jetInput = tubeEndSample + jetBias + noiseVal;                
-        float jetOut          = aulosJetFunction(clamp(jetInput, -3.f, 3.f));
-        // Jet travel time ~0.47 of the played period — the phase relationship
-        // that lets the flute regeneration speak. The ceiling only guards the
-        // buffer; it must stay above half the period of the lowest fundamental
-        // or low notes get a mistimed jet and sound underblown.
-        float jetDelaySamples = clamp( sr * 0.00107f * (440.f / fingerFreq), 2.f, sr * 0.028f);
-        
-        float fluteExcite = v.jetDelay.process(jetOut, jetDelaySamples)*1.3f;
-        float fluteAmt  = 0.3f + (1.f - v.a_reedMorph) * 0.55f;
-        float reedAmt = 0.15f + v.a_reedMorph * 0.70f;
-        float excite   = reedExcite * reedAmt + fluteExcite * fluteAmt;
+        float reedExcite     = breathLevel + noiseVal;
+        float tubeEndSample  = v.primaryWaveguide.readEnd(primaryDelaySamples);
+
+        // Jet bias: higher registers need more air velocity to lock the mode.
+        // Tune jetRegScale for how eagerly the flute speaks in upper registers.
+        const float jetRegScale = 0.25f;
+        float jetBias  = breathLevel * (0.8f - v.a_bore * 0.6f) * (1.f + v.registerSmooth * jetRegScale);
+        float jetInput = tubeEndSample + jetBias + noiseVal;
+        float jetOut   = aulosJetFunction(clamp(jetInput, -3.f, 3.f));
+
+        // Jet travel time ~0.47 of the played period. fingerFreq (unfolded) is
+        // correct here — the jet delay models the physical embouchure-to-opening
+        // distance, which is independent of which bore mode locks.
+        float jetDelaySamples = clamp(sr * 0.00107f * (440.f / fingerFreq), 2.f, sr * 0.028f);
+
+        float fluteExcite = v.jetDelay.process(jetOut, jetDelaySamples) * 1.3f;
+        float fluteAmt    = 0.3f + (1.f - v.a_reedMorph) * 0.55f;
+        float reedAmt     = 0.15f + v.a_reedMorph * 0.70f;
+        float excite      = reedExcite * reedAmt + fluteExcite * fluteAmt;
         excite += audioIn;
         excite *= waveguideGainV;
-    
+
         // ── Chiff transient ───────────────────────────────────────────────────
         if (v.chiffCounter < (int)v.cachedChiffDuration) {
             float env        = 1.f - (float)v.chiffCounter / v.cachedChiffDuration;
@@ -510,47 +573,45 @@ struct Aulos : Module {
             excite          += (chiffNoise - v.chiffZ1);
             v.chiffCounter++;
         }
-        
+
         // ── Waveguides ────────────────────────────────────────────────────────
-        float loopSat = v.loopSaturator.process(excite, effectiveDrive);    
+        float loopSat      = v.loopSaturator.process(excite, effectiveDrive);
         float envelopeGate = clamp(v.breathOut * 0.15f, 0.f, 1.f);
-        float loopFeedback = rack::crossfade(cachedDecayGainV * 0.8f, v.cachedFeedback, envelopeGate); //feedback dampens when we don't blow
+        float loopFeedback = rack::crossfade(cachedDecayGainV * 0.8f, v.cachedFeedback, envelopeGate); // feedback dampens when we don't blow
 
-        // Emergency feedback limiter — when loop energy exceeds a hard ceiling,
-        // reduce loopFeedback toward zero smoothly. This keeps stored energy from
-        // growing further without any buffer manipulation, which caused audible
-        // artifacts. The energy naturally dissipates through the existing damping
-        // once recirculation is reduced. emergencyDrain here is a 0..1 suppression
-        // amount, not a drain gain.
-        if (v.emergencyDrain > 0.f)
-            loopFeedback *= (1.f - v.emergencyDrain);
-        
+        // Feedback reduces slightly in higher registers — upper registers are
+        // less stable and more sensitive to embouchure. Tune registerFeedbackDrop.
+        const float registerFeedbackDrop = 0.03f;
+        loopFeedback *= (1.f - v.registerSmooth * registerFeedbackDrop);
+
         float boreDamp = (0.35f - v.a_bore * 0.28f) * clamp(261.63f / fingerFreq, 0.25f, 1.0f);
-        // At C4 (261.63Hz): full boreDamp value.
-        // Above C4: scales down proportionally — higher pitch = less damping.
-    
-        float reedDamp  = (1.f - v.a_reedMorph) * 0.5f;
-        float totalDamp = clamp(v.cachedDampCoeff + reedDamp, 0.f, 0.95f);
-        float primaryOut = v.primaryWaveguide.process(  loopSat,  primaryDelaySamples,  totalDamp, loopFeedback, boreDamp);
-        float secondaryFeed = (0.5f - v.a_bore * 0.35f) * (1.f - v.safetyDecay);        
-        float secondaryOut = v.secondaryWaveguide.process( loopSat * secondaryFeed, secondaryDelaySamples, 0.01f, 0.99f);
-    
-        // ── Overblow tracking ─────────────────────────────────────────────────
-        // safetyRMS tracks peak loop energy. safetyDecay rises when energy
-        // exceeds threshold, used for display outline and embouchure effects.
-        float peakEnergy = fmaxf(fabsf(primaryOut), fabsf(secondaryOut));
-    
-        {
-            float instEnergy = primaryOut * primaryOut + secondaryOut * secondaryOut;
-            instEnergy *= 0.5f; // normalize 2-path energy
-            
-            float rmsTarget = sqrtf(instEnergy);
+        // At C4: full boreDamp. Above C4: scales down — higher pitch, less damping.
 
-            float rmsCoeff  = rmsTarget > v.safetyRMS ? 0.1f : 0.002f;  // fast attack, slow release
-            v.safetyRMS    += rmsCoeff * (rmsTarget - v.safetyRMS);
-                        
+        float reedDamp = (1.f - v.a_reedMorph) * 0.5f;
+
+        // Register 3 adds extra damping — thinner, more penetrating tone.
+        // Tune registerDampScale to adjust how much extra loss the top register has.
+        const float registerDampScale = 0.04f;
+        float registerDampExtra = clamp(v.registerSmooth - 1.f, 0.f, 1.f) * registerDampScale;
+        float totalDamp = clamp(v.cachedDampCoeff + reedDamp + registerDampExtra, 0.f, 0.95f);
+
+        float primaryOut    = v.primaryWaveguide.process(loopSat, primaryDelaySamples, totalDamp, loopFeedback, boreDamp);
+        float secondaryFeed = (0.5f - v.a_bore * 0.35f) * (1.f - v.safetyDecay);
+        float secondaryOut  = v.secondaryWaveguide.process(loopSat * secondaryFeed, secondaryDelaySamples, 0.01f, 0.99f);
+
+        // ── Stability / overblow ──────────────────────────────────────────────
+        // Single unified RMS tracker. Fast attack, slow release.
+        // safetyDecay drives energy-overblow and the display overblow outline.
+        // toneGain ducking on excessive energy is already applied above.
+        {
+            float instEnergy = (primaryOut * primaryOut + secondaryOut * secondaryOut) * 0.5f;
+            float rmsTarget  = sqrtf(instEnergy);
+            float rmsCoeff   = rmsTarget > v.safetyRMS ? 0.1f : 0.002f;
+            v.safetyRMS     += rmsCoeff * (rmsTarget - v.safetyRMS);
+
+            // Threshold scales with activeFraction so shorter bores (higher
+            // fingerings) don't trip the energy-overblow as easily.
             float overblowThreshold = 1.6f + (activeFraction - 1.f) * 0.4f;
-    
             if (v.safetyRMS > overblowThreshold) {
                 v.safetyDecay = fminf(v.safetyDecay + 0.001f, 1.f);
             } else {
@@ -558,52 +619,21 @@ struct Aulos : Module {
                 if (v.safetyDecay < 0.001f) v.safetyDecay = 0.f;
             }
         }
-    
+
         // ── Output mix ────────────────────────────────────────────────────────
         float voiceOut = primaryOut * 0.5f + secondaryOut * 0.5f;
         voiceOut = v.dcBlocker.process(voiceOut);
         voiceOut = v.outputCap.process(voiceOut);
         voiceOut = v.outputDCBlocker.process(voiceOut);
         if (!std::isfinite(voiceOut)) voiceOut = 0.f;
-    
-        // ── Stability control (RMS → tone duck, no waveguide intervention) ──
-        
-        // compute energy estimate
-        float instEnergy = (primaryOut * primaryOut + secondaryOut * secondaryOut) * 0.5f;        
-        // smooth RMS
-        float rmsTarget = sqrtf(instEnergy);
-        
-        float rmsCoeff =
-            rmsTarget > v.safetyRMS ? 0.08f : 0.0015f;
-        
-        v.safetyRMS += rmsCoeff * (rmsTarget - v.safetyRMS);
-        
-        // detect excessive excitation
-        float overdrive = clamp((v.safetyRMS - 1.2f) * 0.5f, 0.f, 1.f);
-        
-        // tone duck (prevents HF runaway without collapsing feedback)
-        float toneDuck = 1.f - overdrive * 0.75f;
-        
-        // apply duck to tone control path (choose ONE of these depending on your architecture)
-        v.a_tone *= toneDuck;   // if tone is already active smoothed state
-        // v.t_tone *= toneDuck; // if tone is still target-domain
-        
-        // optional: keep safetyDecay usable for UI / overblow display only
-        if (v.safetyRMS > 1.6f)
-            v.safetyDecay = fminf(v.safetyDecay + 0.001f, 1.f);
-        else
-            v.safetyDecay *= 0.9995f;
-        
-        if (v.safetyDecay < 0.001f)
-            v.safetyDecay = 0.f;
-    
+
         // ── RMS follower ──────────────────────────────────────────────────────
         {
             float midBand = v.envHPF.process(voiceOut);
             midBand       = v.envLPF.process(midBand);
             v.dynEnvOut   = v.dynFollower.process(midBand);
-        }        
-        voiceOut *= clamp(sqrtf(440.f / fingerFreq), 0.25f, 3.0f); //pitch loudness correction
+        }
+        voiceOut *= clamp(sqrtf(440.f / fingerFreq), 0.25f, 3.0f); // pitch loudness correction
         return voiceOut;
     }
 
