@@ -250,6 +250,10 @@ struct Aulos : Module {
     float displayBreathR         = 0.0f;
     float displayOverblow        = 0.0f;
     float displayOverblowR       = 0.0f;
+    // Smoothed register (0..2) read from the voice DSP — drives the nodal
+    // pattern in the display so it shows the mode the bore is actually playing.
+    float displayRegister        = 0.0f;
+    float displayRegisterR       = 0.0f;
     float displayPipeRatio       = 1.0f;
     float displayPipeFreq        = 261.63f;
 
@@ -952,24 +956,35 @@ struct Aulos : Module {
         // ── Display data ──────────────────────────────────────────────────────
         // Updated at the pitch decimation rate — far above frame rate.
         if (doPitch && nVoices > 0 && displayVoice < nVoices) {
-            float fv = inputs[FINGER_VOCT_INPUT].isConnected()
-                     ? inputs[FINGER_VOCT_INPUT].getPolyVoltage(displayVoice)
-                     : inputs[PIPE_VOCT_INPUT].isConnected()
-                       ? inputs[PIPE_VOCT_INPUT].getPolyVoltage(displayVoice)
-                         + params[PIPE_TUNE_PARAM].getValue()
-                       : params[PIPE_TUNE_PARAM].getValue();
             displayPipeFreq  = cachedPipeFreq[displayVoice];
-            displayBore           = voices[displayVoice].a_bore;
-            displayBreath         = voices[displayVoice].breathOut * 0.1f;
+            displayBore      = voices[displayVoice].a_bore;
+            displayBreath    = voices[displayVoice].breathOut * 0.1f;
 
-            float fingerF = voct2freq(fv + fingerTune + fmDepth);
-            
-            float fracL = fingerF / displayPipeFreq;
-            float fracR = fingerF / cachedPipeFreqR[displayVoice];
-            
-            // clamp consistently (IMPORTANT: same domain)
-            displayActiveFraction  = clamp(fracL, 0.2f, 2.0f);
-            displayActiveFractionR = clamp(fracR, 0.2f, 2.0f);
+            // Mirror the register fold from processVoice so the display shows
+            // the bore length actually in use. Each register folds the finger
+            // frequency down an octave, reusing the same physical hole position
+            // while the jet locks a higher bore mode. Thresholds match the DSP.
+            float fingerF  = cachedFingerFreq[displayVoice];
+            float fingerFR = cachedFingerFreqR[displayVoice];
+            float refL = displayPipeFreq;
+            float refR = aulosTrack ? cachedPipeFreqR[displayVoice] : displayPipeFreq;
+
+            float ratioL  = fingerF / refL;
+            float foldedL = (ratioL >= 3.88f) ? fingerF * 0.25f
+                          : (ratioL >= 1.94f) ? fingerF * 0.5f
+                          : fingerF;
+            displayActiveFraction = clamp(refL / foldedL, 0.50f, 1.02f);
+
+            float ratioR  = fingerFR / refR;
+            float foldedR = (ratioR >= 3.88f) ? fingerFR * 0.25f
+                          : (ratioR >= 1.94f) ? fingerFR * 0.5f
+                          : fingerFR;
+            displayActiveFractionR = clamp(refR / foldedR, 0.50f, 1.02f);
+
+            // Register comes straight from the voice DSP state, so register
+            // transitions sweep the nodal pattern exactly as the timbre morphs.
+            displayRegister  = voices[displayVoice].registerSmooth;
+            displayRegisterR = processR ? voicesR[displayVoice].registerSmooth : 0.f;
 
             displayBreathR         = processR ? voicesR[displayVoice].breathOut * 0.1f : 0.f;
             displayOverblow        = voices[displayVoice].safetyDecay;
@@ -1018,10 +1033,10 @@ struct PipeDisplay : TransparentWidget {
             const float rowH = (H - gap) * 0.5f;
 
             if (!module) {
-                drawTube(args.vg, 1.f, 0.f, 0.5f, 0.f,
+                drawTube(args.vg, 1.f, 0.f, 0.5f, 0.f, 0.f,
                          0.f, 0.f, W * 0.5f, rowH);
 
-                drawTube(args.vg, 1.f, 0.f, 0.5f, 0.f,
+                drawTube(args.vg, 1.f, 0.f, 0.5f, 0.f, 0.f,
                          0.f, rowH + gap, W, rowH);
             }
             else {
@@ -1037,6 +1052,7 @@ struct PipeDisplay : TransparentWidget {
                          module->displayBore,
                          module->displayBreath,
                          module->displayOverblow,
+                         module->displayRegister,
                          0.f, 0.f,
                          lWidth, rowH);
 
@@ -1045,6 +1061,7 @@ struct PipeDisplay : TransparentWidget {
                          module->displayBore,
                          module->displayBreathR,
                          module->displayOverblowR,
+                         module->displayRegisterR,
                          0.f, rowH + gap,
                          rWidth, rowH);
             }
@@ -1055,8 +1072,13 @@ struct PipeDisplay : TransparentWidget {
 
     // bx, by: top-left of the bounding rect for this tube.
     // bw, bh: width and height of the bounding rect.
+    // activeFraction: position of the first open finger hole along the tube,
+    //   0..1 of the full pipe length (the folded bore fraction from the DSP).
+    // registerValue: smoothed register from the voice, 0 = fundamental,
+    //   1 = first overblown (octave), 2 = second overblown (2 octaves).
     void drawTube(NVGcontext* vg,
           float activeFraction, float bell, float breath, float overblow,
+          float registerValue,
           float bx, float by, float bw, float bh) {
 
         const float margin  = 3.f;
@@ -1096,51 +1118,53 @@ struct PipeDisplay : TransparentWidget {
         nvgFillColor(vg, nvgRGBAf(0.06f, 0.06f, 0.12f, tubeAlpha));
         nvgFill(vg);
 
-        // ── Standing wave color ──────────────────────────────────────────────
-        // harmonic driven by overblow state — 1st harmonic normally,
-        // higher modes when overblowing.
-        
-        int harmonic = (overblow > 0.3f) ? 2 : 1;
-        
-        float effectiveLength = fmaxf(0.05f, activeFraction);
-        // float markerNorm = activeFraction / effectiveLength;
-        // markerNorm = clamp(markerNorm, 0.f, 1.f);
-        
-        float k = float(M_PI);
-        float harmonicBlend = (overblow > 0.3f) ? 2.f : 1.f;
-        
+        // ── Standing wave ─────────────────────────────────────────────────────
+        // The mode count follows the V/Oct register the DSP locked: register 0
+        // plays the bore fundamental (1 antinode), register 1 overblows an
+        // octave (2 antinodes), register 2 overblows two octaves (4 antinodes).
+        // registerValue is the voice's smoothed register, so transitions sweep
+        // the pattern continuously, exactly as the timbre morphs.
+        //
+        // Energy-overblow (hard blowing) halves the loop period in the DSP,
+        // which doubles the mode on top of whatever the register selected.
+        // The 0.35/0.3 ramp below tracks the 0.5 trip point in processVoice
+        // with a little visual lead-in.
+        float modeNumber  = rack::dsp::exp2_taylor5(registerValue);
+        float energyKick  = clamp((overblow - 0.35f) / 0.3f, 0.f, 1.f);
+        modeNumber       *= (1.f + energyKick);
+
+        // Bore ends at the first open finger hole.
+        float boreEnd = clamp(activeFraction, 0.05f, 1.f);
+
         float brightness = 0.5f + 0.5f * breath;
-        
+
         const int N = 64;
-        
+
         for (int i = 0; i < N; ++i) {
             float xNorm = (float)i / (float)(N - 1);
-        
+
             float xPix  = tubeX + xNorm * tubeW;
             float segW  = tubeW / (float)N + 1.f;
             float halfH = tubeHalfHeight(xNorm);
-        
-            // ── unified physical coordinate system ───────────────────────────
-            float xPhys     = xNorm * effectiveLength;
-            float fingerPhys = effectiveLength;
-        
-            float xDist = xPhys - fingerPhys;
-        
-            // ── finger-hole acoustic leak (true damping, not just fade) ──────
-            float leakGain =
-                (xDist <= 0.f)
-                    ? 1.f
-                    : expf(-xDist * 6.5f);
-        
-            // ── standing wave physics ────────────────────────────────────────
-            float phase = harmonicBlend * k * xPhys;
-            float pressure = cosf(phase);
-        
+
+            // ── finger-hole acoustic leak ─────────────────────────────────────
+            // The standing wave lives between the embouchure and the first open
+            // hole; past the hole the pattern decays into the unused bore.
+            // Tune the 6.5 constant for a sharper/softer cutoff past the hole.
+            float xDist    = xNorm - boreEnd;
+            float leakGain = (xDist <= 0.f) ? 1.f : expf(-xDist * 6.5f);
+
+            // ── standing wave physics ─────────────────────────────────────────
+            // Open-open pipe: pressure nodes at the embouchure (x=0) and at the
+            // first open hole (x=boreEnd), antinodes in between — flute modes.
+            float phase    = modeNumber * float(M_PI) * xNorm / boreEnd;
+            float pressure = sinf(phase);
+
             float amp = pressure * pressure;
             amp *= leakGain;
-        
+
             float glow = amp * brightness;
-        
+
             nvgBeginPath(vg);
             nvgRect(
                 vg,
@@ -1149,29 +1173,27 @@ struct PipeDisplay : TransparentWidget {
                 segW,
                 halfH * 2.f
             );
-        
-            // ── original warm/cool scheme ────────────────────────────────────
+
+            // ── warm/cool scheme on signed pressure ───────────────────────────
             float warm = fmaxf(pressure, 0.f);
             float cool = fmaxf(-pressure, 0.f);
-        
+
             float r = 0.08f + warm * 0.90f;
             float g = 0.05f + warm * 0.35f;
             float b = 0.12f + cool * 0.90f;
-        
-            // important: leak affects visibility AND perceived decay
+
+            // Leak affects visibility AND perceived decay.
             float a = (0.40f + glow * 0.60f) * leakGain;
-        
+
             nvgFillColor(vg, nvgRGBAf(r, g, b, a));
             nvgFill(vg);
         }
-        
+
         // ── Fingering marker ──────────────────────────────────────────────────
-        // Always shown when breath is active.
-        // Normal: vertical line at finger position.
-        // Overblowing: hollow ellipse growing with overblow amount.
-        float length = clamp(activeFraction, 0.2f, 2.0f);
-        float markerNorm = 1.f / length;
-        markerNorm = clamp(markerNorm, 0.f, 1.f);
+        // Always shown when breath is active, at the first open hole position.
+        // Normal: vertical line. Energy-overblow: hollow ellipse growing with
+        // overblow amount.
+        float markerNorm = boreEnd;
 
         if (breath > 0.02f) {
             float markerX = tubeX + markerNorm * tubeW;
