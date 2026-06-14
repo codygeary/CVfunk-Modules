@@ -137,19 +137,17 @@ struct Glass : Module {
     float cachedFmRatio       = 1.f;
     float cachedAttackSamples = 1000.f;
     float cachedReleaseSamples= 10000.f;
-    // Maximum noise cutoff frequency (Hz) at fully dry water setting.
-    // Lower = darker friction noise, less metallic. Tune via context menu.
-    float noiseCutoffMax    = 500.f;
+    float noiseCutoffMax    = 1000.f; // frequency cutoff for dry finger noise excitation
     float tremoloPhase      = 0.f;    // global axis wobble phase, shared across all bowls
-
     float cachedFeedback    = 0.9997f;
     float cachedLpfCoeff    = 0.02f;     // feedback LPF coeff with current global damp state
     float cachedMutedLpfCoeff = 0.02f;   // feedback LPF coeff as if damp were engaged (per-note mute)
     float cachedNoiseLpfZ   = 0.f;    // one-pole LPF state for excitation noise
     float cachedNoiseLpfA   = 0.5f;   // LPF coefficient, updated in sub-rate block
-    float cachedWobbleDepth = 0.15f;  // axis wobble depth, cached sub-rate
-    float cachedRootOffset  = 0.f;    // root transpose, cached sub-rate
-    float cachedFmRatioInv  = 1.f;    // 1/cachedFmRatio -- multiply instead of divide per bowl
+    float cachedWobbleDepth    = 0.15f;  // axis wobble depth, cached sub-rate
+    float cachedRootOffset     = 0.f;    // root transpose, cached sub-rate
+    float cachedFmRatioInv     = 1.f;    // 1/cachedFmRatio -- multiply instead of divide per bowl
+    float cachedPressureShare  = 1.f;    // hand pressure distributed across active finger count
     int   cachedBowlForChannel[GLASS_MAX_POLY] = {};  // cached nearestBowl per VOCT channel
     float cachedVoctForChannel[GLASS_MAX_POLY] = {};  // last V/oct read per channel
     bool  anyBowlActive = false;
@@ -244,29 +242,29 @@ struct Glass : Module {
         configParam(SPEED_ATT,   -2.f,  2.f,  0.f,   "Speed Att.");
         configParam(WATER_PARAM,  0.f,  1.f,  0.85f, "Water");
         configParam(WATER_ATT,   -2.f,  2.f,  0.f,   "Water Att.");
-        configParam(DECAY_PARAM,  0.f,  1.f,  0.95f, "Decay");
+        configParam(DECAY_PARAM,  0.f,  1.f,  0.5f,  "Decay");  
         configParam(DECAY_ATT,   -2.f,  2.f,  0.f,   "Decay Att.");
-        configParam(DAMP_PARAM,   0.f,  1.f,  0.9f,  "Damp Amount");
-        configParam(DAMP_ATT,    -2.f,  2.f,  0.f,   "Damp Att.");
-        configParam(WOBBLE_PARAM, 0.f,  0.5f, 0.15f, "Axis Wobble Depth");
+        configParam(DAMP_PARAM,   0.f,  1.f,  0.75f,  "Damper Strength");
+        configParam(DAMP_ATT,    -2.f,  2.f,  0.f,   "Damper Att.");
+        configParam(WOBBLE_PARAM, 0.f,  1.0f, 0.15f, "Axis Wobble Depth");
         configParam(WOBBLE_ATT,  -2.f,  2.f,  0.f,   "Wobble Att.");
         configParam(DAMP_BUTTON,  0.f,  1.f,  0.f,   "Damp (all bowls)");
         configParam(SPREAD_PARAM, -1.f, 1.f,  1.0f,  "Stereo Spread");
         configParam(ROOT_PARAM,  -2.f,  2.f,  0.f,   "Root (transpose)", " oct");
         configParam(FM_PARAM,    -1.f,  1.f,  0.f,   "FM");
         configParam(FM_ATT,      -2.f,  2.f,  0.f,   "FM Att.");
-        configParam(VOLUME_PARAM, 0.f,  1.f,  0.8f,  "Volume");
+        configParam(VOLUME_PARAM, 0.f,  1.f,  0.5f,  "Volume");
         configParam(VOLUME_ATT,  -2.f,  2.f,  0.f,   "Volume Att.");
 
         configInput(VOCT_INPUT,      "V/Oct (polyphonic)");
         configInput(GATE_INPUT,      "Gate (polyphonic)");
         configInput(PRESSURE_INPUT,  "Pressure (polyphonic)");
-        configInput(MUTE_GATE_INPUT, "Mute Gate (polyphonic)");
+        configInput(MUTE_GATE_INPUT, "Mute Bowl Gate (polyphonic)");
         configInput(SPEED_CV_INPUT,  "Speed CV");
         configInput(WATER_CV_INPUT,  "Water CV");
         configInput(DECAY_CV_INPUT,  "Decay CV");
-        configInput(DAMP_GATE_INPUT, "Damp Gate (all bowls)");        
-        configInput(DAMP_CV_INPUT,   "Damp Amount CV");
+        configInput(DAMP_GATE_INPUT, "Damper Gate (all bowls)");        
+        configInput(DAMP_CV_INPUT,   "Damper Amount CV");
         configInput(WOBBLE_CV_INPUT, "Axis Wobble CV");
         configInput(FM_CV_INPUT,     "FM CV");
         configInput(VOLUME_CV_INPUT, "Volume CV");
@@ -318,7 +316,7 @@ struct Glass : Module {
         releaseValue = gr("releaseValue", 0.35f);
         attackCurve  = gr("attackCurve",  0.3f);
         releaseCurve = gr("releaseCurve", -0.3f);
-        noiseCutoffMax      = gr("noiseCutoffMax",     500.f);
+        noiseCutoffMax      = gr("noiseCutoffMax",     1000.f);
     }
 
     void process(const ProcessArgs& args) override {
@@ -341,10 +339,7 @@ struct Glass : Module {
             float dampRaw     = rack::clamp((buttonHeld + dampGateIn) > 0.f ? dampSlider : 0.f, 0.f, 1.f);
 
             // Feedback gain: always < 1, sets passive ring-down time.
-            // Range 0.980..0.9999.
-            // At 0.980 a C4 bowl (184 samples) decays to -60dB in ~0.5 seconds.
-            // At 0.9999 it takes ~120 seconds -- essentially infinite ring.
-            cachedFeedback = 0.980f + decayRaw * 0.0199f;
+            cachedFeedback = 0.985f + powf(decayRaw, 0.33f) * 0.0148f; //adjust .0148 (.9998 decay time)
 
             // LPF on feedback path: models glass material absorption.
             // At damp=0 almost transparent (~20kHz), glass is very bright.
@@ -361,9 +356,6 @@ struct Glass : Module {
             // Noise excitation LPF coefficient, updated from waterRaw.
             // Water=0 (dry) -> cutoff ~8000Hz (bright, snappy bursts).
             // Water=1 (wet) -> cutoff ~400Hz  (dark, smooth sliding).
-            // Stored so the audio-rate loop can apply it without recomputing.
-            // waterRaw is read here from the knob directly -- no CV smoothing
-            // needed since it only controls noise color, not pitch.
             {
                 float waterForNoise = clamp(
                     getCV(WATER_CV_INPUT, WATER_ATT, params[WATER_PARAM].getValue()),
@@ -371,6 +363,7 @@ struct Glass : Module {
                 float noiseCutoff = 200.f + (1.f - waterForNoise) * (noiseCutoffMax - 200.f);
                 cachedNoiseLpfA = expf(-2.f * float(M_PI) * noiseCutoff / sr);
             }
+            
             // Cache all slow-changing params: speed, water, volume, FM, spread,
             // envelope timing. None need sample-rate precision.
             cachedSpeedHz  = clamp(
@@ -381,14 +374,21 @@ struct Glass : Module {
             cachedWaterRaw    = clamp(
                 getCV(WATER_CV_INPUT, WATER_ATT, params[WATER_PARAM].getValue()),
                 0.f, 1.f);
-            cachedWaterCurved = cachedWaterRaw * cachedWaterRaw * cachedWaterRaw
-                              * cachedWaterRaw * cachedWaterRaw;  // x^5
+            cachedWaterCurved = cachedWaterRaw * cachedWaterRaw * cachedWaterRaw;
+            cachedWaterRaw = sqrt(cachedWaterRaw);
 
-            const float noiseMaxWt = 0.25f;
-            const float sineScaleV = 0.072f;
+            const float noiseMaxWt = 1.0f;
+            const float sineScaleV = 0.08f;
             cachedNoiseWeight = noiseMaxWt * (1.f - cachedWaterCurved);
             cachedSineWeight  = cachedWaterCurved * sineScaleV;
             cachedExcitScale  = cachedSpeedRaw * 0.15f;
+
+            // Hand pressure distributed across active finger count.
+            // Total excitation budget is fixed; more notes share it.
+            {
+                int nActive = std::max(1, cachedNVoct);
+                cachedPressureShare = powf((float)nActive, -0.5f);
+            }
 
             cachedVolume = clamp(
                 params[VOLUME_PARAM].getValue()
@@ -414,7 +414,7 @@ struct Glass : Module {
             // Wobble depth and root transpose: slow-changing, read here so the
             // bowl loop never touches params or inputs at audio rate.
             cachedWobbleDepth = clamp(
-                getCV(WOBBLE_CV_INPUT, WOBBLE_ATT, params[WOBBLE_PARAM].getValue()), 0.f, 0.5f);
+                getCV(WOBBLE_CV_INPUT, WOBBLE_ATT, params[WOBBLE_PARAM].getValue()), 0.f, 1.0f);
             cachedRootOffset = params[ROOT_PARAM].getValue();
 
             cachedAttackSamples  = sr * 0.002f * powf(2000.f, attackValue);
@@ -523,13 +523,20 @@ struct Glass : Module {
             filteredNoise = cachedNoiseLpfZ;
         }
 
+        // Dry contact excitation: n*|n| shaping creates a heavy-tailed sparse
+        // signal -- occasional sharp stick-slip peaks with near-silence between.
+        // This sounds like a dry finger on glass rather than a continuously bowed
+        // metal string. Computed once here since all bowls share the same noise.
+        // At wet settings cachedNoiseWeight->0 so sparseNoise has no effect there.
+        // Tune 0.6f: lower = more impulsive but quieter, higher = louder peaks.
+        float sparseNoise = filteredNoise * fabsf(filteredNoise) * 0.6f;
+
         tremoloPhase += cachedSpeedHz / sr;
         if (tremoloPhase >= 1.f) tremoloPhase -= 1.f;
         float globalTremoloSine = (cachedSpeedHz > 0.01f)
             ? glassDspSin(tremoloPhase * 2.f * float(M_PI)) : 0.f;
 
         float fmRatioInv = cachedFmRatioInv;
-
 
         // ── Bowl DSP loop ─────────────────────────────────────────────────────
         // Ext input feeds only bowls whose gate is currently held (envOut > 0).
@@ -571,24 +578,37 @@ struct Glass : Module {
                 if (state.sinePhase >= 1.f) state.sinePhase -= 1.f;
                 float sineVal = glassDspSin(state.sinePhase * 2.f * float(M_PI));
 
-                // Modulate pressure (envOut) by 15% at the rotation rate.
-                // Models the slight off-axis wobble of the bowl as it rotates --
-                // the contact pressure varies sinusoidally once per revolution.
-                // This happens before the tremolo depth scaling so both effects
-                // use the same oscillator phase but are controlled separately.
-                float pressureModulation = 1.f + cachedWobbleDepth * globalTremoloSine;
-                float modulatedEnv = state.envOut * pressureModulation;
+                // Wobble sine precomputed once -- used for both pressure modulation
+                // and water-film thinning below.
+                float wobbleSine     = cachedWobbleDepth * globalTremoloSine;
+                float pressureModulation = 1.f + wobbleSine;
+                float modulatedEnv   = state.envOut * pressureModulation;
 
-                excitation = (filteredNoise * cachedNoiseWeight + sineVal * cachedSineWeight)
+                // Wobble periodically thins the water film: at peak off-axis displacement
+                // the finger lifts slightly, shifting excitation toward noise.
+                // Effect is proportional to cachedSineWeight so it only manifests when
+                // water is high -- at full dry cachedSineWeight~=0 and this is silent.
+                // Tune 0.05f: fraction of sine weight that shifts to noise at peak wobble.
+                // Reduced 0.15->0.05: water attenuation was too audible at moderate wobble.
+                float waterFilmShift     = wobbleSine * 0.05f;
+                float effectiveSineWeight  = cachedSineWeight  * (1.f - waterFilmShift);
+                float effectiveNoiseWeight = cachedNoiseWeight + cachedSineWeight * waterFilmShift;
+
+                excitation = (sparseNoise * effectiveNoiseWeight + sineVal * effectiveSineWeight)
                            * cachedExcitScale * modulatedEnv;
 
                 // ── Tremolo instability ───────────────────────────────────────
                 // Uses the same global axis sine -- all bowls wobble together
                 // since they share one axis. Depth scales with bowl energy and
                 // inverse water (dry = more wobble).
-                float tremoloDepth = (1.f - cachedWaterRaw) * 0.3f
+                float tremoloDepth = (1.1f - cachedWaterRaw) * 0.3f
                     * clamp(bowlEnergy[b] * 2.f, 0.f, 1.f);
                 excitation *= (1.f + tremoloDepth * globalTremoloSine);
+
+                // Hand pressure shared across active fingers -- solo notes get
+                // full pressure, chords distribute it. Applied after all other
+                // excitation shaping so it scales the final injected energy.
+                excitation *= cachedPressureShare;
             }
 
             // ── Waveguide ─────────────────────────────────────────────────────
@@ -642,9 +662,11 @@ struct Glass : Module {
         //   process(inV)      -> clamp +-13.14, /10, ADAA tanh, *6.9
         //   clamp +-10V       -> output protection
         //
-        // baseScale converts the summed bowl outputs to a useful voltage range.
-        // Tune: lower if the output is too loud at moderate volume settings.
-        const float baseScale = 0.2f;
+        // baseScale doubled 0.2->0.4: solo notes are now 2x louder.
+        // Pressure sharing (cachedPressureShare) compensates at high note counts
+        // so large chords do not overdrive the saturator.
+        // const float baseScale = 0.2f;
+        const float baseScale = 0.4f;
         float inL = mixL * baseScale * cachedVolume;
         float inR = mixR * baseScale * cachedVolume;
         float satL = mixSaturatorL.process(inL)*1.9f;
@@ -657,12 +679,12 @@ struct Glass : Module {
         float rmsIn = (fabsf(satL) + fabsf(satR)) * 0.5f;
         float envOut = envFollower.process(rmsIn);
         if (outputs[ENV_OUTPUT].isConnected())
-            outputs[ENV_OUTPUT].setVoltage(rack::clamp(envOut * 10.f, 0.f, 10.f));
+            outputs[ENV_OUTPUT].setVoltage(rack::clamp(envOut * 13.f, 0.f, 10.f));
 
         // VU bar: 10 segments, same bar-graph encoding as Aulos.
         float displayLevel = envOut;
         for (int seg = 0; seg < 10; ++seg)
-            vuEnv[seg] = (displayLevel * 10.f > (float)seg) ? 1.f : 0.f;
+            vuEnv[seg] = (displayLevel * 13.f > (float)seg) ? 1.f : 0.f;
 
     }
 };
@@ -724,7 +746,10 @@ struct BowlDisplay : Widget {
             float r  = rMax + t * (rMin - rMax);
 
             float energy = module
-                         ? clamp(module->bowlEnergy[b] * 3.f, 0.f, 1.f)
+                         // Multiplier recalibrated 3->6: baseScale doubled (0.2->0.4) so
+                         // audio is 2x louder but bowlEnergy (pre-baseScale) is unchanged.
+                         // 6x restores the display/audio correspondence.
+                         ? clamp(module->bowlEnergy[b] * 6.f, 0.f, 1.f)
                          : 0.f;
 
             // Black keys: C#, D#, F#, G#, A# within each octave.
@@ -1012,7 +1037,7 @@ struct GlassWidget : ModuleWidget {
 
         menu->addChild(new MenuSeparator());
         menu->addChild(createMenuLabel("Water (Grip) Noise Color"));
-        addFSlider(&m->noiseCutoffMax, 100.f, 4000.f, 500.f, "Max Noise Cutoff Hz (dry setting)");
+        addFSlider(&m->noiseCutoffMax, 100.f, 4000.f, 1000.f, "Max Noise Cutoff Hz (dry setting)");
 
         menu->addChild(new MenuSeparator());
         struct PanicItem : MenuItem {

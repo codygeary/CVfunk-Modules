@@ -57,7 +57,7 @@ struct AulosVoice {
     float cachedFeedback  = 0.93f;
     float cachedDecayGain = 0.9999f;
 
-    // Smoothed primary delay — lerped each sample to avoid pitch CV clicks.
+    // Smoothed primary delay - lerped each sample to avoid pitch CV clicks.
     float a_fingerDelay = 0.f;
 
     // Overblow / stability: safetyRMS tracks loop energy, safetyDecay rises
@@ -70,7 +70,7 @@ struct AulosVoice {
     // Smoothed per-sample so register transitions don't cause abrupt timbre jumps.
     float registerSmooth = 0.f;
 
-    // Sleep flag — set when the voice is fully idle (gate low, breath and
+    // Sleep flag - set when the voice is fully idle (gate low, breath and
     // overblow energy below threshold). A sleeping voice costs one gate
     // compare per sample in the voice loop; it wakes sample-accurately on
     // gate rise.
@@ -142,7 +142,7 @@ struct AulosVoice {
 struct Aulos : Module {
 
     enum ParamId {
-        // Slider bank — 8 sliders (each PARAM + ATT)
+        // Slider bank - 8 sliders (each PARAM + ATT)
         REED_PARAM,       REED_ATT,
         BORE_PARAM,       BORE_ATT,
         TONE_PARAM,       TONE_ATT,
@@ -152,7 +152,7 @@ struct Aulos : Module {
         R_OFFSET_PARAM,   R_OFFSET_ATT,   // R channel pipe pitch offset -1..+1 oct
         DAMP_PARAM,       DAMP_ATT,
         BREATH_PARAM,     BREATH_ATT,
-        FM_ATT,
+        VIBRATO_ATT,
         PIPE_TUNE_PARAM,
         FINGER_TUNE_PARAM,
         MANUAL_GATE_BTN,
@@ -169,7 +169,7 @@ struct Aulos : Module {
         FINGER_VOCT_INPUT,
         GATE_INPUT,
         BREATH_CV_INPUT,
-        FM_CV_INPUT,
+        VIBRATO_CV_INPUT,
         REED_CV_INPUT,
         BORE_CV_INPUT,
         TONE_CV_INPUT,
@@ -212,7 +212,7 @@ struct Aulos : Module {
     int  skipCounter = SKIP_MAX;  // start at max so the first process() call runs the skip block
     static constexpr int SKIP_MAX = 200;
 
-    // Pitch path decimation — voct2freq and related transcendentals are
+    // Pitch path decimation - voct2freq and related transcendentals are
     // recomputed every PITCH_DECIM samples (~6kHz update at 48kHz). The
     // resulting delay lengths are already smoothed per-sample by a_fingerDelay.
     static constexpr int PITCH_DECIM = 8;
@@ -222,11 +222,11 @@ struct Aulos : Module {
     float cachedPipeFreqR[AULOS_MAX_POLY];
     float cachedFingerFreqR[AULOS_MAX_POLY];
 
-    // Set in the skip block — attack/release only change via context menu.
+    // Set in the skip block - attack/release only change via context menu.
     float cachedAttackSamples  = 1000.f;
     float cachedReleaseSamples = 1000.f;
 
-    // R output connection state — R voices are skipped entirely when unpatched,
+    // R output connection state - R voices are skipped entirely when unpatched,
     // and cleared on reconnect so stale buffer energy doesn't play back.
     bool prevRConnected = false;
 
@@ -237,6 +237,38 @@ struct Aulos : Module {
     float decayValue    = 0.7f;
     float attackValue   = 0.1f;   // attack time 0..1, set in context menu
     float releaseValue  = 0.3f;   // release time 0..1, set in context menu
+
+    // Internal vibrato LFO. Free-running sine, normalled into the VIBRATO_CV_INPUT:
+    // when no cable is patched, this drives both pitch and breath modulation;
+    // otherwise the patched CV takes over pitch only. Depth is set by VIBRATO_ATT.
+    float vibratoRate        = 7.0f;   // Hz, set in context menu (good flute range 5-9)
+    float vibratoBreathDepth = 0.5f;   // breath wobble relative to pitch wobble, 0..1
+    float vibratoPhase       = 0.f;    // 0..1 accumulator
+
+    // Legato mode. When enabled and the gate stays high while pitch changes,
+    // cachedFingerFreq is glided toward the new target rather than jumping,
+    // and loopFeedback briefly dips to create the "give" of a slur.
+    bool  legatoEnabled  = true;
+    float legatoTime     = 20.f;  // glide time in ms, set in context menu
+
+    // Per-voice glide state: current glided frequency and target.
+    float legatoStartL[AULOS_MAX_POLY]    = {};
+    float legatoStartR[AULOS_MAX_POLY]    = {};
+    float legatoLog2TargetL[AULOS_MAX_POLY] = {};
+    float legatoLog2TargetR[AULOS_MAX_POLY] = {};
+    float legatoProgressL[AULOS_MAX_POLY] = {};
+    float legatoProgressR[AULOS_MAX_POLY] = {};
+
+    // Per-voice feedback-dip ramp, 1.0 at transition start, decays to 0.
+    // Applied as loopFeedback multiplier so the resonator briefly releases
+    // energy at the slur point - the audible "give" between notes.
+    float legatoDipL[AULOS_MAX_POLY] = {};
+    float legatoDipR[AULOS_MAX_POLY] = {};
+
+    // Per-sample glide step for the frequency interpolation, computed in the
+    // skip block. Sized so PITCH_DECIM steps advance the glide proportionally
+    // to legatoTime - the glide completes over the full menu time.
+    float cachedLegatoStep = 0.f;
 
     bool droneActive      = false;
     bool manualGateActive = false;
@@ -250,7 +282,7 @@ struct Aulos : Module {
     float displayBreathR         = 0.0f;
     float displayOverblow        = 0.0f;
     float displayOverblowR       = 0.0f;
-    // Smoothed register (0..2) read from the voice DSP — drives the nodal
+    // Smoothed register (0..2) read from the voice DSP - drives the nodal
     // pattern in the display so it shows the mode the bore is actually playing.
     float displayRegister        = 0.0f;
     float displayRegisterR       = 0.0f;
@@ -317,7 +349,7 @@ struct Aulos : Module {
         configParam(DAMP_ATT,         -1.f,  1.f,  0.f,  "Damp Att.");
         configParam(BREATH_PARAM,      0.f,  1.f,  0.7f, "Breath");
         configParam(BREATH_ATT,       -1.f,  1.f,  0.f,  "Breath Att.");
-        configParam(FM_ATT,           -1.f,  1.f,  0.f,  "FM / Vibrato Depth");
+        configParam(VIBRATO_ATT,       0.f,  1.f,  0.3f, "Vibrato Depth");
         configParam(PIPE_TUNE_PARAM,  -1.f,  4.f,  0.f,  "Pipe Tune", " oct");
         configParam(FINGER_TUNE_PARAM,-1.f,  1.f,  0.f,  "Finger Tune", " oct");
         configParam(MANUAL_GATE_BTN,   0.f,  1.f,  0.f,  "Manual Gate");
@@ -331,7 +363,7 @@ struct Aulos : Module {
         configInput(FINGER_VOCT_INPUT, "Finger V/Oct");
         configInput(GATE_INPUT,        "Gate");
         configInput(BREATH_CV_INPUT,   "Breath CV");
-        configInput(FM_CV_INPUT,       "FM / Vibrato CV");
+        configInput(VIBRATO_CV_INPUT,  "Vibrato CV");
         configInput(REED_CV_INPUT,     "Reed CV");
         configInput(BORE_CV_INPUT,     "Bore CV");
         configInput(TONE_CV_INPUT,     "Tone CV");
@@ -394,6 +426,10 @@ struct Aulos : Module {
         json_object_set_new(root, "decayValue",   json_real(decayValue));
         json_object_set_new(root, "attackValue",  json_real(attackValue));
         json_object_set_new(root, "releaseValue", json_real(releaseValue));
+        json_object_set_new(root, "vibratoRate",       json_real(vibratoRate));
+        json_object_set_new(root, "vibratoBreathDepth",json_real(vibratoBreathDepth));
+        json_object_set_new(root, "legatoEnabled", json_boolean(legatoEnabled));
+        json_object_set_new(root, "legatoTime",   json_real(legatoTime));
         return root;
     }
 
@@ -413,6 +449,10 @@ struct Aulos : Module {
         decayValue    = gr("decayValue",   0.7f);
         attackValue   = gr("attackValue",  0.1f);
         releaseValue  = gr("releaseValue", 0.3f);
+        vibratoRate        = gr("vibratoRate",        7.0f);
+        vibratoBreathDepth = gr("vibratoBreathDepth", 0.5f);
+        legatoEnabled = gb("legatoEnabled", false);
+        legatoTime    = gr("legatoTime",   60.f);
     }
 
     // ── DSP helper: process one voice, one sample ─────────────────────────────
@@ -429,6 +469,8 @@ struct Aulos : Module {
                        float audioIn,
                        float waveguideGainV,
                        float cachedDecayGainV,
+                       float legatoDip,
+                       bool  legatoActive = false,
                        float refPipeFreq = 0.f) {
     
         // ── Gate rise ─────────────────────────────────────────────────────────
@@ -437,7 +479,7 @@ struct Aulos : Module {
             v.safetyRMS     = 0.f;
             v.safetyDecay   = 0.f;
             v.a_fingerDelay = 0.f;
-            // Do not reset registerSmooth on gate rise — legato register
+            // Do not reset registerSmooth on gate rise - legato register
             // transitions carry over smoothly between notes.
         }
         v.lastGateHigh = gateHigh;
@@ -504,13 +546,22 @@ struct Aulos : Module {
 
         // Energy-overblow: very loud playing pushes safetyDecay above 0.5,
         // halving the tube period so the mode bumps up. This is independent of
-        // register and composes with it — blowing hard in register 1 can tip
+        // register and composes with it - blowing hard in register 1 can tip
         // into a brief register-2 excitation.
         float overblowAmt    = clamp(v.safetyDecay, 0.f, 1.f);
         float overblowTarget = primaryDelaySamples * ((overblowAmt > 0.5f) ? 0.5f : 1.0f);
 
         if (v.a_fingerDelay < 2.f) v.a_fingerDelay = overblowTarget;
-        v.a_fingerDelay += 0.05f * (overblowTarget - v.a_fingerDelay);
+        if (legatoActive) {
+            // The outer loop is already gliding fingerFreq smoothly, so
+            // a_fingerDelay should track the current overblowTarget directly.
+            // Any lag here would cause the bore to fall behind the jet,
+            // breaking regeneration mid-glide.
+            v.a_fingerDelay = overblowTarget;
+        } else {
+            // Fast one-pole removes zipper noise from the 8-sample pitch decimation.
+            v.a_fingerDelay += 0.05f * (overblowTarget - v.a_fingerDelay);
+        }
         primaryDelaySamples = v.a_fingerDelay;
 
         // Secondary waveguide ratio: tuned toward the played mode's sub-harmonic
@@ -529,7 +580,7 @@ struct Aulos : Module {
         secondaryDelaySamples = clamp(secondaryDelaySamples, 2.f, (float)v.secondaryWaveguide.bufSize - 4.f);
 
         // ── Excitation ────────────────────────────────────────────────────────
-        // Noise increases per register — upper registers are inherently breathy.
+        // Noise increases per register - upper registers are inherently breathy.
         // Tune noiseRegScale to adjust how much breath noise each register adds.
         const float noiseRegScale = 0.4f;
         float noiseAmp = v.a_noise * v.a_noise * 0.03f * v.breathOut
@@ -540,7 +591,7 @@ struct Aulos : Module {
         // the stability duck never accumulates into a_tone state.
         float toneGain = 1.5f + v.a_tone * 1.7f;
 
-        // Stability tone duck — reduces drive when loop energy is too high,
+        // Stability tone duck - reduces drive when loop energy is too high,
         // preventing HF runaway without corrupting a_tone.
         // Tune 0.75 for more/less aggressiveness.
         float overdrive = clamp((v.safetyRMS - 1.2f) * 0.5f, 0.f, 1.f);
@@ -558,7 +609,7 @@ struct Aulos : Module {
         float jetOut   = aulosJetFunction(clamp(jetInput, -3.f, 3.f));
 
         // Jet travel time ~0.47 of the played period. fingerFreq (unfolded) is
-        // correct here — the jet delay models the physical embouchure-to-opening
+        // correct here - the jet delay models the physical embouchure-to-opening
         // distance, which is independent of which bore mode locks.
         float jetDelaySamples = clamp(sr * 0.00107f * (440.f / fingerFreq), 2.f, sr * 0.028f);
 
@@ -583,17 +634,31 @@ struct Aulos : Module {
         float envelopeGate = clamp(v.breathOut * 0.15f, 0.f, 1.f);
         float loopFeedback = rack::crossfade(cachedDecayGainV * 0.8f, v.cachedFeedback, envelopeGate); // feedback dampens when we don't blow
 
-        // Feedback reduces slightly in higher registers — upper registers are
+        // Legato inflection: at a slur transition legatoDip is 1, decaying to 0
+        // over ~20ms. It does two things simultaneously:
+        //   1. Subtle feedback dip - a slight release of resonator energy so the
+        //      new pitch can establish without fighting the old one's stored energy.
+        //   2. Excitation burst - a small breath inflection injected after the
+        //      saturator, proportional to current breathLevel, that arrives as the
+        //      new note locks in. This models the extra puff a player adds at a slur.
+        // Tune dipFeedbackDepth for more/less resonator release (0 = none).
+        // Tune dipBreathScale for stronger/weaker inflection burst.
+        const float dipFeedbackDepth = 0.18f;
+        const float dipBreathScale   = 0.35f;
+        loopFeedback *= (1.f - legatoDip * dipFeedbackDepth);
+        loopSat      += legatoDip * breathLevel * dipBreathScale;
+
+        // Feedback reduces slightly in higher registers - upper registers are
         // less stable and more sensitive to embouchure. Tune registerFeedbackDrop.
         const float registerFeedbackDrop = 0.03f;
         loopFeedback *= (1.f - v.registerSmooth * registerFeedbackDrop);
 
         float boreDamp = (0.35f - v.a_bore * 0.28f) * clamp(261.63f / fingerFreq, 0.25f, 1.0f);
-        // At C4: full boreDamp. Above C4: scales down — higher pitch, less damping.
+        // At C4: full boreDamp. Above C4: scales down - higher pitch, less damping.
 
         float reedDamp = (1.f - v.a_reedMorph) * 0.5f;
 
-        // Register 3 adds extra damping — thinner, more penetrating tone.
+        // Register 3 adds extra damping - thinner, more penetrating tone.
         // Tune registerDampScale to adjust how much extra loss the top register has.
         const float registerDampScale = 0.04f;
         float registerDampExtra = clamp(v.registerSmooth - 1.f, 0.f, 1.f) * registerDampScale;
@@ -689,7 +754,7 @@ struct Aulos : Module {
             sliderVal[3] = clamp(getCV(LIP_CV_INPUT,   LIP_ATT,   params[LIP_PARAM].getValue()),   0.f, 1.f);
             sliderVal[4] = clamp(getCV(NOISE_CV_INPUT, NOISE_ATT, params[NOISE_PARAM].getValue()), 0.f, 1.f);
             sliderVal[5] = clamp(getCV(CHIFF_CV_INPUT, CHIFF_ATT, params[CHIFF_PARAM].getValue()), 0.f, 1.f);
-            // sliderVal[6] = R_OFFSET_PARAM — read per-sample below
+            // sliderVal[6] = R_OFFSET_PARAM - read per-sample below
             sliderVal[7] = clamp(getCV(DAMP_CV_INPUT,  DAMP_ATT,  params[DAMP_PARAM].getValue()),  0.f, 1.f);
 
             // Damp -> loop LPF coefficient, two-phase mapping from Droplet:
@@ -701,6 +766,7 @@ struct Aulos : Module {
             float sharedDampCoeff;
             {
                 float d     = sliderVal[7];
+                d = d*d;
                 float blend = clamp(d / 0.25f, 0.f, 1.f);
                 float freqT = clamp((d - 0.25f) / 0.75f, 0.f, 1.f);        
                 float dFreq = expf(LOG_8000 + freqT * LOG_RANGE);
@@ -716,7 +782,7 @@ struct Aulos : Module {
 
             float chiffSlider = sliderVal[5];
 
-            // Dynamics follower coefficient — identical for all voices, computed once.
+            // Dynamics follower coefficient - identical for all voices, computed once.
             // Mirrors AulosEnvFollower::setCoeff with bandCenterNorm = sqrt(150*5000)/sr.
             float sharedDynCoeff;
             {
@@ -727,9 +793,17 @@ struct Aulos : Module {
                 sharedDynCoeff = 1.f - expf(-1.f / ((periodMs * scale * 0.001f) * sr));
             }
 
-            // Attack/release only change via the context menu — sub-rate is plenty.
+            // Attack/release only change via the context menu - sub-rate is plenty.
             cachedAttackSamples  = sr * 0.002f * powf(2000.f, clamp(attackValue,  0.f, 1.f));
             cachedReleaseSamples = sr * 0.002f * powf(2000.f, clamp(releaseValue, 0.f, 1.f));
+
+            // Legato glide progress increment per doPitch tick.
+            // Progress goes 0->1 linearly over legatoTime. Each doPitch tick
+            // covers PITCH_DECIM samples, so increment = PITCH_DECIM / legatoSamples.
+            {
+                float legatoSamples = fmaxf(legatoTime * 0.001f * sr, 1.f);
+                cachedLegatoStep = (float)PITCH_DECIM / legatoSamples;
+            }
 
             for (int vi = 0; vi < nVoices; ++vi) {
                 for (int side = 0; side < 2; ++side) {
@@ -748,7 +822,7 @@ struct Aulos : Module {
                     v.cachedChiffAmp      = chiffSlider * chiffSlider * 0.5f;
                     v.dynFollower.coeff   = sharedDynCoeff;
 
-                    // Sleeping voices don't run the per-sample smoothing —
+                    // Sleeping voices don't run the per-sample smoothing -
                     // snap them to target here so they wake with current values.
                     if (v.asleep) {
                         v.a_reedMorph = v.t_reedMorph;
@@ -763,16 +837,29 @@ struct Aulos : Module {
                 }
             }
         }
-        // Smoothing coefficient for skip-block targets — constant, computed once.
+        // Smoothing coefficient for skip-block targets - constant, computed once.
         static const float lerpCoeff = 1.f - expf(-8.f / (float)SKIP_MAX);
 
         // ── Global audio-rate reads ───────────────────────────────────────────
         float fingerTune = params[FINGER_TUNE_PARAM].getValue();
 
-        // FM depth: attenuator ±2 * CV * scale gives ±2 semitones max at full throw.
-        // Tune: semitone scale (0.0833f = 1 semitone per unit).
-        float fmDepth = params[FM_ATT].getValue() * (inputs[FM_CV_INPUT].isConnected()
-                         ? inputs[FM_CV_INPUT].getVoltage() : 0.f) * 0.0167f;
+        // ── Vibrato ───────────────────────────────────────────────────────────
+        // The VIBRATO_ATT knob scales depth. CV at VIBRATO_CV_INPUT overrides
+        // the internal LFO when patched. The internal LFO is gated per-voice by
+        // the breath envelope so vibrato fades in/out with each note. Patched CV
+        // is used as raw pitch FM only - no breath coupling.
+        float vibratoAtt    = params[VIBRATO_ATT].getValue();
+        bool  vibratoPatched = inputs[VIBRATO_CV_INPUT].isConnected();
+
+        // Advance the free-running LFO once per sample. Phase wraps in 0..1.
+        vibratoPhase += vibratoRate * args.sampleTime;
+        if (vibratoPhase >= 1.f) vibratoPhase -= 1.f;
+        float vibratoLFO = sinf(vibratoPhase * 2.f * (float)M_PI); // -1..1
+
+        // External pitch FM (patched CV) - global, ungated, pitch only.
+        float vibratoExternal = vibratoPatched ? (vibratoAtt * inputs[VIBRATO_CV_INPUT].getVoltage() * 0.0167f) : 0.f;
+        // Internal LFO depth before envelope gating. ~0.5 semitone peak at full knob.
+        float vibratoInternal = vibratoPatched ? 0.f : (vibratoAtt * vibratoLFO * 0.5f * 0.0833f);
                       
         // Attack and release are computed in the skip block (cachedAttackSamples /
         // cachedReleaseSamples) since they only change via the context menu.
@@ -815,7 +902,7 @@ struct Aulos : Module {
         }
         prevRConnected = processR;
 
-        // Pitch path decimation — recompute frequencies every PITCH_DECIM samples.
+        // Pitch path decimation - recompute frequencies every PITCH_DECIM samples.
         const bool doPitch = (pitchCounter == 0);
         if (++pitchCounter >= PITCH_DECIM) pitchCounter = 0;
 
@@ -880,41 +967,143 @@ struct Aulos : Module {
             // processVoice (a_fingerDelay), so the decimation is inaudible for
             // pitch CV and vibrato-rate FM.
             if (doPitch || wokeL || wokeR) {
+                // Envelope-gate the internal vibrato by this voice's breath
+                // envelope so it fades in/out with the note. Patched FM CV is
+                // global and ungated. One-sample envelope lag is inaudible at
+                // control rate.
+                float vibGate    = clamp(v.breathOut * 0.1f, 0.f, 1.f);
+                float fmDepth    = vibratoExternal + vibratoInternal * vibGate;
+
+                // R voice vibrato gate. Drone runs gate-always-on so its vibrato
+                // is continuous; otherwise tracks the R breath envelope.
+                float vibGateR   = droneEffective ? 1.f : clamp(vR.breathOut * 0.1f, 0.f, 1.f);
+                float fmDepthR   = vibratoExternal + vibratoInternal * vibGateR;
+
                 float pipeVoct = (inputs[PIPE_VOCT_INPUT].isConnected()
                                  ? inputs[PIPE_VOCT_INPUT].getPolyVoltage(vi) : 0.f)
                                + params[PIPE_TUNE_PARAM].getValue();
                 cachedPipeFreq[vi] = voct2freq(pipeVoct);
 
-                float fingerVoct = inputs[FINGER_VOCT_INPUT].isConnected()
-                                 ? inputs[FINGER_VOCT_INPUT].getPolyVoltage(vi)
-                                   + fmDepth + fingerTune
-                                 : pipeVoct + fmDepth + fingerTune;
-                cachedFingerFreq[vi] = voct2freq(fingerVoct);
+                // fingerVoctBase: pitch CV + tuning, no FM. Used as the stable
+                // base for legato endpoint storage so vibrato doesn't drift the
+                // glide targets or cause spurious re-arms each vibrato cycle.
+                float fingerVoctBase = inputs[FINGER_VOCT_INPUT].isConnected()
+                                     ? inputs[FINGER_VOCT_INPUT].getPolyVoltage(vi) + fingerTune
+                                     : pipeVoct + fingerTune;
+                // Full finger voct with FM - used for non-legato snap and R freq.
+                float fingerVoct    = fingerVoctBase + fmDepth;
+                float newFingerFreq = voct2freq(fingerVoct);
 
                 // aulosOffset shifts the R pipe voct -> different tube length / timbre.
-                // When aulosOffset=0 and not in drone mode, R is identical to L.
-                cachedPipeFreqR[vi] = voct2freq(pipeVoct + aulosOffset + fmDepth);
+                float newFingerFreqR;
+                cachedPipeFreqR[vi] = voct2freq(pipeVoct + aulosOffset + fmDepthR);
+                newFingerFreqR = droneEffective ? cachedPipeFreqR[vi]
+                               : (aulosTrack ? voct2freq(fingerVoct + aulosOffset)
+                                             : newFingerFreq);
 
-                // Two Pipes mode: finger stays fixed, each pipe has its own register.
-                // Tracking mode: finger shifts with the pipe offset, interval preserved.
-                cachedFingerFreqR[vi] = droneEffective ? cachedPipeFreqR[vi]
-                                      : (aulosTrack ? voct2freq(fingerVoct + aulosOffset)
-                                                    : cachedFingerFreq[vi]);
+                if (legatoEnabled && !wokeL && gateHigh && legatoProgressL[vi] >= 0.f) {
+                    // ── Legato glide L ────────────────────────────────────────
+                    // Endpoints are stored in FM-free log2 space (fingerVoctBase)
+                    // so the glide arc is stable. fmDepth is added back at output
+                    // so vibrato continues uninterrupted through the slur.
+                    // The arm threshold compares FM-free values, so vibrato wobble
+                    // never causes a spurious re-arm.
+                    // log2(261.63 * 2^fingerVoctBase) = log2(261.63) + fingerVoctBase
+                    static constexpr float LOG2_C4 = 8.03178968f; // log2(261.63)
+                    float newLog2Base = LOG2_C4 + fingerVoctBase;
+                    if (fabsf(newLog2Base - legatoLog2TargetL[vi]) > 0.042f) {
+                        // New target detected: arm from current glided position.
+                        float currentLog2 = legatoStartL[vi] +
+                            legatoProgressL[vi] * (legatoLog2TargetL[vi] - legatoStartL[vi]);
+                        legatoStartL[vi]      = currentLog2;
+                        legatoLog2TargetL[vi] = newLog2Base;
+                        legatoProgressL[vi]   = 0.f;
+                        legatoDipL[vi]        = 1.f;
+                    }
+                    legatoProgressL[vi] = fminf(1.f, legatoProgressL[vi] + cachedLegatoStep);
+                    float glidedLog2    = legatoStartL[vi] +
+                        legatoProgressL[vi] * (legatoLog2TargetL[vi] - legatoStartL[vi]);
+                    // Re-apply FM so vibrato modulates pitch during the glide.
+                    cachedFingerFreq[vi] = exp2f(glidedLog2 + fmDepth);
+                } else {
+                    // Fresh note (wokeL) or legato off: snap frequency immediately.
+                    // While the gate is low between notes, leave legatoLog2TargetL
+                    // alone - if we overwrote it here, the arm would see zero
+                    // difference on the next gate rise and never fire.
+                    cachedFingerFreq[vi] = newFingerFreq;
+                    if (wokeL || !legatoEnabled) {
+                        static constexpr float LOG2_C4 = 8.03178968f;
+                        legatoStartL[vi]      = LOG2_C4 + fingerVoctBase;
+                        legatoLog2TargetL[vi] = legatoStartL[vi];
+                        legatoProgressL[vi]   = 1.f;
+                    }
+                }
+
+                if (legatoEnabled && !wokeR && gateHighR && legatoProgressR[vi] >= 0.f && !droneEffective) {
+                    // ── Legato glide R (non-drone only) ──────────────────────
+                    float fingerVoctBaseR = aulosTrack ? fingerVoctBase + aulosOffset : fingerVoctBase;
+                    static constexpr float LOG2_C4 = 8.03178968f;
+                    float newLog2BaseR    = LOG2_C4 + fingerVoctBaseR;
+                    if (fabsf(newLog2BaseR - legatoLog2TargetR[vi]) > 0.042f) {
+                        float currentLog2R = legatoStartR[vi] +
+                            legatoProgressR[vi] * (legatoLog2TargetR[vi] - legatoStartR[vi]);
+                        legatoStartR[vi]      = currentLog2R;
+                        legatoLog2TargetR[vi] = newLog2BaseR;
+                        legatoProgressR[vi]   = 0.f;
+                        legatoDipR[vi]        = 1.f;
+                    }
+                    legatoProgressR[vi] = fminf(1.f, legatoProgressR[vi] + cachedLegatoStep);
+                    float glidedLog2R   = legatoStartR[vi] +
+                        legatoProgressR[vi] * (legatoLog2TargetR[vi] - legatoStartR[vi]);
+                    cachedFingerFreqR[vi] = exp2f(glidedLog2R + fmDepthR);
+                } else {
+                    cachedFingerFreqR[vi] = newFingerFreqR;
+                    if (wokeR || !legatoEnabled) {
+                        float fingerVoctBaseR = aulosTrack ? fingerVoctBase + aulosOffset : fingerVoctBase;
+                        static constexpr float LOG2_C4 = 8.03178968f;
+                        legatoStartR[vi]      = LOG2_C4 + fingerVoctBaseR;
+                        legatoLog2TargetR[vi] = legatoStartR[vi];
+                        legatoProgressR[vi]   = 1.f;
+                    }
+                }
+
+                // Decay the dip ramps - linear over ~20ms regardless of legatoTime,
+                // since the gap between notes should be brief and consistent.
+                // Tune dipDecayStep for a longer/shorter release of the dip.
+                const float dipDecayStep = PITCH_DECIM / (0.020f * sr); // 20ms
+                legatoDipL[vi] = fmaxf(0.f, legatoDipL[vi] - dipDecayStep);
+                legatoDipR[vi] = fmaxf(0.f, legatoDipR[vi] - dipDecayStep);
             }
             float pipeFreq    = cachedPipeFreq[vi];
             float fingerFreq  = cachedFingerFreq[vi];
             float pipeFreqR   = cachedPipeFreqR[vi];
             float fingerFreqR = cachedFingerFreqR[vi];
 
+            // Vibrato breath coupling - internal LFO only (not patched CV).
+            // vibratoLFO (-1..1) modulates breathRaw in-phase with pitch.
+            // vibGate scales with breathOut so the wobble fades in/out with
+            // the note envelope, matching how a player's air pressure varies.
+            // Tune the 0.12 scalar for max wobble depth at full knob + full depth.
+            float breathL = breathRaw;
+            float breathR = breathRaw;
+            if (!vibratoPatched) {
+                float vibratoBreathAmt = vibratoAtt * vibratoBreathDepth * 0.12f;
+                breathL = breathRaw * (1.f + vibratoLFO * clamp(v.breathOut  * 0.1f, 0.f, 1.f) * vibratoBreathAmt);
+                float vibGateRForBreath = droneEffective ? 1.f : clamp(vR.breathOut * 0.1f, 0.f, 1.f);
+                breathR = breathRaw * (1.f + vibratoLFO * vibGateRForBreath * vibratoBreathAmt);
+            }
+
             // ── Left voice ────────────────────────────────────────────────────
             float voiceOut = 0.f;
             if (activeL) {
                 voiceOut = processVoice(v,
                     sr, gateHigh,
-                    breathRaw, attackSamples, releaseSamples,
+                    breathL, attackSamples, releaseSamples,
                     attackCurve, releaseCurve,
                     pipeFreq, fingerFreq,
-                    audioIn, waveguideGain, sharedDecayGain);
+                    audioIn, waveguideGain, sharedDecayGain,
+                    legatoDipL[vi],
+                    legatoProgressL[vi] < 1.f);
             }
 
             // ── Right voice ───────────────────────────────────────────────────
@@ -925,10 +1114,12 @@ struct Aulos : Module {
 
                 voiceOutR = processVoice(vR,
                     sr, gateHighR,
-                    breathRaw, attackSamples, releaseSamples,
+                    breathR, attackSamples, releaseSamples,
                     attackCurve, releaseCurve,
                     pipeFreqR, fingerFreqR,
                     audioIn, waveguideGain, sharedDecayGain,
+                    legatoDipR[vi],
+                    legatoProgressR[vi] < 1.f,
                     aulosTrack ? pipeFreqR : pipeFreq);  // tracking: use R pipe as ref; two-pipes: use L pipe
 
                 voiceOutR *= droneLevel;
@@ -954,7 +1145,7 @@ struct Aulos : Module {
             outputs[RMS_OUTPUT].setChannels(nVoices);
 
         // ── Display data ──────────────────────────────────────────────────────
-        // Updated at the pitch decimation rate — far above frame rate.
+        // Updated at the pitch decimation rate - far above frame rate.
         if (doPitch && nVoices > 0 && displayVoice < nVoices) {
             displayPipeFreq  = cachedPipeFreq[displayVoice];
             displayBore      = voices[displayVoice].a_bore;
@@ -1010,7 +1201,7 @@ struct Aulos : Module {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PipeDisplay — two tubes stacked vertically.
+// PipeDisplay - two tubes stacked vertically.
 // L (top): always half the widget width, left-aligned.
 // R (bottom): width scaled by pipeFreqL/pipeFreqR, clamped 25%..100%, left-aligned.
 // This makes the relative tube lengths visually apparent.
@@ -1156,7 +1347,7 @@ struct PipeDisplay : TransparentWidget {
 
             // ── standing wave physics ─────────────────────────────────────────
             // Open-open pipe: pressure nodes at the embouchure (x=0) and at the
-            // first open hole (x=boreEnd), antinodes in between — flute modes.
+            // first open hole (x=boreEnd), antinodes in between - flute modes.
             float phase    = modeNumber * float(M_PI) * xNorm / boreEnd;
             float pressure = sinf(phase);
 
@@ -1258,7 +1449,7 @@ struct AulosSlider : LightSlider<AulosSliderBase, VCVSliderLight<TL>> {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// AulosWidget — current 20HP panel layout
+// AulosWidget - current 20HP panel layout
 // ─────────────────────────────────────────────────────────────────────────────
 struct AulosWidget : ModuleWidget {
 
@@ -1290,7 +1481,7 @@ struct AulosWidget : ModuleWidget {
             addChild(disp);
         }
 
-        // ── Slider bank — 8 sliders ───────────────────────────────────────────
+        // ── Slider bank - 8 sliders ───────────────────────────────────────────
         const float sxBase  = 10.f;
         const float sPitch  = 11.5f;
         const float ySlider = 45.5f;
@@ -1340,8 +1531,8 @@ struct AulosWidget : ModuleWidget {
         addChild(createLightCentered<MediumLight<GreenLight>>(p(sxBase, yRow1), module, Aulos::MANUAL_GATE_LIGHT));
         addInput(createInputCentered<ThemedPJ301MPort>(    p(sxBase+sPitch, yRow1), module, Aulos::GATE_INPUT));
 
-        addInput(createInputCentered<ThemedPJ301MPort>(    p(sxBase+2*sPitch, yRow1), module, Aulos::FM_CV_INPUT));
-        addParam(createParamCentered<RoundSmallBlackKnob>( p(sxBase+3*sPitch, yRow1), module, Aulos::FM_ATT));
+        addInput(createInputCentered<ThemedPJ301MPort>(    p(sxBase+2*sPitch, yRow1), module, Aulos::VIBRATO_CV_INPUT));
+        addParam(createParamCentered<RoundSmallBlackKnob>( p(sxBase+3*sPitch, yRow1), module, Aulos::VIBRATO_ATT));
 
         addInput(createInputCentered<ThemedPJ301MPort>(    p(cx+8.f, yRow1-6.f), module, Aulos::BREATH_CV_INPUT));
         addParam(createParamCentered<Trimpot>(             p(cx+17.f, yRow1-6.f), module, Aulos::BREATH_ATT));
@@ -1454,6 +1645,26 @@ struct AulosWidget : ModuleWidget {
         menu->addChild(createMenuLabel("Envelope Curves"));
         addFSlider(&m->attackCurve,  -1.f, 1.f,  0.3f, "Attack Curve (log - exp)");
         addFSlider(&m->releaseCurve, -1.f, 1.f, -0.5f, "Release Curve (log - exp)");
+
+        menu->addChild(new MenuSeparator());
+        menu->addChild(createMenuLabel("Vibrato"));
+        addFSlider(&m->vibratoRate,        3.f,  12.f, 7.0f, "Rate (Hz)");
+        addFSlider(&m->vibratoBreathDepth, 0.f,   1.f, 0.5f, "Breath Coupling");
+
+        menu->addChild(new MenuSeparator());
+        menu->addChild(new MenuSeparator());
+        menu->addChild(createMenuLabel("Articulation"));
+        struct LegatoItem : MenuItem {
+            Aulos* module;
+            LegatoItem(Aulos* m) : module(m) { text = "Legato"; }
+            void onAction(const ActionEvent&) override {
+                if (module) module->legatoEnabled = !module->legatoEnabled;
+            }
+        };
+        auto* legatoItem = new LegatoItem(m);
+        legatoItem->rightText = m->legatoEnabled ? CHECKMARK_STRING : "";
+        menu->addChild(legatoItem);
+        addFSlider(&m->legatoTime, 5.f, 80.f, 20.f, "Legato Glide Time (ms)");
 
         menu->addChild(new MenuSeparator());
         menu->addChild(createMenuLabel("Dynamics Envelope"));
