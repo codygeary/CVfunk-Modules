@@ -76,6 +76,11 @@ struct AulosVoice {
     // gate rise.
     bool asleep = true;
 
+    // Startup mute ramp - rises from 0 to 1 over ~15ms on gate rise,
+    // masking the waveguide DC transient while the bore settles.
+    // Tune startupRampCoeff for a shorter/longer mask window.
+    float startupGain = 1.f;
+
     void init(float sr) {
         primaryWaveguide.init(sr,   0.055f);
         secondaryWaveguide.init(sr, 0.028f);
@@ -100,6 +105,7 @@ struct AulosVoice {
         registerSmooth    = 0.f;
         a_fingerDelay     = 0.f;
         asleep            = true;
+        startupGain       = 1.f;
     }
 
     void clear() {
@@ -124,6 +130,7 @@ struct AulosVoice {
         registerSmooth    = 0.f;
         a_fingerDelay     = 0.f;
         asleep            = true;
+        startupGain       = 1.f;
         a_reedMorph = t_reedMorph = 0.5f;
         a_bore      = t_bore      = 0.3f;
         a_tone      = t_tone      = 0.5f;
@@ -411,8 +418,8 @@ struct Aulos : Module {
         decayValue    = 0.7f;
         droneActive   = false;
         moduleTime    = 0.f;
-        attackValue   = 0.1f;
-        releaseValue  = 0.3f;
+        attackValue   = 0.3f;
+        releaseValue  = 0.5f;
     }
 
     json_t* dataToJson() override {
@@ -447,8 +454,8 @@ struct Aulos : Module {
         releaseCurve  = gr("releaseCurve", -0.5f);
         waveguideGain = gr("waveguideGain",1.0f);
         decayValue    = gr("decayValue",   0.7f);
-        attackValue   = gr("attackValue",  0.1f);
-        releaseValue  = gr("releaseValue", 0.3f);
+        attackValue   = gr("attackValue",  0.3f);
+        releaseValue  = gr("releaseValue", 0.5f);
         vibratoRate        = gr("vibratoRate",        7.0f);
         vibratoBreathDepth = gr("vibratoBreathDepth", 0.5f);
         legatoEnabled = gb("legatoEnabled", false);
@@ -479,6 +486,7 @@ struct Aulos : Module {
             v.safetyRMS     = 0.f;
             v.safetyDecay   = 0.f;
             v.a_fingerDelay = 0.f;
+            v.startupGain   = 0.f;
             // Do not reset registerSmooth on gate rise - legato register
             // transitions carry over smoothly between notes.
         }
@@ -615,8 +623,8 @@ struct Aulos : Module {
 
         float fluteExcite = v.jetDelay.process(jetOut, jetDelaySamples) * 1.3f;
         float fluteAmt    = 0.3f + (1.f - v.a_reedMorph) * 0.55f;
-        float reedAmt     = 0.15f + v.a_reedMorph * 0.70f;
-        float excite      = reedExcite * reedAmt + fluteExcite * fluteAmt;
+        float reedAmt     = 0.15f + v.a_reedMorph * 0.70f;  //these are aligned so that we always have a mix of both modes
+        float excite      = reedExcite * reedAmt + fluteExcite * fluteAmt; 
         excite += audioIn;
         excite *= waveguideGainV;
 
@@ -703,6 +711,13 @@ struct Aulos : Module {
             v.dynEnvOut   = v.dynFollower.process(midBand);
         }
         voiceOut *= clamp(sqrtf(440.f / fingerFreq), 0.25f, 3.0f); // pitch loudness correction
+
+        // Ramp from 0 to 1 over ~15ms on note onset to mask waveguide startup transient.
+        // One-pole approach to 1.0 - coeff ~0.004 reaches ~95% in ~15ms at 48kHz.
+        // Tune coeff for a shorter/longer mask window: larger = faster ramp.
+        v.startupGain += 0.004f * (1.f - v.startupGain);
+        voiceOut *= v.startupGain;
+
         return voiceOut;
     }
 
@@ -1639,8 +1654,8 @@ struct AulosWidget : ModuleWidget {
 
         menu->addChild(new MenuSeparator());
         menu->addChild(createMenuLabel("Envelope"));
-        addFSlider(&m->attackValue,   0.f, 1.f,  0.1f, "Attack");
-        addFSlider(&m->releaseValue,  0.f, 1.f,  0.3f, "Release");
+        addFSlider(&m->attackValue,   0.f, 1.f,  0.3f, "Attack");
+        addFSlider(&m->releaseValue,  0.f, 1.f,  0.5f, "Release");
 
         menu->addChild(createMenuLabel("Envelope Curves"));
         addFSlider(&m->attackCurve,  -1.f, 1.f,  0.3f, "Attack Curve (log - exp)");

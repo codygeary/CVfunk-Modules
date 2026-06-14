@@ -137,7 +137,12 @@ struct Glass : Module {
     float cachedFmRatio       = 1.f;
     float cachedAttackSamples = 1000.f;
     float cachedReleaseSamples= 10000.f;
+    float cachedTone = 0.f;
     float noiseCutoffMax    = 1000.f; // frequency cutoff for dry finger noise excitation
+    // Intensity of the damp gate and per-note mute: how far toward 300Hz the
+    // feedback LPF is pushed when the gate fires. Moved from the panel DAMP
+    // slider (now repurposed as a tone/color control) to the context menu.
+    float dampGateIntensity = 0.8f;
     float tremoloPhase      = 0.f;    // global axis wobble phase, shared across all bowls
     float cachedFeedback    = 0.9997f;
     float cachedLpfCoeff    = 0.02f;     // feedback LPF coeff with current global damp state
@@ -244,14 +249,14 @@ struct Glass : Module {
         configParam(WATER_ATT,   -2.f,  2.f,  0.f,   "Water Att.");
         configParam(DECAY_PARAM,  0.f,  1.f,  0.5f,  "Decay");  
         configParam(DECAY_ATT,   -2.f,  2.f,  0.f,   "Decay Att.");
-        configParam(DAMP_PARAM,   0.f,  1.f,  0.75f,  "Damper Strength");
+        configParam(DAMP_PARAM,   0.f,  1.f,  0.1f,  "Damp"); 
         configParam(DAMP_ATT,    -2.f,  2.f,  0.f,   "Damper Att.");
         configParam(WOBBLE_PARAM, 0.f,  1.0f, 0.15f, "Axis Wobble Depth");
         configParam(WOBBLE_ATT,  -2.f,  2.f,  0.f,   "Wobble Att.");
         configParam(DAMP_BUTTON,  0.f,  1.f,  0.f,   "Damp (all bowls)");
         configParam(SPREAD_PARAM, -1.f, 1.f,  1.0f,  "Stereo Spread");
-        configParam(ROOT_PARAM,  -2.f,  2.f,  0.f,   "Root (transpose)", " oct");
-        configParam(FM_PARAM,    -1.f,  1.f,  0.f,   "FM");
+        configParam(ROOT_PARAM,  -2.f,  2.f,  0.f,   "Root (semitone)", " oct");
+        configParam(FM_PARAM,    -1.f,  1.f,  0.f,   "FM (continuous)");
         configParam(FM_ATT,      -2.f,  2.f,  0.f,   "FM Att.");
         configParam(VOLUME_PARAM, 0.f,  1.f,  0.5f,  "Volume");
         configParam(VOLUME_ATT,  -2.f,  2.f,  0.f,   "Volume Att.");
@@ -304,6 +309,7 @@ struct Glass : Module {
         json_object_set_new(root, "attackCurve",   json_real(attackCurve));
         json_object_set_new(root, "releaseCurve",  json_real(releaseCurve));
         json_object_set_new(root, "noiseCutoffMax",     json_real(noiseCutoffMax));
+        json_object_set_new(root, "dampGateIntensity",  json_real(dampGateIntensity));
         return root;
     }
 
@@ -317,6 +323,7 @@ struct Glass : Module {
         attackCurve  = gr("attackCurve",  0.3f);
         releaseCurve = gr("releaseCurve", -0.3f);
         noiseCutoffMax      = gr("noiseCutoffMax",     1000.f);
+        dampGateIntensity   = gr("dampGateIntensity",  0.8f);
     }
 
     void process(const ProcessArgs& args) override {
@@ -333,24 +340,29 @@ struct Glass : Module {
             float buttonHeld  = params[DAMP_BUTTON].getValue() > 0.5f ? 1.f : 0.f;
             float dampGateIn  = (inputs[DAMP_GATE_INPUT].isConnected() &&
                                  inputs[DAMP_GATE_INPUT].getVoltage() > 0.5f) ? 1.f : 0.f;
-            float dampSlider  = rack::clamp(
-                getCV(DAMP_CV_INPUT, DAMP_ATT, params[DAMP_PARAM].getValue()), 0.f, 1.f);
-            // Button and gate input both trigger global damp at the slider level.
-            float dampRaw     = rack::clamp((buttonHeld + dampGateIn) > 0.f ? dampSlider : 0.f, 0.f, 1.f);
+                                 
+            // DAMP_PARAM  controls baseline feedback LPF tone (color/brightness).
+            // 0 = fully bright (~20kHz, transparent glass), 1 = fully dark (~300Hz, muted).
+            // CV and attenuverter still apply -- tone is modulatable from the patch bay.
+            float toneRaw    = sqrt(rack::clamp(
+                getCV(DAMP_CV_INPUT, DAMP_ATT, params[DAMP_PARAM].getValue()), 0.f, 1.f) );
+            bool  dampActive = (buttonHeld + dampGateIn) > 0.f;
+            cachedTone = toneRaw;
 
             // Feedback gain: always < 1, sets passive ring-down time.
             cachedFeedback = 0.985f + powf(decayRaw, 0.33f) * 0.0148f; //adjust .0148 (.9998 decay time)
 
             // LPF on feedback path: models glass material absorption.
-            // At damp=0 almost transparent (~20kHz), glass is very bright.
-            // At damp=1 sweeps down to ~300Hz, killing high harmonics quickly.
-            // cachedMutedLpfCoeff is the coefficient the global damper would
-            // use when engaged -- per-note mute applies it to individual bowls.
+            // baseLpfCoeff: permanent tone baseline set by DAMP slider.
+            // When gate fires: push further toward maxDamp by dampGateIntensity.
+            // Per-note mute uses the same gate darkening from the current tone baseline.
             {
-                float baseDamp = expf(-2.f * float(M_PI) * 20000.f / sr);
-                float maxDamp  = expf(-2.f * float(M_PI) *   300.f / sr);
-                cachedLpfCoeff      = baseDamp + dampRaw    * (maxDamp - baseDamp);
-                cachedMutedLpfCoeff = baseDamp + dampSlider * (maxDamp - baseDamp);
+                float baseDamp     = expf(-2.f * float(M_PI) * 20000.f / sr);
+                float maxDamp      = expf(-2.f * float(M_PI) *   300.f / sr);
+                float baseLpfCoeff = baseDamp + toneRaw * (maxDamp - baseDamp);
+                float gateLpfCoeff = baseLpfCoeff + dampGateIntensity * (maxDamp - baseLpfCoeff);
+                cachedLpfCoeff      = dampActive ? gateLpfCoeff : baseLpfCoeff;
+                cachedMutedLpfCoeff = gateLpfCoeff;
             }
 
             // Noise excitation LPF coefficient, updated from waterRaw.
@@ -527,8 +539,6 @@ struct Glass : Module {
         // signal -- occasional sharp stick-slip peaks with near-silence between.
         // This sounds like a dry finger on glass rather than a continuously bowed
         // metal string. Computed once here since all bowls share the same noise.
-        // At wet settings cachedNoiseWeight->0 so sparseNoise has no effect there.
-        // Tune 0.6f: lower = more impulsive but quieter, higher = louder peaks.
         float sparseNoise = filteredNoise * fabsf(filteredNoise) * 0.6f;
 
         tremoloPhase += cachedSpeedHz / sr;
@@ -542,7 +552,6 @@ struct Glass : Module {
         // Ext input feeds only bowls whose gate is currently held (envOut > 0).
         // When gate releases, ext stops feeding that bowl and it decays freely.
         // This prevents latching and allows natural decay.
-
         const float idleThreshold = 5e-4f;
 
         float mixL = 0.f, mixR = 0.f;
@@ -588,8 +597,6 @@ struct Glass : Module {
                 // the finger lifts slightly, shifting excitation toward noise.
                 // Effect is proportional to cachedSineWeight so it only manifests when
                 // water is high -- at full dry cachedSineWeight~=0 and this is silent.
-                // Tune 0.05f: fraction of sine weight that shifts to noise at peak wobble.
-                // Reduced 0.15->0.05: water attenuation was too audible at moderate wobble.
                 float waterFilmShift     = wobbleSine * 0.05f;
                 float effectiveSineWeight  = cachedSineWeight  * (1.f - waterFilmShift);
                 float effectiveNoiseWeight = cachedNoiseWeight + cachedSineWeight * waterFilmShift;
@@ -609,17 +616,13 @@ struct Glass : Module {
                 // full pressure, chords distribute it. Applied after all other
                 // excitation shaping so it scales the final injected energy.
                 excitation *= cachedPressureShare;
+                
+                excitation *= 1.f + cachedTone * 5.0f; //compensate for high tone setting
             }
 
             // ── Waveguide ─────────────────────────────────────────────────────
             // Ext input is summed only while gate is held (envOut > 0).
             // When gate releases, ext stops and the bowl decays freely.
-            // Per-note mute: identical mechanism to the global damper, applied
-            // per bowl. While the bowl's mute gate is high, the feedback LPF
-            // sweeps to the damped coefficient (level set by the DAMP slider)
-            // and the bowl rings down through the darkening filter. Switching
-            // a one-pole coefficient causes no discontinuity, so no smoothing
-            // is needed -- same as the sub-rate global damp switch.
             float extContrib = (state.envOut > 0.0001f) ? cachedAudioIn : 0.f;
             float lpfCoeff   = dampHigh[b] ? cachedMutedLpfCoeff : cachedLpfCoeff;
 
@@ -655,17 +658,6 @@ struct Glass : Module {
         }
 
         // ── Outputs ───────────────────────────────────────────────────────────
-        // Tune mixScale if output clips at full bowl activity.
-        // Signal path matches Node.cpp exactly:
-        //   mixL * baseScale  -> fixed scale to normalise bowl mix to audio range
-        //   * cachedVolume    -> user gain, pushes into ADAA saturation at high levels
-        //   process(inV)      -> clamp +-13.14, /10, ADAA tanh, *6.9
-        //   clamp +-10V       -> output protection
-        //
-        // baseScale doubled 0.2->0.4: solo notes are now 2x louder.
-        // Pressure sharing (cachedPressureShare) compensates at high note counts
-        // so large chords do not overdrive the saturator.
-        // const float baseScale = 0.2f;
         const float baseScale = 0.4f;
         float inL = mixL * baseScale * cachedVolume;
         float inR = mixR * baseScale * cachedVolume;
@@ -685,7 +677,6 @@ struct Glass : Module {
         float displayLevel = envOut;
         for (int seg = 0; seg < 10; ++seg)
             vuEnv[seg] = (displayLevel * 13.f > (float)seg) ? 1.f : 0.f;
-
     }
 };
 
@@ -1038,6 +1029,10 @@ struct GlassWidget : ModuleWidget {
         menu->addChild(new MenuSeparator());
         menu->addChild(createMenuLabel("Water (Grip) Noise Color"));
         addFSlider(&m->noiseCutoffMax, 100.f, 4000.f, 1000.f, "Max Noise Cutoff Hz (dry setting)");
+
+        menu->addChild(new MenuSeparator());
+        menu->addChild(createMenuLabel("Damper Gate"));
+        addFSlider(&m->dampGateIntensity, 0.f, 1.f, 0.8f, "Damper Depth (gate/mute darkness)");
 
         menu->addChild(new MenuSeparator());
         struct PanicItem : MenuItem {
