@@ -486,7 +486,9 @@ struct Aulos : Module {
             v.safetyRMS     = 0.f;
             v.safetyDecay   = 0.f;
             v.a_fingerDelay = 0.f;
-            v.startupGain   = 0.f;
+            // In legato the waveguide is already running - skip the startup mask
+            // so the note change is seamless. Only mute on a cold note-on.
+            if (!legatoActive) v.startupGain = 0.f;
             // Do not reset registerSmooth on gate rise - legato register
             // transitions carry over smoothly between notes.
         }
@@ -643,18 +645,11 @@ struct Aulos : Module {
         float loopFeedback = rack::crossfade(cachedDecayGainV * 0.8f, v.cachedFeedback, envelopeGate); // feedback dampens when we don't blow
 
         // Legato inflection: at a slur transition legatoDip is 1, decaying to 0
-        // over ~20ms. It does two things simultaneously:
-        //   1. Subtle feedback dip - a slight release of resonator energy so the
+        // over ~20ms. + Subtle feedback dip - a slight release of resonator energy so the
         //      new pitch can establish without fighting the old one's stored energy.
-        //   2. Excitation burst - a small breath inflection injected after the
-        //      saturator, proportional to current breathLevel, that arrives as the
-        //      new note locks in. This models the extra puff a player adds at a slur.
         // Tune dipFeedbackDepth for more/less resonator release (0 = none).
-        // Tune dipBreathScale for stronger/weaker inflection burst.
         const float dipFeedbackDepth = 0.18f;
-        const float dipBreathScale   = 0.35f;
         loopFeedback *= (1.f - legatoDip * dipFeedbackDepth);
-        loopSat      += legatoDip * breathLevel * dipBreathScale;
 
         // Feedback reduces slightly in higher registers - upper registers are
         // less stable and more sensitive to embouchure. Tune registerFeedbackDrop.

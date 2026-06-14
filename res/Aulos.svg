@@ -34,7 +34,7 @@
      inkscape:pageopacity="0.0"
      inkscape:pageshadow="2"
      inkscape:zoom="1.4250686"
-     inkscape:cx="76.838406"
+     inkscape:cx="28.419684"
      inkscape:cy="247.70737"
      inkscape:document-units="mm"
      inkscape:current-layer="svg8"
@@ -375,7 +375,8 @@
        style="fill:#000000" /></g><g
      aria-label="GATE"
      id="text4590"
-     style="font-style:italic;font-size:2.46944px;font-family:Menlo;-inkscape-font-specification:'Menlo Italic';text-align:center;text-anchor:middle;opacity:1;fill:#ffffff;stroke-width:0.246944;stroke-linecap:square;stroke-linejoin:round;stroke-miterlimit:0;paint-order:fill markers stroke"><path
+     style="font-style:italic;font-size:2.46944px;font-family:Menlo;-inkscape-font-specification:'Menlo Italic';text-align:center;text-anchor:middle;opacity:1;fill:#ffffff;stroke-width:0.246944;stroke-linecap:square;stroke-linejoin:round;stroke-miterlimit:0;paint-order:fill markers stroke"
+     transform="translate(0,1.0583333)"><path
        d="m 13.976342,97.756758 q -0.104903,0.07476 -0.229098,0.113343 -0.124196,0.03738 -0.265272,0.03738 -0.279741,0 -0.430464,-0.161574 -0.149517,-0.162781 -0.149517,-0.46302 0,-0.108521 0.01929,-0.230304 0.0205,-0.12299 0.05908,-0.256832 0.0422,-0.141076 0.09887,-0.25442 0.05667,-0.114549 0.124196,-0.195336 0.129018,-0.156752 0.284564,-0.23151 0.156752,-0.07476 0.356911,-0.07476 0.09646,0 0.191719,0.02532 0.09646,0.02532 0.189308,0.07355 l -0.04944,0.249597 q -0.07838,-0.07596 -0.165192,-0.113343 -0.08561,-0.03738 -0.183279,-0.03738 -0.118166,0 -0.221863,0.05064 -0.103698,0.04944 -0.185691,0.147106 -0.05305,0.0627 -0.10008,0.156751 -0.04702,0.09405 -0.0832,0.211012 -0.041,0.137459 -0.0627,0.258037 -0.0205,0.120578 -0.0205,0.218246 0,0.206189 0.09526,0.318327 0.09526,0.112137 0.270095,0.112137 0.08199,0 0.147106,-0.0217 0.06511,-0.02291 0.109726,-0.06511 l 0.09164,-0.473872 h -0.261654 l 0.03617,-0.20016 h 0.49437 z"
        id="path8064"
        style="fill:#000000" /><path
@@ -576,7 +577,8 @@
        style="fill:#000000" /></g><g
      aria-label="VIBRATO"
      id="text1490"
-     style="font-style:italic;font-size:2.46944px;font-family:Menlo;-inkscape-font-specification:'Menlo Italic';text-align:center;text-anchor:middle;stroke-width:0.246944;stroke-linecap:square;stroke-linejoin:round;stroke-miterlimit:0;paint-order:fill markers stroke;fill:#000000"><path
+     style="font-style:italic;font-size:2.46944px;font-family:Menlo;-inkscape-font-specification:'Menlo Italic';text-align:center;text-anchor:middle;fill:#000000;stroke-width:0.246944;stroke-linecap:square;stroke-linejoin:round;stroke-miterlimit:0;paint-order:fill markers stroke"
+     transform="translate(0,1.0583333)"><path
        d="m 33.28677,97.429944 0.721057,-1.571133 h 0.259243 l -0.866957,1.800231 h -0.311092 l -0.177249,-1.800231 h 0.238744 z"
        style="fill:#000000"
        id="path1573" /><path
