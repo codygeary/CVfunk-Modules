@@ -109,7 +109,7 @@ struct Glass : Module {
 
     enum LightId {
         ROTATE_LIGHT, WATER_LIGHT, SUSTAIN_LIGHT, DAMP_LIGHT, WOBBLE_LIGHT,
-        ENV_LIGHT_0,                          // 5 segments, matches Aulos BREATH_LIGHT_0
+        ENV_LIGHT_0,
         LIGHTS_LEN = ENV_LIGHT_0 + 10
     };
 
@@ -247,9 +247,9 @@ struct Glass : Module {
         configParam(ROTATE_ATT,   -2.f,  2.f,  0.f,  "Rotation Speed Att.");
         configParam(WATER_PARAM,  0.f,  1.f,  0.85f, "Water");
         configParam(WATER_ATT,   -2.f,  2.f,  0.f,   "Water Att.");
-        configParam(SUSTAIN_PARAM,  0.f,  1.f,  0.5f,"Sustain");  
+        configParam(SUSTAIN_PARAM,  0.f,  1.f,  0.5f,"Sustain");
         configParam(SUSTAIN_ATT,   -2.f,  2.f,  0.f, "Sustain Att.");
-        configParam(DAMP_PARAM,   0.f,  1.f,  0.1f,  "Damp"); 
+        configParam(DAMP_PARAM,   0.f,  1.f,  0.1f,  "Damp");
         configParam(DAMP_ATT,    -2.f,  2.f,  0.f,   "Damper Att.");
         configParam(WOBBLE_PARAM, 0.f,  1.0f, 0.15f, "Axis Wobble Depth");
         configParam(WOBBLE_ATT,  -2.f,  2.f,  0.f,   "Wobble Att.");
@@ -268,7 +268,7 @@ struct Glass : Module {
         configInput(ROTATE_CV_INPUT, "Rotation Speed CV");
         configInput(WATER_CV_INPUT,  "Water CV");
         configInput(SUSTAIN_CV_INPUT,"Sustain CV");
-        configInput(DAMP_GATE_INPUT, "Damper Gate (all bowls)");        
+        configInput(DAMP_GATE_INPUT, "Damper Gate (all bowls)");
         configInput(DAMP_CV_INPUT,   "Damper Amount CV");
         configInput(WOBBLE_CV_INPUT, "Axis Wobble CV");
         configInput(FM_CV_INPUT,     "FM CV");
@@ -340,7 +340,7 @@ struct Glass : Module {
             float buttonHeld  = params[DAMP_BUTTON].getValue() > 0.5f ? 1.f : 0.f;
             float dampGateIn  = (inputs[DAMP_GATE_INPUT].isConnected() &&
                                  inputs[DAMP_GATE_INPUT].getVoltage() > 0.5f) ? 1.f : 0.f;
-                                 
+
             // DAMP_PARAM  controls baseline feedback LPF tone (color/brightness).
             // 0 = fully bright (~20kHz, transparent glass), 1 = fully dark (~300Hz, muted).
             // CV and attenuverter still apply -- tone is modulatable from the patch bay.
@@ -375,7 +375,7 @@ struct Glass : Module {
                 float noiseCutoff = 200.f + (1.f - waterForNoise) * (noiseCutoffMax - 200.f);
                 cachedNoiseLpfA = expf(-2.f * float(M_PI) * noiseCutoff / sr);
             }
-            
+
             // Cache all slow-changing params: speed, water, volume, FM, spread,
             // envelope timing. None need sample-rate precision.
             cachedSpeedHz  = clamp(
@@ -502,12 +502,7 @@ struct Glass : Module {
 
         // ── Per-note mute ─────────────────────────────────────────────────────
         // Strict 1:1 channel mapping: mute channel ch mutes the bowl currently
-        // assigned to V/oct channel ch. Extra mute channels beyond the V/oct
-        // count are ignored. Muting works like the global damper but per bowl:
-        // it darkens the feedback LPF (cachedMutedLpfCoeff) in the bowl loop.
-        // Note: mute does not count as a gate event -- a muted bowl with no
-        // ring energy stays dormant, and a ringing one is already processed
-        // via anyBowlActive.
+        // assigned to V/oct channel ch.
         if (cachedMuteConn && nVoctCh > 0) {
             int nCh = std::min(std::min(nMuteCh, nVoctCh), GLASS_MAX_POLY);
             for (int ch = 0; ch < nCh; ++ch) {
@@ -537,8 +532,6 @@ struct Glass : Module {
 
         // Dry contact excitation: n*|n| shaping creates a heavy-tailed sparse
         // signal -- occasional sharp stick-slip peaks with near-silence between.
-        // This sounds like a dry finger on glass rather than a continuously bowed
-        // metal string. Computed once here since all bowls share the same noise.
         float sparseNoise = filteredNoise * fabsf(filteredNoise) * 0.6f;
 
         tremoloPhase += cachedSpeedHz / sr;
@@ -560,8 +553,6 @@ struct Glass : Module {
             GlassBowlState& state = bowls[b];
 
             // Dormancy check: skip entirely when no gate and no ringing energy.
-            // Mute (dampHigh) intentionally does not wake a bowl -- damping a
-            // silent bowl is a no-op, and a ringing one is already processing.
             bool bowlDormant = !gateHigh[b] && (bowlEnergy[b] < idleThreshold);
             if (bowlDormant) {
                 bowlRawAbs[b] = 0.f;
@@ -595,8 +586,6 @@ struct Glass : Module {
 
                 // Wobble periodically thins the water film: at peak off-axis displacement
                 // the finger lifts slightly, shifting excitation toward noise.
-                // Effect is proportional to cachedSineWeight so it only manifests when
-                // water is high -- at full dry cachedSineWeight~=0 and this is silent.
                 float waterFilmShift     = wobbleSine * 0.05f;
                 float effectiveSineWeight  = cachedSineWeight  * (1.f - waterFilmShift);
                 float effectiveNoiseWeight = cachedNoiseWeight + cachedSineWeight * waterFilmShift;
@@ -616,7 +605,7 @@ struct Glass : Module {
                 // full pressure, chords distribute it. Applied after all other
                 // excitation shaping so it scales the final injected energy.
                 excitation *= cachedPressureShare;
-                
+
                 excitation *= 1.f + cachedTone * 5.0f; //compensate for high tone setting
             }
 
@@ -711,14 +700,11 @@ struct BowlDisplay : Widget {
 
         // Largest bowl (C3, b=0): radius = H * 0.42 (full height).
         // Smallest bowl (C6, b=36): radius = half the largest.
-        // Radius scales linearly across the 37 bowls.
-        // Tune rMax and rMin to adjust the size range.
         const float rMax = H * 0.35f;
         const float rMin = rMax * 0.5f;
 
         // Left padding = rMax + extra margin so C3 circle has breathing room.
         // Right padding = rMax (C6 is small so it fits with less clearance).
-        // Tune leftPad margin (currently rMax * 0.2) if left bowl still clips.
         const float leftPad  = rMax + rMax * 0.2f;
         const float usableW  = W - leftPad - rMax;
         const float step     = usableW / (float)(GLASS_BOWLS - 1);
@@ -737,9 +723,6 @@ struct BowlDisplay : Widget {
             float r  = rMax + t * (rMin - rMax);
 
             float energy = module
-                         // Multiplier recalibrated 3->6: baseScale doubled (0.2->0.4) so
-                         // audio is 2x louder but bowlEnergy (pre-baseScale) is unchanged.
-                         // 6x restores the display/audio correspondence.
                          ? clamp(module->bowlEnergy[b] * 6.f, 0.f, 1.f)
                          : 0.f;
 
@@ -755,22 +738,13 @@ struct BowlDisplay : Widget {
             nvgFillColor(args.vg, nvgRGBAf(0.10f, 0.11f, 0.18f, 1.f));
             nvgFill(args.vg);
 
-            // Rotating linear gradient sheen -- simulates light catching the
-            // curved glass surface as the bowl spins.
-            // The gradient axis rotates at the same rate as the gold dashes,
-            // with the same per-bowl golden ratio offset, so the sheen and
-            // the dashes move together coherently.
-            // Tune sheenAlpha: lower = more subtle, higher = more prominent.
-            // Tune the light/dark colors to match your panel aesthetic.
+            // Rotating linear gradient sheen
             {
                 float bowlOffset  = (float)b * 0.6180339f * 2.f * float(M_PI);
                 float sheenAngle  = animPhase * 2.f * float(M_PI) + bowlOffset;
                 float dx = cosf(sheenAngle) * r;
                 float dy = sinf(sheenAngle) * r;
 
-                // Gradient from light side to dark side across the diameter.
-                // Light: slightly brightened base. Dark: slightly darkened base.
-                // Keep both close to the base color for a subtle glass sheen.
                 const float sheenAlpha = 0.25f;  // Tune: 0.1=very subtle, 0.4=prominent
                 NVGpaint grad = nvgLinearGradient(args.vg,
                     cx - dx, cy - dy,   // light end
@@ -787,7 +761,6 @@ struct BowlDisplay : Widget {
             // Gold dashed ring on black keys, rotating at the axis spin rate.
             // Each bowl gets a fixed angular offset based on its index using the
             // golden ratio, so no two bowls are ever in phase with each other.
-            // This breaks the moire pattern that occurs when all rings align.
             if (isBlack) {
                 const int   nDashes      = 1; //reduced for visual simplicity
                 const float dashFraction = 0.95f;
@@ -798,8 +771,6 @@ struct BowlDisplay : Widget {
                 // at frame rate regardless of DSP dormancy.
                 float baseRot = animPhase * 2.f * float(M_PI);
 
-                // Per-bowl fixed offset using golden ratio -- same technique as
-                // the sine phase stagger. Gives maximum spread across bowls.
                 float bowlOffset = (float)b * 0.6180339f * 2.f * float(M_PI);
                 float rotOffset  = baseRot + bowlOffset;
 
@@ -933,7 +904,7 @@ struct GlassWidget : ModuleWidget {
         addInput(createInputCentered<ThemedPJ301MPort>(p(xL1, 60.f), module, Glass::PRESSURE_INPUT));
         addInput(createInputCentered<ThemedPJ301MPort>(p(xL1, 75.f), module, Glass::MUTE_GATE_INPUT));
 
-        addInput(createInputCentered<ThemedPJ301MPort>(    p(xL1, 85.f), module, Glass::DAMP_GATE_INPUT));        
+        addInput(createInputCentered<ThemedPJ301MPort>(    p(xL1, 85.f), module, Glass::DAMP_GATE_INPUT));
         addParam(createParamCentered<TL1105>(              p(xL1+10.f, 85.f), module, Glass::DAMP_BUTTON));
 
         // ── Bottom rows ───────────────────────────────────────────────────────
@@ -943,7 +914,7 @@ struct GlassWidget : ModuleWidget {
         const float cx = panelW * 0.5f;
 
         // Row 0: Root knob | FM (CV + trim + knob) | Damp button (momentary)
-        addParam(createParamCentered<RoundLargeBlackKnob>( p(  44.5f, 85.f), module, Glass::ROOT_PARAM));        
+        addParam(createParamCentered<RoundLargeBlackKnob>( p(  44.5f, 85.f), module, Glass::ROOT_PARAM));
         addInput(createInputCentered<ThemedPJ301MPort>(    p( cx+8.f+5.f, 85.f), module, Glass::FM_CV_INPUT));
         addParam(createParamCentered<Trimpot>(             p(cx+17.f+5.f, 85.f), module, Glass::FM_ATT));
         addParam(createParamCentered<RoundBlackKnob>(      p(cx+26.f+5.f, 85.f), module, Glass::FM_PARAM));
@@ -963,7 +934,7 @@ struct GlassWidget : ModuleWidget {
         addParam(createParamCentered<Trimpot>(             p(cx+17.f, yRow2), module, Glass::AUDIO_IN_GAIN_ATT));
         addParam(createParamCentered<RoundSmallBlackKnob>( p(cx+26.f, yRow2), module, Glass::AUDIO_IN_GAIN_PARAM));
 
-        
+
         // Row 3: ENV lights at BREATH_LIGHT position (cx-36..cx-44), ENV output
         // at 10+1*11.5 = 21.5mm -- exactly matching Aulos ENV_OUTPUT position.
         for (int i = 0; i < 5; ++i) {
