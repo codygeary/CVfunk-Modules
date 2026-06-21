@@ -150,14 +150,14 @@ struct Aulos : Module {
 
     enum ParamId {
         // Slider bank - 8 sliders (each PARAM + ATT)
-        REED_PARAM,       REED_ATT,
-        BORE_PARAM,       BORE_ATT,
-        TONE_PARAM,       TONE_ATT,
-        LIP_PARAM,        LIP_ATT,        // loop feedback (Lip / Holes on panel)
-        NOISE_PARAM,      NOISE_ATT,
+        EDGE_PARAM,       EDGE_ATT,
+        JET_PARAM,        JET_ATT,
+        DRIVE_PARAM,      DRIVE_ATT,
+        RES_PARAM,        RES_ATT,        // loop feedback (Lip / Holes on panel)
+        AIR_PARAM,        AIR_ATT,
         CHIFF_PARAM,      CHIFF_ATT,
-        R_OFFSET_PARAM,   R_OFFSET_ATT,   // R channel pipe pitch offset -1..+1 oct
-        DAMP_PARAM,       DAMP_ATT,
+        AULOS_PARAM,      AULOS_ATT,   // R channel pipe pitch offset -1..+1 oct
+        WARMTH_PARAM,     WARMTH_ATT,
         BREATH_PARAM,     BREATH_ATT,
         VIBRATO_ATT,
         PIPE_TUNE_PARAM,
@@ -176,16 +176,15 @@ struct Aulos : Module {
         FINGER_VOCT_INPUT,
         GATE_INPUT,
         BREATH_CV_INPUT,
-        VIBRATO_CV_INPUT,
-        REED_CV_INPUT,
-        BORE_CV_INPUT,
-        TONE_CV_INPUT,
-        LIP_CV_INPUT,
-        NOISE_CV_INPUT,
-        R_OFFSET_CV_INPUT,  // CV for R channel pitch offset
-        DAMP_CV_INPUT,
+        VIBRATO_INPUT,
+        EDGE_CV_INPUT,
+        JET_CV_INPUT,
+        DRIVE_CV_INPUT,
+        RES_CV_INPUT,
+        AIR_CV_INPUT,
+        AULOS_CV_INPUT,  // CV for R channel pitch offset
+        WARMTH_CV_INPUT,
         CHIFF_CV_INPUT,
-        BLEND_CV_INPUT,
         AUDIO_IN_INPUT,
         DRONE_CV_INPUT,
         VOLUME_CV_INPUT,
@@ -245,7 +244,7 @@ struct Aulos : Module {
     float attackValue   = 0.1f;   // attack time 0..1, set in context menu
     float releaseValue  = 0.3f;   // release time 0..1, set in context menu
 
-    // Internal vibrato LFO. Free-running sine, normalled into the VIBRATO_CV_INPUT:
+    // Internal vibrato LFO. Free-running sine, normalled into the VIBRATO_INPUT:
     // when no cable is patched, this drives both pitch and breath modulation;
     // otherwise the patched CV takes over pitch only. Depth is set by VIBRATO_ATT.
     float vibratoRate        = 7.0f;   // Hz, set in context menu (good flute range 5-9)
@@ -283,18 +282,22 @@ struct Aulos : Module {
     rack::dsp::SchmittTrigger droneCVTrig;
 
     float displayActiveFraction  = 1.0f;
-    float displayBore            = 0.0f;
     float displayBreath          = 0.0f;
     float displayActiveFractionR = 1.0f;
     float displayBreathR         = 0.0f;
     float displayOverblow        = 0.0f;
     float displayOverblowR       = 0.0f;
-    // Smoothed register (0..2) read from the voice DSP - drives the nodal
-    // pattern in the display so it shows the mode the bore is actually playing.
     float displayRegister        = 0.0f;
     float displayRegisterR       = 0.0f;
     float displayPipeRatio       = 1.0f;
     float displayPipeFreq        = 261.63f;
+    // New display quantities
+    float displayRMS             = 0.0f;
+    float displayRMSR            = 0.0f;
+    float displayAir             = 0.0f;
+    float displayChiff           = 0.0f;
+    float displayEdge            = 0.0f;
+    float displaySaturation      = 0.0f;
 
     int safetyCounter = 0;
     const float idleThreshold = 0.0005f;
@@ -338,48 +341,47 @@ struct Aulos : Module {
     Aulos() {
         config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
 
-        configParam(REED_PARAM,        0.f,  1.f,  0.1f, "Flute / Reed");
-        configParam(REED_ATT,         -1.f,  1.f,  0.f,  "Flute / Reed Att.");
-        configParam(BORE_PARAM,        0.f,  1.f,  0.0f, "Bore");
-        configParam(BORE_ATT,         -1.f,  1.f,  0.f,  "Bore Att.");
-        configParam(TONE_PARAM,        0.f,  1.f,  0.6f, "Tone");
-        configParam(TONE_ATT,         -1.f,  1.f,  0.f,  "Tone Att.");
-        configParam(LIP_PARAM,         0.f,  1.f,  0.6f, "Lip");
-        configParam(LIP_ATT,          -1.f,  1.f,  0.f,  "Lip Att.");
-        configParam(NOISE_PARAM,       0.f,  1.f,  0.3f, "Noise");
-        configParam(NOISE_ATT,        -1.f,  1.f,  0.f,  "Noise Att.");
-        configParam(CHIFF_PARAM,       0.f,  1.f,  0.4f, "Chiff");
-        configParam(CHIFF_ATT,        -1.f,  1.f,  0.f,  "Chiff Att.");
-        configParam(R_OFFSET_PARAM,   -1.f,  1.f,  0.0f, "R Voice Pitch Offset");
-        configParam(R_OFFSET_ATT,     -1.f,  1.f,  0.f,  "R Offset Att.");
-        configParam(DAMP_PARAM,        0.f,  1.f,  0.1f, "Damp");
-        configParam(DAMP_ATT,         -1.f,  1.f,  0.f,  "Damp Att.");
-        configParam(BREATH_PARAM,      0.f,  1.f,  0.7f, "Breath");
-        configParam(BREATH_ATT,       -1.f,  1.f,  0.f,  "Breath Att.");
-        configParam(VIBRATO_ATT,       0.f,  1.f,  0.3f, "Vibrato Depth");
-        configParam(PIPE_TUNE_PARAM,  -1.f,  4.f,  0.f,  "Pipe Tune", " oct");
-        configParam(FINGER_TUNE_PARAM,-1.f,  1.f,  0.f,  "Finger Tune", " oct");
-        configParam(MANUAL_GATE_BTN,   0.f,  1.f,  0.f,  "Manual Gate");
-        configParam(DRONE_BTN,         0.f,  1.f,  0.f,  "Drone Mode");
-        configParam(VOLUME_PARAM,      0.f,  1.f,  0.5f, "Volume");
-        configParam(VOLUME_ATT,       -1.f,  1.f,  0.f,  "Volume Att.");
-        configParam(AUDIO_IN_GAIN_PARAM, 0.f, 1.f, 0.5f, "Audio In Gain");
-        configParam(AUDIO_IN_GAIN_ATT,  -1.f, 1.f, 0.f,  "Audio In Gain Att.");
+        configParam(EDGE_PARAM,          0.f,  1.f,  0.1f, "Edge");
+        configParam(EDGE_ATT,           -1.f,  1.f,  0.f,  "Edge Att.");
+        configParam(JET_PARAM,           0.f,  1.f,  0.0f, "Jet");
+        configParam(JET_ATT,            -1.f,  1.f,  0.f,  "Jet Att.");
+        configParam(DRIVE_PARAM,         0.f,  1.f,  0.6f, "Drive");
+        configParam(DRIVE_ATT,          -1.f,  1.f,  0.f,  "Drive Att.");
+        configParam(RES_PARAM,           0.f,  1.f,  0.6f, "Resonance");
+        configParam(RES_ATT,            -1.f,  1.f,  0.f,  "Resonance Att.");
+        configParam(AIR_PARAM,           0.f,  1.f,  0.3f, "Air");
+        configParam(AIR_ATT,            -1.f,  1.f,  0.f,  "Air Att.");
+        configParam(CHIFF_PARAM,         0.f,  1.f,  0.4f, "Chiff");
+        configParam(CHIFF_ATT,          -1.f,  1.f,  0.f,  "Chiff Att.");
+        configParam(AULOS_PARAM,        -1.f,  1.f,  0.0f, "Aulos");
+        configParam(AULOS_ATT,          -1.f,  1.f,  0.f,  "Aulos Att.");
+        configParam(WARMTH_PARAM,        0.f,  1.f,  0.1f, "Warmth");
+        configParam(WARMTH_ATT,         -1.f,  1.f,  0.f,  "Warmth Att.");
+        configParam(BREATH_PARAM,        0.f,  1.f,  0.7f, "Breath");
+        configParam(BREATH_ATT,         -1.f,  1.f,  0.f,  "Breath Att.");
+        configParam(VIBRATO_ATT,         0.f,  1.f,  0.3f, "Vibrato Depth");
+        configParam(PIPE_TUNE_PARAM,    -1.f,  4.f,  0.f,  "Pipe Tune", " oct");
+        configParam(FINGER_TUNE_PARAM,  -1.f,  1.f,  0.f,  "Finger Tune", " oct");
+        configParam(MANUAL_GATE_BTN,     0.f,  1.f,  0.f,  "Manual Gate");
+        configParam(DRONE_BTN,           0.f,  1.f,  0.f,  "Drone Mode");
+        configParam(VOLUME_PARAM,        0.f,  1.f,  0.5f, "Volume");
+        configParam(VOLUME_ATT,         -1.f,  1.f,  0.f,  "Volume Att.");
+        configParam(AUDIO_IN_GAIN_PARAM, 0.f,  1.f,  0.5f, "Audio In Gain");
+        configParam(AUDIO_IN_GAIN_ATT,  -1.f,  1.f,  0.f,  "Audio In Gain Att.");
 
         configInput(PIPE_VOCT_INPUT,   "Pipe V/Oct");
         configInput(FINGER_VOCT_INPUT, "Finger V/Oct");
         configInput(GATE_INPUT,        "Gate");
         configInput(BREATH_CV_INPUT,   "Breath CV");
-        configInput(VIBRATO_CV_INPUT,  "Vibrato CV");
-        configInput(REED_CV_INPUT,     "Reed CV");
-        configInput(BORE_CV_INPUT,     "Bore CV");
-        configInput(TONE_CV_INPUT,     "Tone CV");
-        configInput(LIP_CV_INPUT,      "Lip CV");
-        configInput(NOISE_CV_INPUT,    "Noise CV");
-        configInput(R_OFFSET_CV_INPUT, "R Offset CV");
-        configInput(DAMP_CV_INPUT,     "Damp CV");
+        configInput(VIBRATO_INPUT,     "Vibrato (FM)");
+        configInput(EDGE_CV_INPUT,     "Edge CV");
+        configInput(JET_CV_INPUT,      "Jet CV");
+        configInput(DRIVE_CV_INPUT,    "Drive CV");
+        configInput(RES_CV_INPUT,      "Resonance CV");
+        configInput(AIR_CV_INPUT,      "Air CV");
+        configInput(AULOS_CV_INPUT,    "Aulos CV");
+        configInput(WARMTH_CV_INPUT,   "Warmth CV");
         configInput(CHIFF_CV_INPUT,    "Chiff CV");
-        configInput(BLEND_CV_INPUT,    "Blend CV");
         configInput(AUDIO_IN_INPUT,    "Audio In");
         configInput(DRONE_CV_INPUT,    "Drone CV");
         configInput(VOLUME_CV_INPUT,   "Volume CV");
@@ -758,14 +760,14 @@ struct Aulos : Module {
 
             // Read all 8 slider values with their CV inputs.
             float sliderVal[8];
-            sliderVal[0] = clamp(getCV(REED_CV_INPUT,  REED_ATT,  params[REED_PARAM].getValue()),  0.f, 1.f);
-            sliderVal[1] = clamp(getCV(BORE_CV_INPUT,  BORE_ATT,  params[BORE_PARAM].getValue()),  0.f, 1.f);
-            sliderVal[2] = clamp(getCV(TONE_CV_INPUT,  TONE_ATT,  params[TONE_PARAM].getValue()),  0.f, 1.f);
-            sliderVal[3] = clamp(getCV(LIP_CV_INPUT,   LIP_ATT,   params[LIP_PARAM].getValue()),   0.f, 1.f);
-            sliderVal[4] = clamp(getCV(NOISE_CV_INPUT, NOISE_ATT, params[NOISE_PARAM].getValue()), 0.f, 1.f);
+            sliderVal[0] = clamp(getCV(EDGE_CV_INPUT,  EDGE_ATT,  params[EDGE_PARAM].getValue()),  0.f, 1.f);
+            sliderVal[1] = clamp(getCV(JET_CV_INPUT,  JET_ATT,  params[JET_PARAM].getValue()),  0.f, 1.f);
+            sliderVal[2] = clamp(getCV(DRIVE_CV_INPUT,  DRIVE_ATT,  params[DRIVE_PARAM].getValue()),  0.f, 1.f);
+            sliderVal[3] = clamp(getCV(RES_CV_INPUT,   RES_ATT,   params[RES_PARAM].getValue()),   0.f, 1.f);
+            sliderVal[4] = clamp(getCV(AIR_CV_INPUT, AIR_ATT, params[AIR_PARAM].getValue()), 0.f, 1.f);
             sliderVal[5] = clamp(getCV(CHIFF_CV_INPUT, CHIFF_ATT, params[CHIFF_PARAM].getValue()), 0.f, 1.f);
-            // sliderVal[6] = R_OFFSET_PARAM - read per-sample below
-            sliderVal[7] = clamp(getCV(DAMP_CV_INPUT,  DAMP_ATT,  params[DAMP_PARAM].getValue()),  0.f, 1.f);
+            // sliderVal[6] = AULOS_PARAM - read per-sample below
+            sliderVal[7] = clamp(getCV(WARMTH_CV_INPUT,  WARMTH_ATT,  params[WARMTH_PARAM].getValue()),  0.f, 1.f);
 
             // Damp -> loop LPF coefficient, two-phase mapping from Droplet:
             // Phase 1 (0->0.25):   blend in 8kHz LPF.
@@ -854,12 +856,12 @@ struct Aulos : Module {
         float fingerTune = params[FINGER_TUNE_PARAM].getValue();
 
         // ── Vibrato ───────────────────────────────────────────────────────────
-        // The VIBRATO_ATT knob scales depth. CV at VIBRATO_CV_INPUT overrides
+        // The VIBRATO_ATT knob scales depth. CV at VIBRATO_INPUT overrides
         // the internal LFO when patched. The internal LFO is gated per-voice by
         // the breath envelope so vibrato fades in/out with each note. Patched CV
         // is used as raw pitch FM only - no breath coupling.
         float vibratoAtt    = params[VIBRATO_ATT].getValue();
-        bool  vibratoPatched = inputs[VIBRATO_CV_INPUT].isConnected();
+        bool  vibratoPatched = inputs[VIBRATO_INPUT].isConnected();
 
         // Advance the free-running LFO once per sample. Phase wraps in 0..1.
         vibratoPhase += vibratoRate * args.sampleTime;
@@ -867,7 +869,7 @@ struct Aulos : Module {
         float vibratoLFO = sinf(vibratoPhase * 2.f * (float)M_PI); // -1..1
 
         // External pitch FM (patched CV) - global, ungated, pitch only.
-        float vibratoExternal = vibratoPatched ? (vibratoAtt * inputs[VIBRATO_CV_INPUT].getVoltage() * 0.0167f) : 0.f;
+        float vibratoExternal = vibratoPatched ? (vibratoAtt * inputs[VIBRATO_INPUT].getVoltage() * 0.0167f) : 0.f;
         // Internal LFO depth before envelope gating. ~0.5 semitone peak at full knob.
         float vibratoInternal = vibratoPatched ? 0.f : (vibratoAtt * vibratoLFO * 0.5f * 0.0833f);
                       
@@ -892,10 +894,10 @@ struct Aulos : Module {
 
         // R voice pipe pitch offset in octaves. 0 = unison with L.
         float aulosOffset = clamp(
-            params[R_OFFSET_PARAM].getValue()
-            + params[R_OFFSET_ATT].getValue()
-            * (inputs[R_OFFSET_CV_INPUT].isConnected()
-               ? inputs[R_OFFSET_CV_INPUT].getVoltage() : 0.f), -1.f, 1.f);
+            params[AULOS_PARAM].getValue()
+            + params[AULOS_ATT].getValue()
+            * (inputs[AULOS_CV_INPUT].isConnected()
+               ? inputs[AULOS_CV_INPUT].getVoltage() : 0.f), -1.f, 1.f);
 
         // Shared decay gain (recomputed per-sample since decayValue can change).
         float sharedDecayGain = 0.80f + decayValue * 0.17f;
@@ -1158,7 +1160,6 @@ struct Aulos : Module {
         // Updated at the pitch decimation rate - far above frame rate.
         if (doPitch && nVoices > 0 && displayVoice < nVoices) {
             displayPipeFreq  = cachedPipeFreq[displayVoice];
-            displayBore      = voices[displayVoice].a_bore;
             displayBreath    = voices[displayVoice].breathOut * 0.1f;
 
             // Mirror the register fold from processVoice so the display shows
@@ -1190,6 +1191,19 @@ struct Aulos : Module {
             displayBreathR         = processR ? voicesR[displayVoice].breathOut * 0.1f : 0.f;
             displayOverblow        = voices[displayVoice].safetyDecay;
             displayOverblowR       = processR ? voicesR[displayVoice].safetyDecay : 0.f;
+
+            displayRMS        = voices[displayVoice].dynEnvOut;
+            displayRMSR       = processR ? voicesR[displayVoice].dynEnvOut : 0.f;
+            displayAir        = voices[displayVoice].a_noise;
+            displayEdge       = voices[displayVoice].a_reedMorph;
+            displaySaturation = clamp(voices[displayVoice].safetyRMS - 0.6f, 0.f, 1.f);
+            {
+                float chiffDur = voices[displayVoice].cachedChiffDuration;
+                float chiffCnt = (float)voices[displayVoice].chiffCounter;
+                displayChiff   = (chiffDur > 0.f)
+                               ? clamp(1.f - chiffCnt / chiffDur, 0.f, 1.f)
+                               : 0.f;
+            }
 
             // R tube width: derived directly from the aulosOffset slider + CV so
             // it updates immediately regardless of whether either voice is active.
@@ -1234,36 +1248,49 @@ struct PipeDisplay : TransparentWidget {
             const float rowH = (H - gap) * 0.5f;
 
             if (!module) {
-                drawTube(args.vg, 1.f, 0.f, 0.5f, 0.f, 0.f,
-                         0.f, 0.f, W * 0.5f, rowH);
-
-                drawTube(args.vg, 1.f, 0.f, 0.5f, 0.f, 0.f,
-                         0.f, rowH + gap, W, rowH);
+                drawTube(args.vg, 1.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f,
+                         3.f, 0.f, W * 0.5f, rowH);
+                drawTube(args.vg, 1.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f,
+                         3.f, rowH + gap, W, rowH);
             }
             else {
-                float lWidth = W * 0.5f;
+                const float airReserve = rowH * 0.7f;
+
+                float lWidth = W * 0.5f - airReserve;
+                // Reserve right-edge space for air lines — they extend past the
+                // bell exit, so cap rWidth so the longest line stays in bounds.
+                // airReserve scales with rowH since line length is proportional
+                // to bellH which is proportional to rowH.
                 float rWidth = clamp(
                     module->displayPipeRatio * 0.5f,
                     0.25f,
                     1.0f
-                ) * W;
+                ) * W - airReserve;
 
                 drawTube(args.vg,
                          module->displayActiveFraction,
-                         module->displayBore,
                          module->displayBreath,
                          module->displayOverblow,
                          module->displayRegister,
-                         0.f, 0.f,
+                         module->displayRMS,
+                         module->displayAir,
+                         module->displayChiff,
+                         module->displayEdge,
+                         module->displaySaturation,
+                         3.f, 0.f,
                          lWidth, rowH);
 
                 drawTube(args.vg,
                          module->displayActiveFractionR,
-                         module->displayBore,
                          module->displayBreathR,
                          module->displayOverblowR,
                          module->displayRegisterR,
-                         0.f, rowH + gap,
+                         module->displayRMSR,
+                         module->displayAir,
+                         module->displayChiff,
+                         module->displayEdge,
+                         module->displaySaturation,
+                         3.f, rowH + gap,
                          rWidth, rowH);
             }
         }
@@ -1273,13 +1300,19 @@ struct PipeDisplay : TransparentWidget {
 
     // bx, by: top-left of the bounding rect for this tube.
     // bw, bh: width and height of the bounding rect.
-    // activeFraction: position of the first open finger hole along the tube,
-    //   0..1 of the full pipe length (the folded bore fraction from the DSP).
-    // registerValue: smoothed register from the voice, 0 = fundamental,
-    //   1 = first overblown (octave), 2 = second overblown (2 octaves).
+    // activeFraction: position of the first open finger hole along the tube.
+    // breath: breath envelope 0..1, controls tube opacity.
+    // overblow: safetyDecay 0..1, triggers overblow outline.
+    // registerValue: smoothed register 0..2, drives standing wave mode count.
+    // rms: dynEnvOut per-voice, drives standing wave brightness floor.
+    // air: a_noise 0..1, drives air lines at bell exit.
+    // chiff: chiff envelope 0..1, activates outer air lines.
+    // edge: a_reedMorph 0..1, shifts standing wave color toward warm amber.
+    // saturation: pre-overblow safetyRMS indicator 0..1, warms tube color early.
     void drawTube(NVGcontext* vg,
-          float activeFraction, float bell, float breath, float overblow,
+          float activeFraction, float breath, float overblow,
           float registerValue,
+          float rms, float air, float chiff, float edge, float saturation,
           float bx, float by, float bw, float bh) {
 
         const float margin  = 3.f;
@@ -1287,21 +1320,16 @@ struct PipeDisplay : TransparentWidget {
         const float tubeW   = bw - margin * 2.f;
         const float centerY = by + bh * 0.5f;
 
-        const float baseH     = bh * 0.40f - bh * 0.20f * bell;
-        const float bellH     = bh * 0.80f;
-        const float leftHalf  = baseH * 0.5f;
-        const float rightHalf = leftHalf + bell * (bellH * 0.5f - leftHalf);
-
+        // Narrower tube — better aspect ratio.
+        const float baseH = bh * 0.28f;
         auto tubeHalfHeight = [&](float xNorm) {
-            float flare = powf(xNorm, 4.f);
-            return leftHalf + flare * (rightHalf - leftHalf);
+            return baseH * (0.88f + 0.12f * xNorm);
         };
 
         const int CURVE_STEPS = 64;
 
         // ── Tube fill ─────────────────────────────────────────────────────────
-        // Opacity scales with breath so tube is dark when silent.
-        float tubeAlpha = 0.5f + breath * 0.5f;
+        float tubeAlpha = 0.4f + breath * 0.5f;
         nvgBeginPath(vg);
         for (int i = 0; i <= CURVE_STEPS; ++i) {
             float xNorm = (float)i / (float)CURVE_STEPS;
@@ -1316,86 +1344,137 @@ struct PipeDisplay : TransparentWidget {
             nvgLineTo(vg, x, y);
         }
         nvgClosePath(vg);
-        nvgFillColor(vg, nvgRGBAf(0.06f, 0.06f, 0.12f, tubeAlpha));
+        // Saturation warms the fill color slightly before full overblow.
+        nvgFillColor(vg, nvgRGBAf(0.06f + saturation * 0.08f,
+                                   0.06f,
+                                   0.12f,
+                                   tubeAlpha));
         nvgFill(vg);
 
         // ── Standing wave ─────────────────────────────────────────────────────
-        // The mode count follows the V/Oct register the DSP locked: register 0
-        // plays the bore fundamental (1 antinode), register 1 overblows an
-        // octave (2 antinodes), register 2 overblows two octaves (4 antinodes).
-        // registerValue is the voice's smoothed register, so transitions sweep
-        // the pattern continuously, exactly as the timbre morphs.
-        //
-        // Energy-overblow (hard blowing) halves the loop period in the DSP,
-        // which doubles the mode on top of whatever the register selected.
-        // The 0.35/0.3 ramp below tracks the 0.5 trip point in processVoice
-        // with a little visual lead-in.
-        float modeNumber  = rack::dsp::exp2_taylor5(registerValue);
-        float energyKick  = clamp((overblow - 0.35f) / 0.3f, 0.f, 1.f);
-        modeNumber       *= (1.f + energyKick);
+        float modeNumber = rack::dsp::exp2_taylor5(registerValue);
+        float energyKick = clamp((overblow - 0.35f) / 0.3f, 0.f, 1.f);
+        modeNumber      *= (1.f + energyKick);
 
-        // Bore ends at the first open finger hole.
         float boreEnd = clamp(activeFraction, 0.05f, 1.f);
 
-        float brightness = 0.5f + 0.5f * breath;
+        // RMS drives the brightness floor — tube glows even at low breath.
+        float brightness = 0.15f + 0.85f * fmaxf(rms * 4.f, breath);
 
         const int N = 64;
-
         for (int i = 0; i < N; ++i) {
             float xNorm = (float)i / (float)(N - 1);
-
             float xPix  = tubeX + xNorm * tubeW;
             float segW  = tubeW / (float)N + 1.f;
             float halfH = tubeHalfHeight(xNorm);
 
-            // ── finger-hole acoustic leak ─────────────────────────────────────
-            // The standing wave lives between the embouchure and the first open
-            // hole; past the hole the pattern decays into the unused bore.
-            // Tune the 6.5 constant for a sharper/softer cutoff past the hole.
             float xDist    = xNorm - boreEnd;
             float leakGain = (xDist <= 0.f) ? 1.f : expf(-xDist * 6.5f);
 
-            // ── standing wave physics ─────────────────────────────────────────
-            // Open-open pipe: pressure nodes at the embouchure (x=0) and at the
-            // first open hole (x=boreEnd), antinodes in between - flute modes.
             float phase    = modeNumber * float(M_PI) * xNorm / boreEnd;
             float pressure = sinf(phase);
+            float amp      = pressure * pressure * leakGain;
+            float glow     = amp * brightness;
 
-            float amp = pressure * pressure;
-            amp *= leakGain;
-
-            float glow = amp * brightness;
-
-            nvgBeginPath(vg);
-            nvgRect(
-                vg,
-                xPix - segW * 0.5f,
-                centerY - halfH,
-                segW,
-                halfH * 2.f
-            );
-
-            // ── warm/cool scheme on signed pressure ───────────────────────────
+            // Base warm/cool color scheme.
             float warm = fmaxf(pressure, 0.f);
             float cool = fmaxf(-pressure, 0.f);
 
-            float r = 0.08f + warm * 0.90f;
-            float g = 0.05f + warm * 0.35f;
-            float b = 0.12f + cool * 0.90f;
+            // Edge shifts color toward amber as reedMorph increases.
+            // Saturation warms the color before overblow kicks in.
+            float r = 0.08f + warm * (0.85f + edge * 0.15f)
+                            + saturation * warm * 0.20f;
+            float g = 0.05f + warm * (0.30f + edge * 0.20f)
+                            + saturation * warm * 0.10f;
+            float b = 0.12f + cool * (0.90f - edge * 0.30f);
 
-            // Leak affects visibility AND perceived decay.
-            float a = (0.40f + glow * 0.60f) * leakGain;
-
+            float a = (0.35f + glow * 0.65f) * leakGain;
+            nvgBeginPath(vg);
+            nvgRect(vg, xPix - segW * 0.5f, centerY - halfH, segW, halfH * 2.f);
             nvgFillColor(vg, nvgRGBAf(r, g, b, a));
             nvgFill(vg);
         }
 
-        // ── Fingering marker ──────────────────────────────────────────────────
-        // Always shown when breath is active, at the first open hole position.
-        // Normal: vertical line. Energy-overblow: hollow ellipse growing with
-        // overblow amount.
-        float markerNorm = boreEnd;
+        // ── Embouchure dot ────────────────────────────────────────────────────
+        // Glowing dot at the mouthpiece end, pulsing with RMS output level.
+        if (breath > 0.01f || rms > 0.01f) {
+            float dotX   = tubeX;
+            float dotR   = tubeHalfHeight(0.f) * (0.25f + rms * 0.35f);
+            float dotGlow = fmaxf(rms * 3.f, breath);
+            nvgBeginPath(vg);
+            nvgCircle(vg, dotX, centerY, dotR);
+            nvgFillColor(vg, nvgRGBAf(0.9f + edge * 0.1f,
+                                       0.85f - edge * 0.15f,
+                                       0.7f  - edge * 0.3f,
+                                       dotGlow * 0.85f));
+            nvgFill(vg);
+        }
 
+        // ── Air lines ─────────────────────────────────────────────────────────
+        // Field-line style bezier curves at bell exit. Middle line is longest,
+        // outer lines shorter. Gentle outward curve — not radial. 9 lines total:
+        // inner 5 driven by air, outer 4 only active during chiff. Flutter with time.
+        {
+            float bellX    = tubeX + tubeW;
+            float bellH    = tubeHalfHeight(1.f);
+            float frameTime = (float)glfwGetTime();
+            const int NUM_LINES = 9;
+            const int AIR_LINES = 5;
+
+            for (int i = 0; i < NUM_LINES; ++i) {
+                // t: 0=center, 1=outermost. Use abs distance from center line.
+                float centerIdx = (NUM_LINES - 1) * 0.5f;
+                float tAbs = fabsf((float)i - centerIdx) / centerIdx;  // 0 at center, 1 at edge
+
+                // Inner lines driven by air, outer lines need chiff.
+                float lineActive;
+                if (i >= 1 && i <= (NUM_LINES - 2)) {
+                    // All but the outermost pair: air drives them.
+                    lineActive = air * breath;
+                } else {
+                    // Outermost pair: chiff only, with faint air sustain.
+                    lineActive = fmaxf(chiff * 0.9f, air * breath * 0.15f);
+                }
+                if (lineActive < 0.02f) continue;
+
+                // Vertical position at bell — symmetric above/below center.
+                float ySign   = ((float)i < centerIdx) ? -1.f : (i > centerIdx ? 1.f : 0.f);
+                float yOffset = bellH * tAbs * 0.95f * ySign;
+
+                // Length: middle (tAbs=0) is longest, outer (tAbs=1) shorter.
+                float baseLen  = bellH * (1.4f + air * 0.8f + chiff * 1.0f);
+                float lineLen  = baseLen * (1.f - tAbs * 0.6f);
+
+                // Flutter: small oscillation on control and end points.
+                float flutter  = sinf(frameTime * (2.5f + i * 1.3f)) * bellH * 0.05f * lineActive;
+
+                // Gentle bezier: mostly rightward with slight outward curve.
+                // Control point only modestly offset to keep curve subtle.
+                float ctrlX = bellX + lineLen * 0.5f;
+                float ctrlY = centerY + yOffset * 1.15f + flutter;
+                float endX  = bellX + lineLen;
+                float endY  = centerY + yOffset * 1.35f + flutter * 1.5f;
+
+                float alpha = lineActive * (0.9f - tAbs * 0.3f);
+                alpha = clamp(alpha, 0.f, 1.f);
+
+                // Color: blue, brightens during chiff.
+                float cr = 0.25f + chiff * 0.55f;
+                float cg = 0.55f + chiff * 0.35f;
+                float cb = 1.0f;
+                float sw = 1.5f + (1.f - tAbs) * 0.8f + chiff * 1.0f;  // center thicker
+
+                nvgBeginPath(vg);
+                nvgMoveTo(vg, bellX, centerY + yOffset);
+                nvgQuadTo(vg, ctrlX, ctrlY, endX, endY);
+                nvgStrokeColor(vg, nvgRGBAf(cr, cg, cb, alpha));
+                nvgStrokeWidth(vg, sw);
+                nvgStroke(vg);
+            }
+        }
+
+        // ── Fingering marker ──────────────────────────────────────────────────
+        float markerNorm = boreEnd;
         if (breath > 0.02f) {
             float markerX = tubeX + markerNorm * tubeW;
             float markerH = tubeHalfHeight(markerNorm);
@@ -1500,14 +1579,14 @@ struct AulosWidget : ModuleWidget {
 
         struct SlSpec { Aulos::ParamId param, att; Aulos::InputId cv; int color; };
         const SlSpec specs[8] = {
-            {Aulos::REED_PARAM,  Aulos::REED_ATT,  Aulos::REED_CV_INPUT,  1},  // blue
-            {Aulos::BORE_PARAM,  Aulos::BORE_ATT,  Aulos::BORE_CV_INPUT,  1},  // blue
-            {Aulos::TONE_PARAM,  Aulos::TONE_ATT,  Aulos::TONE_CV_INPUT,  2},  // white
-            {Aulos::LIP_PARAM,   Aulos::LIP_ATT,   Aulos::LIP_CV_INPUT,   3},  // yellow
-            {Aulos::NOISE_PARAM, Aulos::NOISE_ATT, Aulos::NOISE_CV_INPUT, 3},  // yellow
+            {Aulos::EDGE_PARAM,  Aulos::EDGE_ATT,  Aulos::EDGE_CV_INPUT,  1},  // blue
+            {Aulos::JET_PARAM,  Aulos::JET_ATT,  Aulos::JET_CV_INPUT,  1},  // blue
+            {Aulos::DRIVE_PARAM,  Aulos::DRIVE_ATT,  Aulos::DRIVE_CV_INPUT,  2},  // white
+            {Aulos::RES_PARAM,   Aulos::RES_ATT,   Aulos::RES_CV_INPUT,   3},  // yellow
+            {Aulos::AIR_PARAM, Aulos::AIR_ATT, Aulos::AIR_CV_INPUT, 3},  // yellow
             {Aulos::CHIFF_PARAM, Aulos::CHIFF_ATT, Aulos::CHIFF_CV_INPUT, 3},  // yellow
-            {Aulos::R_OFFSET_PARAM, Aulos::R_OFFSET_ATT, Aulos::R_OFFSET_CV_INPUT, 2},  // white
-            {Aulos::DAMP_PARAM,  Aulos::DAMP_ATT,  Aulos::DAMP_CV_INPUT,  4},  // red
+            {Aulos::AULOS_PARAM, Aulos::AULOS_ATT, Aulos::AULOS_CV_INPUT, 2},  // white
+            {Aulos::WARMTH_PARAM,  Aulos::WARMTH_ATT,  Aulos::WARMTH_CV_INPUT,  4},  // red
         };
         for (int i = 0; i < 8; ++i) {
             const SlSpec& s = specs[i];
@@ -1541,7 +1620,7 @@ struct AulosWidget : ModuleWidget {
         addChild(createLightCentered<MediumLight<GreenLight>>(p(sxBase, yRow1), module, Aulos::MANUAL_GATE_LIGHT));
         addInput(createInputCentered<ThemedPJ301MPort>(    p(sxBase+sPitch, yRow1), module, Aulos::GATE_INPUT));
 
-        addInput(createInputCentered<ThemedPJ301MPort>(    p(sxBase+2*sPitch, yRow1), module, Aulos::VIBRATO_CV_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(    p(sxBase+2*sPitch, yRow1), module, Aulos::VIBRATO_INPUT));
         addParam(createParamCentered<RoundSmallBlackKnob>( p(sxBase+3*sPitch, yRow1), module, Aulos::VIBRATO_ATT));
 
         addInput(createInputCentered<ThemedPJ301MPort>(    p(cx+8.f, yRow1-6.f), module, Aulos::BREATH_CV_INPUT));

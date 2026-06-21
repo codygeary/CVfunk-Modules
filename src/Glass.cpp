@@ -68,9 +68,9 @@ struct GlassBowlState {
 struct Glass : Module {
 
     enum ParamId {
-        SPEED_PARAM,  SPEED_ATT,
+        ROTATE_PARAM,  ROTATE_ATT,
         WATER_PARAM,  WATER_ATT,
-        DECAY_PARAM,  DECAY_ATT,
+        SUSTAIN_PARAM,  SUSTAIN_ATT,
         DAMP_PARAM,   DAMP_ATT,
         WOBBLE_PARAM, WOBBLE_ATT,
         DAMP_BUTTON,
@@ -87,9 +87,9 @@ struct Glass : Module {
         GATE_INPUT,
         PRESSURE_INPUT,
         MUTE_GATE_INPUT,
-        SPEED_CV_INPUT,
+        ROTATE_CV_INPUT,
         WATER_CV_INPUT,
-        DECAY_CV_INPUT,
+        SUSTAIN_CV_INPUT,
         DAMP_CV_INPUT,
         WOBBLE_CV_INPUT,
         FM_CV_INPUT,
@@ -108,7 +108,7 @@ struct Glass : Module {
     };
 
     enum LightId {
-        SPEED_LIGHT, WATER_LIGHT, DECAY_LIGHT, DAMP_LIGHT, WOBBLE_LIGHT,
+        ROTATE_LIGHT, WATER_LIGHT, SUSTAIN_LIGHT, DAMP_LIGHT, WOBBLE_LIGHT,
         ENV_LIGHT_0,                          // 5 segments, matches Aulos BREATH_LIGHT_0
         LIGHTS_LEN = ENV_LIGHT_0 + 10
     };
@@ -243,12 +243,12 @@ struct Glass : Module {
 
     Glass() {
         config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
-        configParam(SPEED_PARAM,  0.f,  6.f,  3.14f, "Rotation Speed", " Hz");
-        configParam(SPEED_ATT,   -2.f,  2.f,  0.f,   "Speed Att.");
+        configParam(ROTATE_PARAM,  0.f,  6.f,  3.14f,"Rotation Speed", " Hz");
+        configParam(ROTATE_ATT,   -2.f,  2.f,  0.f,  "Rotation Speed Att.");
         configParam(WATER_PARAM,  0.f,  1.f,  0.85f, "Water");
         configParam(WATER_ATT,   -2.f,  2.f,  0.f,   "Water Att.");
-        configParam(DECAY_PARAM,  0.f,  1.f,  0.5f,  "Decay");  
-        configParam(DECAY_ATT,   -2.f,  2.f,  0.f,   "Decay Att.");
+        configParam(SUSTAIN_PARAM,  0.f,  1.f,  0.5f,"Sustain");  
+        configParam(SUSTAIN_ATT,   -2.f,  2.f,  0.f, "Sustain Att.");
         configParam(DAMP_PARAM,   0.f,  1.f,  0.1f,  "Damp"); 
         configParam(DAMP_ATT,    -2.f,  2.f,  0.f,   "Damper Att.");
         configParam(WOBBLE_PARAM, 0.f,  1.0f, 0.15f, "Axis Wobble Depth");
@@ -265,9 +265,9 @@ struct Glass : Module {
         configInput(GATE_INPUT,      "Gate (polyphonic)");
         configInput(PRESSURE_INPUT,  "Pressure (polyphonic)");
         configInput(MUTE_GATE_INPUT, "Mute Bowl Gate (polyphonic)");
-        configInput(SPEED_CV_INPUT,  "Speed CV");
+        configInput(ROTATE_CV_INPUT, "Rotation Speed CV");
         configInput(WATER_CV_INPUT,  "Water CV");
-        configInput(DECAY_CV_INPUT,  "Decay CV");
+        configInput(SUSTAIN_CV_INPUT,"Sustain CV");
         configInput(DAMP_GATE_INPUT, "Damper Gate (all bowls)");        
         configInput(DAMP_CV_INPUT,   "Damper Amount CV");
         configInput(WOBBLE_CV_INPUT, "Axis Wobble CV");
@@ -334,7 +334,7 @@ struct Glass : Module {
             skipCounter = 0;
 
             float decayRaw = clamp(
-                getCV(DECAY_CV_INPUT, DECAY_ATT, params[DECAY_PARAM].getValue()),
+                getCV(SUSTAIN_CV_INPUT, SUSTAIN_ATT, params[SUSTAIN_PARAM].getValue()),
                 0.f, 1.f);
             // Global damp: button or CV gate triggers damp at level set by DAMP slider.
             float buttonHeld  = params[DAMP_BUTTON].getValue() > 0.5f ? 1.f : 0.f;
@@ -379,7 +379,7 @@ struct Glass : Module {
             // Cache all slow-changing params: speed, water, volume, FM, spread,
             // envelope timing. None need sample-rate precision.
             cachedSpeedHz  = clamp(
-                getCV(SPEED_CV_INPUT, SPEED_ATT, params[SPEED_PARAM].getValue()),
+                getCV(ROTATE_CV_INPUT, ROTATE_ATT, params[ROTATE_PARAM].getValue()),
                 0.f, 6.f);
             cachedSpeedRaw = cachedSpeedHz / 6.f;
 
@@ -901,9 +901,9 @@ struct GlassWidget : ModuleWidget {
 
         struct SlSpec { Glass::ParamId param, att; Glass::InputId cv; int color; };
         const SlSpec sliders[5] = {
-            { Glass::SPEED_PARAM,  Glass::SPEED_ATT,  Glass::SPEED_CV_INPUT,  1 },  // blue
+            { Glass::ROTATE_PARAM,  Glass::ROTATE_ATT,  Glass::ROTATE_CV_INPUT,  1 },  // blue
             { Glass::WATER_PARAM,  Glass::WATER_ATT,  Glass::WATER_CV_INPUT,  1 },  // blue
-            { Glass::DECAY_PARAM,  Glass::DECAY_ATT,  Glass::DECAY_CV_INPUT,  2 },  // white
+            { Glass::SUSTAIN_PARAM,  Glass::SUSTAIN_ATT,  Glass::SUSTAIN_CV_INPUT,  2 },  // white
             { Glass::DAMP_PARAM,   Glass::DAMP_ATT,   Glass::DAMP_CV_INPUT,   4 },  // red
             { Glass::WOBBLE_PARAM, Glass::WOBBLE_ATT, Glass::WOBBLE_CV_INPUT, 3 },  // yellow
         };
