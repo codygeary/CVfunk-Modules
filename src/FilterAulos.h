@@ -38,6 +38,24 @@ inline float aulosLagrange(float y0, float y1, float y2, float y3, float t) {
          + (((t+1.f) * t * (t-1.f)) / 6.f) * y3;
 }
 
+// Taylor-series sin/cos accurate to <0.0002 across full range.
+// Wraps input to (-pi, pi] before evaluating the polynomial.
+inline float aulosDspWrapToPi(float x) {
+    const float twoPi = 2.0f * float(M_PI);
+    x = fmodf(x + float(M_PI), twoPi);
+    if (x < 0.f) x += twoPi;
+    return x - float(M_PI);
+}
+
+inline float aulosDspSin(float x) {
+    x = aulosDspWrapToPi(x);
+    float x2 = x * x;
+    return x * (1.f - x2 * (1.f/6.f - x2 * (1.f/120.f
+               - x2 * (1.f/5040.f - x2 / 362880.f))));
+}
+
+
+
 // Cubic jet nonlinearity — models the vortex-to-edge coupling in a flute
 // embouchure. Soft symmetric saturation: output approaches +-2/3 as x -> +-inf.
 // Keeps flute mode cleaner than the asymmetric reed saturator.

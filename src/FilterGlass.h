@@ -41,7 +41,6 @@ inline float glassMorphShape(float t, float m, float A = 6.f) {
 
 // glassDspSin / glassDspCos
 // Taylor-series sin/cos accurate to <0.0002 across full range.
-// Ported from SandsDSP::dspSin (MIT, Cody Geary).
 // Wraps input to (-pi, pi] before evaluating the polynomial.
 inline float glassDspWrapToPi(float x) {
     const float twoPi = 2.0f * float(M_PI);

@@ -344,7 +344,7 @@ struct Glass : Module {
             // DAMP_PARAM  controls baseline feedback LPF tone (color/brightness).
             // 0 = fully bright (~20kHz, transparent glass), 1 = fully dark (~300Hz, muted).
             // CV and attenuverter still apply -- tone is modulatable from the patch bay.
-            float toneRaw    = sqrt(rack::clamp(
+            float toneRaw    = sqrt(clamp(
                 getCV(DAMP_CV_INPUT, DAMP_ATT, params[DAMP_PARAM].getValue()), 0.f, 1.f) );
             bool  dampActive = (buttonHeld + dampGateIn) > 0.f;
             cachedTone = toneRaw;
@@ -410,7 +410,7 @@ struct Glass : Module {
                 0.f, 1.f) * 4.f;  // 0..4x gain, pushes into ADAA saturation at high levels
 
             // Audio in gain: cached sub-rate, matching Aulos usage.
-            float audioInGain = rack::clamp(
+            float audioInGain = clamp(
                 params[AUDIO_IN_GAIN_PARAM].getValue()
                 + params[AUDIO_IN_GAIN_ATT].getValue()
                 * (inputs[AUDIO_IN_CV_INPUT].isConnected()
@@ -660,7 +660,7 @@ struct Glass : Module {
         float rmsIn = (fabsf(satL) + fabsf(satR)) * 0.5f;
         float envOut = envFollower.process(rmsIn);
         if (outputs[ENV_OUTPUT].isConnected())
-            outputs[ENV_OUTPUT].setVoltage(rack::clamp(envOut * 13.f, 0.f, 10.f));
+            outputs[ENV_OUTPUT].setVoltage(clamp(envOut * 13.f, 0.f, 10.f));
 
         // VU bar: 10 segments, same bar-graph encoding as Aulos.
         float displayLevel = envOut;

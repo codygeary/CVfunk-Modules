@@ -50,6 +50,7 @@ extern Model* modelStrata;
 extern Model* modelTriton;
 extern Model* modelAulos;
 extern Model* modelGlass;
+extern Model* modelHaze;
 
 
 

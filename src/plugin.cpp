@@ -50,6 +50,8 @@ void init(Plugin* p) {
     p->addModel(modelTriton);
     p->addModel(modelAulos);
     p->addModel(modelGlass);
+    p->addModel(modelHaze);
+    
 
     
     // Any other plugin initialization may go here.

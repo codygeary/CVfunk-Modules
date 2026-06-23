@@ -98,7 +98,7 @@ struct AulosVoice {
         lastGateHigh      = false;
         breathOut         = 0.f;
         dynEnvOut         = 0.f;
-        chiffCounter      = 0;
+        chiffCounter      = 0x7FFFFFFF;  // start exhausted; resets on gate rise
         chiffZ1           = 0.f;
         safetyRMS         = 0.f;
         safetyDecay       = 0.f;
@@ -123,7 +123,7 @@ struct AulosVoice {
         lastGateHigh      = false;
         breathOut         = 0.f;
         dynEnvOut         = 0.f;
-        chiffCounter      = 0;
+        chiffCounter      = 0x7FFFFFFF;  // start exhausted; resets on gate rise
         chiffZ1           = 0.f;
         safetyRMS         = 0.f;
         safetyDecay       = 0.f;
@@ -296,8 +296,10 @@ struct Aulos : Module {
     float displayRMSR            = 0.0f;
     float displayAir             = 0.0f;
     float displayChiff           = 0.0f;
+    float displayChiffR          = 0.0f;
     float displayEdge            = 0.0f;
     float displaySaturation      = 0.0f;
+    float displaySaturationR     = 0.0f;
 
     int safetyCounter = 0;
     const float idleThreshold = 0.0005f;
@@ -866,7 +868,7 @@ struct Aulos : Module {
         // Advance the free-running LFO once per sample. Phase wraps in 0..1.
         vibratoPhase += vibratoRate * args.sampleTime;
         if (vibratoPhase >= 1.f) vibratoPhase -= 1.f;
-        float vibratoLFO = sinf(vibratoPhase * 2.f * (float)M_PI); // -1..1
+        float vibratoLFO = aulosDspSin(vibratoPhase * 2.f * (float)M_PI); // -1..1
 
         // External pitch FM (patched CV) - global, ungated, pitch only.
         float vibratoExternal = vibratoPatched ? (vibratoAtt * inputs[VIBRATO_INPUT].getVoltage() * 0.0167f) : 0.f;
@@ -1188,21 +1190,29 @@ struct Aulos : Module {
             displayRegister  = voices[displayVoice].registerSmooth;
             displayRegisterR = processR ? voicesR[displayVoice].registerSmooth : 0.f;
 
-            displayBreathR         = processR ? voicesR[displayVoice].breathOut * 0.1f : 0.f;
+            displayBreathR         = processR ? voicesR[displayVoice].breathOut * 0.1f * (droneEffective ? 0.6f : 1.0f) : 0.f;
             displayOverblow        = voices[displayVoice].safetyDecay;
             displayOverblowR       = processR ? voicesR[displayVoice].safetyDecay : 0.f;
 
             displayRMS        = voices[displayVoice].dynEnvOut;
-            displayRMSR       = processR ? voicesR[displayVoice].dynEnvOut : 0.f;
+            displayRMSR       = processR ? voicesR[displayVoice].dynEnvOut * (droneEffective ? 0.6f : 1.0f) : 0.f;
             displayAir        = voices[displayVoice].a_noise;
             displayEdge       = voices[displayVoice].a_reedMorph;
             displaySaturation = clamp(voices[displayVoice].safetyRMS - 0.6f, 0.f, 1.f);
+            displaySaturationR = processR ? clamp(voicesR[displayVoice].safetyRMS - 0.6f, 0.f, 1.f) : 0.f;
             {
                 float chiffDur = voices[displayVoice].cachedChiffDuration;
                 float chiffCnt = (float)voices[displayVoice].chiffCounter;
                 displayChiff   = (chiffDur > 0.f)
                                ? clamp(1.f - chiffCnt / chiffDur, 0.f, 1.f)
                                : 0.f;
+            }
+            {
+                float chiffDurR = processR ? voicesR[displayVoice].cachedChiffDuration : 0.f;
+                float chiffCntR = processR ? (float)voicesR[displayVoice].chiffCounter  : 0.f;
+                displayChiffR   = (chiffDurR > 0.f)
+                                ? clamp(1.f - chiffCntR / chiffDurR, 0.f, 1.f)
+                                : 0.f;
             }
 
             // R tube width: derived directly from the aulosOffset slider + CV so
@@ -1287,9 +1297,9 @@ struct PipeDisplay : TransparentWidget {
                          module->displayRegisterR,
                          module->displayRMSR,
                          module->displayAir,
-                         module->displayChiff,
+                         module->displayChiffR,
                          module->displayEdge,
-                         module->displaySaturation,
+                         module->displaySaturationR,
                          3.f, rowH + gap,
                          rWidth, rowH);
             }
@@ -1372,7 +1382,7 @@ struct PipeDisplay : TransparentWidget {
             float leakGain = (xDist <= 0.f) ? 1.f : expf(-xDist * 6.5f);
 
             float phase    = modeNumber * float(M_PI) * xNorm / boreEnd;
-            float pressure = sinf(phase);
+            float pressure = aulosDspSin(phase);
             float amp      = pressure * pressure * leakGain;
             float glow     = amp * brightness;
 
@@ -1419,7 +1429,6 @@ struct PipeDisplay : TransparentWidget {
             float bellH    = tubeHalfHeight(1.f);
             float frameTime = (float)glfwGetTime();
             const int NUM_LINES = 9;
-            const int AIR_LINES = 5;
 
             for (int i = 0; i < NUM_LINES; ++i) {
                 // t: 0=center, 1=outermost. Use abs distance from center line.
@@ -1446,7 +1455,7 @@ struct PipeDisplay : TransparentWidget {
                 float lineLen  = baseLen * (1.f - tAbs * 0.6f);
 
                 // Flutter: small oscillation on control and end points.
-                float flutter  = sinf(frameTime * (2.5f + i * 1.3f)) * bellH * 0.05f * lineActive;
+                float flutter  = aulosDspSin(frameTime * (2.5f + i * 1.3f)) * bellH * 0.05f * lineActive;
 
                 // Gentle bezier: mostly rightward with slight outward curve.
                 // Control point only modestly offset to keep curve subtle.
