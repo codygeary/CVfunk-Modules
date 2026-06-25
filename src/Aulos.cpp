@@ -20,8 +20,8 @@
 static constexpr int AULOS_MAX_POLY = 16;
 
 struct AulosVoice {
-    AulosWaveguide   primaryWaveguide;
-    AulosWaveguide   secondaryWaveguide;
+    AulosWaveguide   rightGoingRail;   // embouchure -> bell (forward-traveling wave)
+    AulosWaveguide   leftGoingRail;    // bell -> embouchure (reflected wave)
     AulosJetDelay    jetDelay;
     AulosBreathEnv   breathEnv;
     ADAADrive        loopSaturator;
@@ -82,8 +82,11 @@ struct AulosVoice {
     float startupGain = 1.f;
 
     void init(float sr) {
-        primaryWaveguide.init(sr,   0.055f);
-        secondaryWaveguide.init(sr, 0.028f);
+        // rightGoingRail is the primary resonator: full round-trip delay, sized
+        // identically to the old primaryWaveguide (0.055s covers the lowest practical pitch).
+        // leftGoingRail is the bell-reflection path: one-way half-period (0.028s).
+        rightGoingRail.init(sr, 0.055f);
+        leftGoingRail.init(sr,  0.028f);
         // Jet buffer must cover ~half the period of the lowest fundamental
         // (jet delay = 0.47 * period). 0.03s reaches down to ~16Hz.
         jetDelay.init(sr, 0.03f);
@@ -109,8 +112,8 @@ struct AulosVoice {
     }
 
     void clear() {
-        primaryWaveguide.clear();
-        secondaryWaveguide.clear();
+        rightGoingRail.clear();
+        leftGoingRail.clear();
         jetDelay.clear();
         breathEnv.reset();
         loopSaturator.reset();
@@ -556,7 +559,9 @@ struct Aulos : Module {
 
         float fullPipeDelaySamples = freqToDelaySamples(pipeFreq, v.a_bore, sr);
         float primaryDelaySamples  = fullPipeDelaySamples * activeFraction;
-        primaryDelaySamples = clamp(primaryDelaySamples, 2.f, (float)v.primaryWaveguide.bufSize - 4.f);
+        // rightGoingRail is sized for the full round-trip period (0.055s), same as the
+        // old primaryWaveguide. Clamp here before the overblow and smoothing steps.
+        primaryDelaySamples = clamp(primaryDelaySamples, 2.f, (float)v.rightGoingRail.bufSize - 4.f);
 
         // Energy-overblow: very loud playing pushes safetyDecay above 0.5,
         // halving the tube period so the mode bumps up. This is independent of
@@ -578,20 +583,9 @@ struct Aulos : Module {
         }
         primaryDelaySamples = v.a_fingerDelay;
 
-        // Secondary waveguide ratio: tuned toward the played mode's sub-harmonic
-        // to reinforce mode lock and add the characteristic hollow upper-register
-        // tone. Register 1 base tracks bore (0.333..0.5). Register 2 moves to 0.5
-        // (reinforces 2nd harmonic). Register 3 moves to 0.25 (reinforces 4th).
-        float secondaryRatioBase = 0.333f + v.a_bore * (0.5f - 0.333f);
-        float secondaryRatio;
-        if (v.registerSmooth >= 1.f) {
-            float blend    = clamp(v.registerSmooth - 1.f, 0.f, 1.f);
-            secondaryRatio = 0.5f + blend * (0.25f - 0.5f);  // reg2 -> reg3
-        } else {
-            secondaryRatio = secondaryRatioBase + v.registerSmooth * (0.5f - secondaryRatioBase); // reg1 -> reg2
-        }
-        float secondaryDelaySamples = primaryDelaySamples * secondaryRatio * 0.994f * (1.f - v.safetyDecay * 0.5f);
-        secondaryDelaySamples = clamp(secondaryDelaySamples, 2.f, (float)v.secondaryWaveguide.bufSize - 4.f);
+        // Bell reflection rail carries one-way travel: half the period.
+        // Clamped to leftGoingRail buffer (0.028s).
+        float halfDelaySamples = clamp(primaryDelaySamples * 0.5f, 2.f, (float)v.leftGoingRail.bufSize - 4.f);
 
         // ── Excitation ────────────────────────────────────────────────────────
         // Noise increases per register - upper registers are inherently breathy.
@@ -613,13 +607,24 @@ struct Aulos : Module {
 
         float effectiveDrive = toneGain * (0.3f + v.a_reedMorph * 0.3f) * (1.0f + v.a_bore * 0.3f);
         float reedExcite     = breathLevel + noiseVal;
-        float tubeEndSample  = v.primaryWaveguide.readEnd(primaryDelaySamples);
+
+        // ── Bidirectional bore pre-read ───────────────────────────────────────────
+        // rightGoingRail (full period, primary resonator) -- the bore output that
+        //   has circulated one full round trip. Feeds the jet (same role as old
+        //   tubeEndSample from primaryWaveguide).
+        // leftGoingRail (half period, bell reflection) -- the return wavefront from
+        //   the bell, arriving at the embouchure after one one-way trip. Mixed into
+        //   the output to add the return-path timbral component.
+        float rightAtBell      = v.rightGoingRail.readEnd(primaryDelaySamples);
+        float leftAtEmbouchure = v.leftGoingRail.readEnd(halfDelaySamples);
 
         // Jet bias: higher registers need more air velocity to lock the mode.
         // Tune jetRegScale for how eagerly the flute speaks in upper registers.
         const float jetRegScale = 0.25f;
         float jetBias  = breathLevel * (0.8f - v.a_bore * 0.6f) * (1.f + v.registerSmooth * jetRegScale);
-        float jetInput = tubeEndSample + jetBias + noiseVal;
+        // Jet reads the primary bore output (rightAtBell = full round-trip signal),
+        // identical to the old tubeEndSample path.
+        float jetInput = rightAtBell + jetBias + noiseVal;
         float jetOut   = aulosJetFunction(clamp(jetInput, -3.f, 3.f));
 
         // Jet travel time ~0.47 of the played period. fingerFreq (unfolded) is
@@ -643,14 +648,19 @@ struct Aulos : Module {
             v.chiffCounter++;
         }
 
-        // ── Waveguides ────────────────────────────────────────────────────────
-        float loopSat      = v.loopSaturator.process(excite, effectiveDrive);
+        // ── Bore junctions ────────────────────────────────────────────────────────
+        // rightGoingRail: primary resonator at full period, with loopFeedback.
+        //   Identical role to the old primaryWaveguide -- the direct feedback
+        //   provides the loop gain that sustains the bore resonance.
+        // leftGoingRail: bell reflection at half period, no internal feedback.
+        //   The forward wave at the bell reflects back (phase-inverted) through this
+        //   rail and arrives at the embouchure after one one-way trip. This models
+        //   the return wavefront and adds timbral content from the return path to
+        //   the output, replacing the non-physical secondary waveguide.
         float envelopeGate = clamp(v.breathOut * 0.15f, 0.f, 1.f);
-        float loopFeedback = rack::crossfade(cachedDecayGainV * 0.8f, v.cachedFeedback, envelopeGate); // feedback dampens when we don't blow
+        float loopFeedback = rack::crossfade(cachedDecayGainV * 0.8f, v.cachedFeedback, envelopeGate);
 
-        // Legato inflection: at a slur transition legatoDip is 1, decaying to 0
-        // over ~20ms. + Subtle feedback dip - a slight release of resonator energy so the
-        //      new pitch can establish without fighting the old one's stored energy.
+        // Legato inflection: feedback dip at slur transitions.
         // Tune dipFeedbackDepth for more/less resonator release (0 = none).
         const float dipFeedbackDepth = 0.18f;
         loopFeedback *= (1.f - legatoDip * dipFeedbackDepth);
@@ -671,16 +681,22 @@ struct Aulos : Module {
         float registerDampExtra = clamp(v.registerSmooth - 1.f, 0.f, 1.f) * registerDampScale;
         float totalDamp = clamp(v.cachedDampCoeff + reedDamp + registerDampExtra, 0.f, 0.95f);
 
-        float primaryOut    = v.primaryWaveguide.process(loopSat, primaryDelaySamples, totalDamp, loopFeedback, boreDamp);
-        float secondaryFeed = (0.5f - v.a_bore * 0.35f) * (1.f - v.safetyDecay);
-        float secondaryOut  = v.secondaryWaveguide.process(loopSat * secondaryFeed, secondaryDelaySamples, 0.01f, 0.99f);
+        // Primary resonator: excitation with loopFeedback and tone damping.
+        // Identical to the old primaryWaveguide -- this provides the bore resonance.
+        float loopSat = v.loopSaturator.process(excite, effectiveDrive);
+        v.rightGoingRail.process(loopSat, primaryDelaySamples, totalDamp, loopFeedback, boreDamp);
 
-        // ── Stability / overblow ──────────────────────────────────────────────
-        // Single unified RMS tracker. Fast attack, slow release.
-        // safetyDecay drives energy-overblow and the display overblow outline.
-        // toneGain ducking on excessive energy is already applied above.
+        // Bell reflection: rightAtBell reflects with open-end phase inversion into
+        // leftGoingRail. Amplitude-dependent compression (0.30) matches the internal
+        // compression in AulosWaveguide. No internal feedback -- pure one-way trip.
+        float bellCompGain = 1.f / (1.f + fabsf(rightAtBell) * 0.30f);
+        float bellInput    = -loopFeedback * bellCompGain * rightAtBell;
+        v.leftGoingRail.process(bellInput, halfDelaySamples, 0.f, 0.f, boreDamp);
+
+        // ── Stability / overblow ──────────────────────────────────────────────────
+        // Track energy from both bore components. Fast attack, slow release.
         {
-            float instEnergy = (primaryOut * primaryOut + secondaryOut * secondaryOut) * 0.5f;
+            float instEnergy = (rightAtBell * rightAtBell + leftAtEmbouchure * leftAtEmbouchure) * 0.5f;
             float rmsTarget  = sqrtf(instEnergy);
             float rmsCoeff   = rmsTarget > v.safetyRMS ? 0.1f : 0.002f;
             v.safetyRMS     += rmsCoeff * (rmsTarget - v.safetyRMS);
@@ -696,8 +712,11 @@ struct Aulos : Module {
             }
         }
 
-        // ── Output mix ────────────────────────────────────────────────────────
-        float voiceOut = primaryOut * 0.5f + secondaryOut * 0.5f;
+        // ── Output mix ────────────────────────────────────────────────────────────
+        // Primary bore output (rightAtBell) mixed with the bell-reflection component
+        // (leftAtEmbouchure). The return wavefront adds comb-filtered harmonic content
+        // that differs from the old secondary waveguide's sub-harmonic resonator.
+        float voiceOut = rightAtBell * 0.5f + leftAtEmbouchure * 0.5f;
         voiceOut = v.dcBlocker.process(voiceOut);
         voiceOut = v.outputCap.process(voiceOut);
         voiceOut = v.outputDCBlocker.process(voiceOut);

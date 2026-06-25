@@ -6,9 +6,6 @@
 //   Copyright 2026, MIT License
 //
 //   Three-voice stereo chorus.
-//   6 Lagrange-interpolated delay lines (3 per channel).
-//   LFOs at 0/120/240 deg (L) and 60/180/300 deg (R).
-//   Triangle LED display shows LFO polarity per voice.
 //
 ////////////////////////////////////////////////////////////
 
@@ -23,10 +20,10 @@ static constexpr float HAZE_BASE_DELAY_MS = 12.f;   // center delay (ms)
 static constexpr float HAZE_DEPTH_MAX_MS  =  8.f;   // max LFO modulation swing (ms)
 static constexpr int   HAZE_VOICES        =  3;
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 // HazeDelayLine
 // Ring buffer with Lagrange 4-point fractional read, matching GlassBowl.
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 struct HazeDelayLine {
     float buf[HAZE_BUF_SIZE] = {};
     int   writeIndex = 0;
@@ -54,7 +51,7 @@ struct HazeDelayLine {
     }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 // HazeAllpassChain
 // Four cascaded Schroeder allpass sections applied to the voice tap OUTPUT only.
 // The output never re-enters the feedback path, so there is no nested resonance.
@@ -66,7 +63,7 @@ struct HazeDelayLine {
 //
 //   stage: out    = delayed - g * input
 //          buf[n] = input  + g * delayed
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 static constexpr int HAZE_AP_STAGES = 4;
 
 struct HazeAllpassStage {
@@ -112,13 +109,13 @@ static constexpr int   HAZE_AP_DELAYS[HAZE_VOICES][HAZE_AP_STAGES] = {
 // Default allpass coefficient. Exposed in the context menu as hazeApCoeff.
 // Higher = more diffusion, also slightly more energy per stage.
 // The true Schroeder formula keeps |H|=1 regardless of this value.
-static constexpr float HAZE_AP_COEFF_DEFAULT = 0.7f;
+static constexpr float HAZE_AP_COEFF_DEFAULT = 0.55f;
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 // Forward declaration -- HazeButtonQuantity is defined before Haze but its
 // getLabel() implementation needs Haze to be complete, so it is defined
 // out-of-line after the Haze struct.
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 struct Haze;
 
 struct HazeButtonQuantity : ParamQuantity {
@@ -127,9 +124,9 @@ struct HazeButtonQuantity : ParamQuantity {
     std::string getString() override { return getLabel(); }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 // Haze module
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 struct Haze : Module {
 
     enum ParamId {
@@ -190,7 +187,8 @@ struct Haze : Module {
 
     // LPF cutoff at full Haze, set via context menu. At 20kHz the filter is
     // bypassed entirely (transparent). Saved in patch JSON.
-    float hazeMaxCutoff = 2000.f;  // Hz; range 200..20000
+    float hazeCutoffLow  = 2000.f;   // Haze = 1
+    float hazeCutoffHigh = 10000.f;  // Haze = 0
 
     // Allpass coefficient, set via context menu. Higher = more diffusion.
     // The true Schroeder formula keeps |H|=1 at any value in (0,1).
@@ -214,7 +212,7 @@ struct Haze : Module {
     // Per-voice LFO sin values -- written by process(), read by step() for LEDs.
     float lfoSinL[HAZE_VOICES] = {};
 
-    // ── Parameter cache ───────────────────────────────────────────────────────
+    // -- Parameter cache -------------------------------------------------------
     // Values that depend only on sample rate: computed once in onSampleRateChange.
     float srLpfBright    = 0.073f;  // exp(-2pi*20000/sr) -- upper LPF bound
     float srBaseDelay    = 576.f;   // HAZE_BASE_DELAY_MS * sr * 0.001
@@ -257,7 +255,7 @@ struct Haze : Module {
 
 
         configOutput(OUT_L_OUTPUT, "Audio L");
-        configOutput(OUT_R_OUTPUT, "Audio R");        
+        configOutput(OUT_R_OUTPUT, "Audio R");
     }
 
     void processBypass(const ProcessArgs& args) override {
@@ -306,7 +304,8 @@ struct Haze : Module {
 
     json_t* dataToJson() override {
         json_t* root = json_object();
-        json_object_set_new(root, "hazeMaxCutoff", json_real(hazeMaxCutoff));
+        json_object_set_new(root, "hazeCutoffLow",  json_real(hazeCutoffLow));
+        json_object_set_new(root, "hazeCutoffHigh", json_real(hazeCutoffHigh));
         json_object_set_new(root, "hazeApCoeff",   json_real(hazeApCoeff));
         json_object_set_new(root, "allpassMode0",  json_boolean(allpassMode[0]));
         json_object_set_new(root, "allpassMode1",  json_boolean(allpassMode[1]));
@@ -315,8 +314,10 @@ struct Haze : Module {
     }
 
     void dataFromJson(json_t* root) override {
-        json_t* j = json_object_get(root, "hazeMaxCutoff");
-        if (j) hazeMaxCutoff = (float)json_number_value(j);
+        json_t* jl = json_object_get(root, "hazeCutoffLow");
+        if (jl) hazeCutoffLow = clamp((float)json_number_value(jl), 200.f, 20000.f);        
+        json_t* jh = json_object_get(root, "hazeCutoffHigh");
+        if (jh) hazeCutoffHigh = clamp((float)json_number_value(jh), 200.f, 20000.f);
         json_t* jc = json_object_get(root, "hazeApCoeff");
         if (jc) hazeApCoeff = clamp((float)json_number_value(jc), 0.1f, 0.95f);
         json_t* am0 = json_object_get(root, "allpassMode0");
@@ -332,13 +333,13 @@ struct Haze : Module {
 
     void process(const ProcessArgs& args) override {
 
-        // ── Cheap params: read every sample ────────────────────────────────────
+        // -- Cheap params: read every sample ------------------------------------
         float sustainNorm = clamp(getCV(HAZE_CV_INPUT, HAZE_ATT, params[HAZE_PARAM].getValue()), 0.f, 1.f);
         float mixNorm     = clamp(getCV(MIX_CV_INPUT,  MIX_ATT,  params[MIX_PARAM].getValue()),  0.f, 1.f);
         float gain        = params[GAIN_PARAM].getValue();
         float density     = clamp(getCV(DENSITY_CV_INPUT, DENSITY_ATT, params[DENSITY_PARAM].getValue()*1.8f + 0.2f), 0.2f, 2.0f);
 
-        // ── Expensive params: recomputed every PARAM_DIV samples ───────────────
+        // -- Expensive params: recomputed every PARAM_DIV samples ---------------
         // powf/expf run only at sr/PARAM_DIV (~11kHz), which is well above any
         // useful modulation rate for a chorus.
         if (++paramDiv >= PARAM_DIV) {
@@ -349,44 +350,40 @@ struct Haze : Module {
             cachedRateHz       = 0.01f * powf(80.f, rateNorm);
             float decaySec     = 0.12f + 11.88f * sustainNorm * sustainNorm * sustainNorm;
             cachedFeedback     = expf(-HAZE_BASE_DELAY_MS * 0.001f / decaySec);
-            float lpfDark      = (hazeMaxCutoff >= 19900.f) ? 0.f
-                               : expf(-2.f * float(M_PI) * hazeMaxCutoff / sr);
-            cachedLpfCoeff     = srLpfBright + sustainNorm * sustainNorm * (lpfDark - srLpfBright);
+            float cutoff = hazeCutoffHigh + sustainNorm * sustainNorm * (hazeCutoffLow - hazeCutoffHigh);
+            float lpfCoeff = (cutoff >= 19900.f)  ? 0.f : expf(-2.f * float(M_PI) * cutoff / sr);            
+            cachedLpfCoeff = lpfCoeff;
             cachedDepthSamples = depthNorm * depthNorm * HAZE_DEPTH_MAX_MS * sr * 0.001f;
         }
 
-        // ── Inputs ─────────────────────────────────────────────────────────────
+        // -- Inputs -------------------------------------------------------------
         float inL = inputs[IN_L_INPUT].getVoltage();
         float inR = inputs[IN_R_INPUT].isConnected() ? inputs[IN_R_INPUT].getVoltage() : inL;
         inL *= density * gain;
         inR *= density * gain;
 
-        // ── LFO advance ────────────────────────────────────────────────────────
+        // -- LFO advance --------------------------------------------------------
         lfoPhase += cachedRateHz / args.sampleRate;
         if (lfoPhase >= 1.f) lfoPhase -= 1.f;
 
-        // ── Button toggles ─────────────────────────────────────────────────────
+        // -- Button toggles -----------------------------------------------------
         for (int v = 0; v < HAZE_VOICES; ++v) {
             if (buttonTrigger[v].process(params[BUTTON_PARAM_0 + v].getValue() > 0.5f))
                 allpassMode[v] = !allpassMode[v];
         }
 
-        // ── LFO sines: 2 trig calls, all 6 values derived by identity ──────────
+        // -- LFO sines: 2 trig calls, all 6 values derived by identity ----------
         // All voices share the same lfoPhase with fixed offsets, so only one
         // sin+cos pair is needed. On ARM the compiler fuses sinf/cosf into sincos.
-        // L: 0, 120, 240 deg.  R = -(L rotated by one step) -- pure negation, free.
-        //   L0 =  s
-        //   L1 = (√3·c − s) / 2
-        //   L2 = −(s + √3·c) / 2
-        //   R0 = −L2,  R1 = −L0,  R2 = −L1
         const float theta = lfoPhase * float(2.0 * M_PI);
-        const float s     = sinf(theta);
-        const float c     = cosf(theta);
+        const float s     = glassDspSin(theta);
+        const float c     = glassDspCos(theta);
         const float sc3   = c * 1.7320508f;  // √3·cos(θ), reused in all three L values
         const float sinLv[3] = { s,  (sc3 - s) * 0.5f,  -(s + sc3) * 0.5f };
         const float sinRv[3] = { -sinLv[2], -sinLv[0], -sinLv[1] };
 
-        // ── Three independent chorus voices per channel ─────────────────────────
+
+        // -- Three independent chorus voices per channel -------------------------
         float wetL = 0.f, wetR = 0.f;
 
         for (int v = 0; v < HAZE_VOICES; ++v) {
@@ -409,21 +406,29 @@ struct Haze : Module {
             outL = lpfZL[v];
             outR = lpfZR[v];
 
-            // Write: feedback uses the pre-allpass signal.
-            delayL[v].write(clamp(inL + cachedFeedback * outL, -12.f, 12.f));
-            delayR[v].write(clamp(inR + cachedFeedback * outR, -12.f, 12.f));
-
-            // Allpass diffusion chains run unconditionally so state stays warm.
-            float apOutL = apL[v].process(outL, HAZE_AP_DELAYS[v], hazeApCoeff);
-            float apOutR = apR[v].process(outR, HAZE_AP_DELAYS[v], hazeApCoeff);
-
             // Linear 3ms crossfade toward the target gain.
             float apTarget = allpassMode[v] ? 1.f : 0.f;
             if (apGain[v] < apTarget) apGain[v] = std::min(apGain[v] + srApStep, apTarget);
             else                      apGain[v] = std::max(apGain[v] - srApStep, apTarget);
 
-            outL = outL + apGain[v] * (apOutL - outL);
-            outR = outR + apGain[v] * (apOutR - outR);
+            // Adjust feedback a bit lower in allpass mode
+            float feedback = cachedFeedback;
+            if (allpassMode[v]){ feedback *= 0.95f;}
+            
+            
+            float apOutL = apL[v].process(outL, HAZE_AP_DELAYS[v], hazeApCoeff);
+            float apOutR = apR[v].process(outR, HAZE_AP_DELAYS[v], hazeApCoeff);
+            
+            // Crossfade feedback path.
+            float fbL = outL + apGain[v] * (apOutL - outL);
+            float fbR = outR + apGain[v] * (apOutR - outR);
+            
+            delayL[v].write(clamp(inL + cachedFeedback * fbL, -12.f, 12.f));
+            delayR[v].write(clamp(inR + cachedFeedback * fbR, -12.f, 12.f));
+            
+            // Output follows the same signal entering feedback.
+            outL = fbL;
+            outR = fbR;
 
             wetL += outL;
             wetR += outR;
@@ -442,20 +447,20 @@ struct Haze : Module {
         float satWetL = saturatorL.process(wetL) * satCompensation;
         float satWetR = saturatorR.process(wetR) * satCompensation;
 
-        // ── Dry/wet blend ──────────────────────────────────────────────────────
+        // -- Dry/wet blend ------------------------------------------------------
         //density 0.2 .. 2.0
         float correction = 1.f/density;
         float correctionClamped = clamp(correction, 0.5f, 1.5f);
-        
+
         outputs[OUT_L_OUTPUT].setVoltage((inL * (1.f - mixNorm)* correction + satWetL * mixNorm * correctionClamped));
         outputs[OUT_R_OUTPUT].setVoltage((inR * (1.f - mixNorm)* correction + satWetR * mixNorm * correctionClamped));
     }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 // HazeButtonQuantity::getLabel() -- defined here so Haze is complete.
 // Tooltip reads "Node I: Chorus" or "Node I: Diffuse" depending on live state.
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 std::string HazeButtonQuantity::getLabel() {
     Haze* m = dynamic_cast<Haze*>(this->module);
     if (!m) return name;
@@ -464,17 +469,17 @@ std::string HazeButtonQuantity::getLabel() {
          + (m->allpassMode[voiceIdx] ? ": Diffuse" : ": Chorus");
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 // Context menu: Allpass diffusion coefficient
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 struct HazeApCoeffQuantity : Quantity {
     Haze* module;
     HazeApCoeffQuantity(Haze* m) : module(m) {}
-    void  setValue(float v) override { module->hazeApCoeff = clamp(v, 0.1f, 0.95f); }
+    void  setValue(float v) override { module->hazeApCoeff = clamp(v, 0.1f, 0.85f); }
     float getValue()          override { return module->hazeApCoeff; }
     float getDefaultValue()   override { return HAZE_AP_COEFF_DEFAULT; }
     float getMinValue()       override { return 0.1f; }
-    float getMaxValue()       override { return 0.95f; }
+    float getMaxValue()       override { return 0.85f; }
     std::string getLabel()    override { return "Diffuse coefficient"; }
     std::string getUnit()     override { return ""; }
     int getDisplayPrecision() override { return 2; }
@@ -490,9 +495,9 @@ struct HazeApCoeffSlider : ui::Slider {
     ~HazeApCoeffSlider() { delete qty; quantity = nullptr; }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 // Slider -- reuses ShortSlider SVG assets shared across the collection
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 struct HazeSliderBase : app::SvgSlider {
     HazeSliderBase() {
         setBackgroundSvg(Svg::load(asset::plugin(pluginInstance,
@@ -505,40 +510,66 @@ struct HazeSliderBase : app::SvgSlider {
 template <typename TL = BlueLight>
 struct HazeSlider : LightSlider<HazeSliderBase, VCVSliderLight<TL>> {};
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ----------------------------------------------------------------------------
 // Context menu: Haze dark cutoff frequency
 // HazeCutoffSlider owns its Quantity and deletes it on destruction,
 // so there is no memory leak when the menu closes.
-// ─────────────────────────────────────────────────────────────────────────────
-struct HazeCutoffQuantity : Quantity {
+// -----------------------------------------------------------------------------
+struct HazeCutoffLowQuantity : Quantity {
     Haze* module;
-    HazeCutoffQuantity(Haze* m) : module(m) {}
-    void  setValue(float v) override { module->hazeMaxCutoff = clamp(v, 200.f, 20000.f); }
-    float getValue()          override { return module->hazeMaxCutoff; }
-    float getDefaultValue()   override { return 8000.f; }
-    float getMinValue()       override { return  200.f; }
+    HazeCutoffLowQuantity(Haze* m) : module(m) {}
+    void  setValue(float v) override { module->hazeCutoffLow = clamp(v, 200.f, 20000.f); }
+    float getValue()          override { return module->hazeCutoffLow; }
+    float getDefaultValue()   override { return 2000.f; }
+    float getMinValue()       override { return 200.f; }
     float getMaxValue()       override { return 20000.f; }
-    std::string getLabel()    override { return "Haze Filter"; }
+    std::string getLabel()    override { return "Haze cutoff @ 100%"; }
     std::string getUnit()     override { return " Hz"; }
     int getDisplayPrecision() override { return 5; }
 };
 
-struct HazeCutoffSlider : ui::Slider {
-    HazeCutoffQuantity* qty;
-    HazeCutoffSlider(Haze* m) {
-        qty      = new HazeCutoffQuantity(m);
+struct HazeCutoffHighQuantity : Quantity {
+    Haze* module;
+    HazeCutoffHighQuantity(Haze* m) : module(m) {}
+    void  setValue(float v) override { module->hazeCutoffHigh = clamp(v, 200.f, 20000.f); }
+    float getValue()          override { return module->hazeCutoffHigh; }
+    float getDefaultValue()   override { return 10000.f; }
+    float getMinValue()       override { return 200.f; }
+    float getMaxValue()       override { return 20000.f; }
+    std::string getLabel()    override { return "Haze cutoff @ 0%"; }
+    std::string getUnit()     override { return " Hz"; }
+    int getDisplayPrecision() override { return 5; }
+};
+
+struct HazeCutoffLowSlider : ui::Slider {
+    HazeCutoffLowQuantity* qty;
+    HazeCutoffLowSlider(Haze* m) {
+        qty = new HazeCutoffLowQuantity(m);
         quantity = qty;
         box.size.x = 200.f;
     }
-    ~HazeCutoffSlider() {
+    ~HazeCutoffLowSlider() {
         delete qty;
         quantity = nullptr;
     }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
+struct HazeCutoffHighSlider : ui::Slider {
+    HazeCutoffHighQuantity* qty;
+    HazeCutoffHighSlider(Haze* m) {
+        qty = new HazeCutoffHighQuantity(m);
+        quantity = qty;
+        box.size.x = 200.f;
+    }
+    ~HazeCutoffHighSlider() {
+        delete qty;
+        quantity = nullptr;
+    }
+};
+
+// -----------------------------------------------------------------------------
 // HazeWidget -- 8HP
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 struct HazeWidget : ModuleWidget {
 
     static Vec p(float x, float y) { return mm2px(Vec(x, y)); }
@@ -557,12 +588,7 @@ struct HazeWidget : ModuleWidget {
         addChild(createWidget<ThemedScrew>(Vec(0, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
         addChild(createWidget<ThemedScrew>(Vec(box.size.x - RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 
-        // ── Triangle LED display ──────────────────────────────────────────────
-        // Equilateral triangle: circumradius 7mm, center (20.32, 18) mm.
-        //   Vertex 0 (top):          (20.32, 11.0)
-        //   Vertex 1 (bottom-right): (26.38, 21.5)
-        //   Vertex 2 (bottom-left):  (14.26, 21.5)
-        // Yellow and blue LargeLights stacked at each vertex for polarity display.
+        // -- Triangle LED display ----------------------------------------------
         const Vec triV[3] = {
             p(20.32f, 11.0f+5.f),
             p(26.38f, 21.5f+5.f),
@@ -575,7 +601,7 @@ struct HazeWidget : ModuleWidget {
             addChild(createLightCentered<LargeLight<BlueLight>>  (triV[v], module, Haze::LED0_B + v * 3));
         }
 
-        // ── Sliders: Rate, Depth, Sustain -- Y-values matching collection ─────
+        // -- Sliders: Rate, Depth, Sustain -- Y-values matching collection -----
         const float sx[3]   = { 9.f, 20.32f, 31.64f };
         const float ySlider = 46.f;
         const float yTrim   = 57.f;
@@ -584,39 +610,32 @@ struct HazeWidget : ModuleWidget {
         addParam(createParamCentered<HazeSlider<BlueLight>>(   p(sx[0], ySlider), module, Haze::RATE_PARAM));
         addParam(createParamCentered<Trimpot>(                  p(sx[0], yTrim),   module, Haze::RATE_ATT));
         addInput(createInputCentered<ThemedPJ301MPort>(         p(sx[0], yCv),     module, Haze::RATE_CV_INPUT));
-
         addParam(createParamCentered<HazeSlider<YellowLight>>( p(sx[1], ySlider), module, Haze::DEPTH_PARAM));
         addParam(createParamCentered<Trimpot>(                  p(sx[1], yTrim),   module, Haze::DEPTH_ATT));
         addInput(createInputCentered<ThemedPJ301MPort>(         p(sx[1], yCv),     module, Haze::DEPTH_CV_INPUT));
-
         addParam(createParamCentered<HazeSlider<GreenLight>>(  p(sx[2], ySlider), module, Haze::HAZE_PARAM));
         addParam(createParamCentered<Trimpot>(                  p(sx[2], yTrim),   module, Haze::HAZE_ATT));
         addInput(createInputCentered<ThemedPJ301MPort>(         p(sx[2], yCv),     module, Haze::HAZE_CV_INPUT));
 
-        // ── Mix row: CV -- Trim -- Knob ───────────────────────────────────────
+        // -- Mix row: CV -- Trim -- Knob ---------------------------------------
         const float yMix = 78.f;
         addInput(createInputCentered<ThemedPJ301MPort>(    p(sx[0], yMix), module, Haze::DENSITY_CV_INPUT));
         addParam(createParamCentered<Trimpot>(             p(sx[1], yMix), module, Haze::DENSITY_ATT));
         addParam(createParamCentered<RoundSmallBlackKnob>( p(sx[2], yMix), module, Haze::DENSITY_PARAM));
-
         addInput(createInputCentered<ThemedPJ301MPort>(    p(sx[0], yMix + 14.f), module, Haze::MIX_CV_INPUT));
         addParam(createParamCentered<Trimpot>(             p(sx[1], yMix + 14.f), module, Haze::MIX_ATT));
         addParam(createParamCentered<RoundSmallBlackKnob>( p(sx[2], yMix + 14.f), module, Haze::MIX_PARAM));
 
-        // ── Audio I/O -- inputs left column, outputs right column ─────────────
+        // -- Audio I/O -- inputs left column, outputs right column -------------
         addInput(createInputCentered<ThemedPJ301MPort>( p( 9.f,    92.f+13.f), module, Haze::IN_L_INPUT));
         addInput(createInputCentered<ThemedPJ301MPort>( p( 9.f,   105.f+10.f), module, Haze::IN_R_INPUT));
-
-        addParam(createParamCentered<RoundSmallBlackKnob>( p((9.f+31.64f)/2.f, (92.f+13.f+105.f+10.f)/2.f), module, Haze::GAIN_PARAM));        
-      
+        addParam(createParamCentered<RoundSmallBlackKnob>( p((9.f+31.64f)/2.f, (92.f+13.f+105.f+10.f)/2.f), module, Haze::GAIN_PARAM));
         addOutput(createOutputCentered<ThemedPJ301MPort>(p(31.64f,  92.f+13.f), module, Haze::OUT_L_OUTPUT));
         addOutput(createOutputCentered<ThemedPJ301MPort>(p(31.64f, 105.f+10.f), module, Haze::OUT_R_OUTPUT));
     }
-
     void step() override {
         Haze* module = dynamic_cast<Haze*>(this->module);
         if (!module) return;
-
         for (int v = 0; v < HAZE_VOICES; ++v) {
             float pos = clamp( module->lfoSinL[v], 0.f, 1.f);
             float neg = clamp(-module->lfoSinL[v], 0.f, 1.f);
@@ -632,20 +651,19 @@ struct HazeWidget : ModuleWidget {
                 module->lights[Haze::LED0_B + v * 3].setBrightness(pos);
             }
         }
-
         ModuleWidget::step();
     }
-
     void appendContextMenu(Menu* menu) override {
         Haze* module = dynamic_cast<Haze*>(this->module);
         if (!module) return;
         menu->addChild(new MenuSeparator);
-        menu->addChild(createMenuLabel("Haze dark cutoff (20kHz = off)"));
-        menu->addChild(new HazeCutoffSlider(module));
+        menu->addChild(createMenuLabel("Haze cutoff @ 0%"));
+        menu->addChild(new HazeCutoffHighSlider(module));
+        menu->addChild(createMenuLabel("Haze cutoff @ 100%"));
+        menu->addChild(new HazeCutoffLowSlider(module));
         menu->addChild(new MenuSeparator);
         menu->addChild(createMenuLabel("Diffuse mode coefficient"));
         menu->addChild(new HazeApCoeffSlider(module));
     }
 };
-
 Model* modelHaze = createModel<Haze, HazeWidget>("Haze");

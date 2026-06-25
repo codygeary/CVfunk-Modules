@@ -44,7 +44,7 @@ struct Arrange : Module {
     enum LightIds {
         CHAN_1_LIGHT, CHAN_2_LIGHT, CHAN_3_LIGHT, CHAN_4_LIGHT, CHAN_5_LIGHT, CHAN_6_LIGHT, CHAN_7_LIGHT,
         CHAN_1_LIGHT_B, CHAN_2_LIGHT_B, CHAN_3_LIGHT_B, CHAN_4_LIGHT_B, CHAN_5_LIGHT_B, CHAN_6_LIGHT_B, CHAN_7_LIGHT_B,
-        REC_LIGHT, 
+        REC_LIGHT, REC_LIGHT_BLUE,
         NUM_LIGHTS
     };
 
@@ -81,6 +81,7 @@ struct Arrange : Module {
     bool prevRecordState = false;
     bool computedProb[7] = {false};
     bool stopRecordAtEnd = false;
+    bool editModeLatched = false;  // when on: stage advances during recording recall stored values to knobs
     int polyphonyChannels = 1;
     int prevPolyphonyChannels = 1;
 
@@ -114,6 +115,7 @@ struct Arrange : Module {
         json_object_set_new(rootJ, "recordLatched", json_boolean(recordLatched));
         json_object_set_new(rootJ, "prevRecordState", json_boolean(prevRecordState));
         json_object_set_new(rootJ, "stopRecordAtEnd", json_boolean(stopRecordAtEnd));
+        json_object_set_new(rootJ, "editModeLatched", json_boolean(editModeLatched));
 
         // Store the number of poly output channels from Channel 1 output
         json_object_set_new(rootJ, "polyphonyChannels", json_integer(polyphonyChannels));
@@ -173,6 +175,11 @@ struct Arrange : Module {
         json_t* stopRecordAtEndJ = json_object_get(rootJ, "stopRecordAtEnd");
         if (stopRecordAtEndJ) {
             stopRecordAtEnd = json_is_true(stopRecordAtEndJ);
+        }
+
+        json_t* editModeLatchedJ = json_object_get(rootJ, "editModeLatched");
+        if (editModeLatchedJ) {
+            editModeLatched = json_is_true(editModeLatchedJ);
         }
 
         json_t* polyphonyChannelsJ = json_object_get(rootJ, "polyphonyChannels");
@@ -394,22 +401,24 @@ struct Arrange : Module {
                     
         // If the current stage has changed, recall values for the knobs
         if ( (currentStage != previousStage) || resizeEvent){
-            for (int i = 0; i < 7; i++) {
-                // Recall the output values for the current stage and set them to the knobs
-                float recalledValue = outputValues[currentStage][i]; // Get the stored value for the current stage
-                if (!isEditing[i]){ //only change the knob if it's not being turned
-                    paramQuantities[CHAN_1_KNOB + i]->setDisplayValue(recalledValue); 
-                }
-            
-                // Generate a random value for each gate based on the probability
-                float randVal = random::uniform(); // Generate a random number between 0 and 1
-                if (randVal < ((recalledValue+10.f)/20.f) ) {
-                    computedProb[i] = true; // High gate (10V) if random value is less than input probability
-                    pulseGens[i].trigger(0.001f);  // Trigger a 1ms pulse (0.001 seconds)
-                } else {
-                    computedProb[i] = false;  // Low gate (0V) if random value is greater than input probability
-                }
-            }          
+            if (editModeLatched || !recordLatched){  //recall on stage change if not recording, or when edit mode is on
+                for (int i = 0; i < 7; i++) {
+                    // Recall the output values for the current stage and set them to the knobs
+                    float recalledValue = outputValues[currentStage][i]; // Get the stored value for the current stage
+                    if (!isEditing[i]){ //only change the knob if it's not being turned
+                        paramQuantities[CHAN_1_KNOB + i]->setDisplayValue(recalledValue); 
+                    }
+                
+                    // Generate a random value for each gate based on the probability
+                    float randVal = random::uniform(); // Generate a random number between 0 and 1
+                    if (randVal < ((recalledValue+10.f)/20.f) ) {
+                        computedProb[i] = true; // High gate (10V) if random value is less than input probability
+                        pulseGens[i].trigger(0.001f);  // Trigger a 1ms pulse (0.001 seconds)
+                    } else {
+                        computedProb[i] = false;  // Low gate (0V) if random value is greater than input probability
+                    }
+                }   
+            }
         }
         
         // Check for toggle button states and cycle them through three modes
@@ -433,8 +442,9 @@ struct Arrange : Module {
             }
             prevRecordState = recCurrentState;  // Update previous state
         }       
-        // Update the REC_LIGHT based on recordLatched state
-        lights[REC_LIGHT].setBrightness(recordLatched ? 1.0f : 0.0f);
+        // Red for normal record mode, blue for record in edit mode
+        lights[REC_LIGHT].setBrightness((recordLatched && !editModeLatched) ? 1.0f : 0.0f);
+        lights[REC_LIGHT_BLUE].setBrightness((recordLatched && editModeLatched) ? 1.0f : 0.0f);
 
         // Process the final outputs and recording of inputs
         if (recordLatched || recordStateChange){       
@@ -485,13 +495,19 @@ struct Arrange : Module {
                         }
                     }
                 }
+
+                // Snapshot after CV override, before quantize. The knob display snaps only
+                // when a CV input is driving a different value -- not just because of quantize.
+                float preQuantizeVal = inputVal;
         
                 if (channelButton[i]==0){
                     outputs[CHAN_1_OUTPUT + i].setVoltage(inputVal);//output the unmodified value
                 } else if (channelButton[i]==1){               
-                    //quantize the outputValue voltage by rounding to the nearest 1/12
-                    inputVal = std::roundf(inputVal * 12.0f) / 12.0f;                  
-                    outputs[CHAN_1_OUTPUT + i].setVoltage(inputVal);//output the quantized value
+                    //quantize to nearest semitone only when the knob is not actively being turned
+                    if (!isEditing[i]) {
+                        inputVal = std::roundf(inputVal * 12.0f) / 12.0f;
+                    }
+                    outputs[CHAN_1_OUTPUT + i].setVoltage(inputVal);
                 } else if (channelButton[i] == 2) {            
                     // Check if the pulse is still high
                     if (pulseGens[i].process(args.sampleTime)) {
@@ -501,8 +517,9 @@ struct Arrange : Module {
                     }
                 }  
                 
-                if (knobVal != inputVal){  //only update knobs to the set value if they are different
-                    if (!isEditing[i]){ //don't force set any knob currently being turned.
+                // Only snap knob display when a CV input is overriding it, not due to quantize alone
+                if (knobVal != preQuantizeVal){
+                    if (!isEditing[i]){
                         paramQuantities[CHAN_1_KNOB + i]->setDisplayValue(inputVal); 
                     }
                 }
@@ -528,9 +545,11 @@ struct Arrange : Module {
                 if (channelButton[i]==0){
                     outputs[CHAN_1_OUTPUT + i].setVoltage(inputVal);//output the unmodified value
                 } else if (channelButton[i]==1){               
-                    //quantize the outputValue voltage by rounding to the nearest 1/12
-                    inputVal = std::roundf(inputVal * 12.0f) / 12.0f;                  
-                    outputs[CHAN_1_OUTPUT + i].setVoltage(inputVal);//output the quantized value
+                    //quantize to nearest semitone only when the knob is not actively being turned
+                    if (!isEditing[i]) {
+                        inputVal = std::roundf(inputVal * 12.0f) / 12.0f;
+                    }
+                    outputs[CHAN_1_OUTPUT + i].setVoltage(inputVal);
                 } else if (channelButton[i] == 2) {            
                     // Check if the pulse is still high
                     if (pulseGens[i].process(args.sampleTime)) {
@@ -709,6 +728,7 @@ struct ArrangeWidget : ModuleWidget {
         addParam(createParamCentered<TL1105>                  (Vec(45, 90), module, Arrange::REC_BUTTON));
         addInput(createInputCentered<ThemedPJ301MPort>        (Vec(20 , 90), module, Arrange::REC_INPUT));
         addChild(createLightCentered<LargeLight<RedLight>>(Vec(45, 90), module, Arrange::REC_LIGHT));
+        addChild(createLightCentered<LargeLight<BlueLight>>(Vec(45, 90), module, Arrange::REC_LIGHT_BLUE));
 
         addParam(createParamCentered<TL1105>                  (Vec(100 , 90), module, Arrange::BACKWARDS_BUTTON));
         addInput(createInputCentered<ThemedPJ301MPort>        (Vec(75 , 90), module, Arrange::BACKWARDS_INPUT));
@@ -889,6 +909,25 @@ struct ArrangeWidget : ModuleWidget {
         stopRecordAtEndItem->text = "Stop Record At End"; // Set menu item text
         stopRecordAtEndItem->arrangeModule = arrangeModule; // Pass the module to the item
         menu->addChild(stopRecordAtEndItem); // Add the item to the menu
+
+        // Edit Mode: when on, stage advances during recording recall stored values to knobs for editing.
+        // When off, knobs hold their position across stage advances for live performance recording.
+        struct EditModeItem : MenuItem {
+            Arrange* arrangeModule;
+
+            void onAction(const event::Action& e) override {
+                arrangeModule->editModeLatched = !arrangeModule->editModeLatched;
+            }
+
+            void step() override {
+                rightText = arrangeModule->editModeLatched ? "✔" : "";
+                MenuItem::step();
+            }
+        };
+        EditModeItem* editModeItem = new EditModeItem();
+        editModeItem->text = "Edit Mode";
+        editModeItem->arrangeModule = arrangeModule;
+        menu->addChild(editModeItem);
 
         // Separator for new section
         menu->addChild(new MenuSeparator);

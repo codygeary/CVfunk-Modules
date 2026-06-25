@@ -56,6 +56,13 @@ inline float glassDspSin(float x) {
                - x2 * (1.f/5040.f - x2 / 362880.f))));
 }
 
+inline float glassDspCos(float x) {
+    x = glassDspWrapToPi(x);
+    float x2 = x * x;
+    return 1.f - x2 * (0.5f - x2 * (1.f/24.f - x2 * (1.f/720.f - x2 / 40320.f)));
+}
+
+
 // ─────────────────────────────────────────────────────────────────────────────
 // GlassDCBlocker
 // ─────────────────────────────────────────────────────────────────────────────
