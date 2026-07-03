@@ -63,6 +63,35 @@ inline float aulosJetFunction(float x) {
     return x - x * x * x * (1.f / 3.f);
 }
 
+// Reed reflection function — models a pressure-controlled beating reed (the
+// clarinet/oboe family) as opposed to the flute's air jet. The input is the
+// differential pressure across the reed (mouth pressure minus bore pressure).
+//
+// Physical behaviour, and why it is asymmetric (unlike the jet):
+//   - Positive deltaP (mouth > bore) pushes the reed toward closure. As it
+//     closes, the flow it admits saturates and then chokes off — the reed
+//     "beats" shut. Modeled as a hard saturating curve that flattens toward a
+//     ceiling: large positive deltaP admits little extra flow.
+//   - Negative deltaP (bore > mouth) blows the reed open; flow rises more
+//     freely. Modeled with a softer, more linear response on the negative side.
+// This asymmetry is what gives reed instruments their odd-harmonic-rich,
+// hollow tone and their characteristic pressure threshold of oscillation.
+//
+// Output is a normalized flow term (roughly [-1, 1]) that the caller scales by
+// breath level. Tune reedBeat for a harder/softer slap at closure.
+inline float aulosReedFunction(float deltaP) {
+    const float reedBeat = 1.6f;   // closure hardness — larger = sharper beat
+    if (deltaP >= 0.f) {
+        // Reed closing: saturate toward a ceiling (flow chokes off).
+        float s = deltaP * reedBeat;
+        return s / (1.f + s * s);   // rises, peaks, then falls back — beating
+    } else {
+        // Reed opening: softer, near-linear admittance.
+        float s = deltaP;
+        return s / (1.f + 0.5f * fabsf(s));
+    }
+}
+
 // Fast exponential approximation via repeated squaring — same as Dunes/Droplet.
 // Accurate to ~0.1% for |x| < 8, which covers all envelope curve use cases.
 inline float aulosFastExp(float x) {

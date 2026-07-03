@@ -6,8 +6,6 @@
 //   Copyright 2026, MIT License
 //
 //   Polyphonic physical-model wind instrument synthesizer.
-//   Dual-waveguide bore resonator with reed/flute excitation morph,
-//   ASR breath envelope, Dynamics self-patching, and stereo R voice.
 //
 ////////////////////////////////////////////////////////////
 
@@ -57,6 +55,20 @@ struct AulosVoice {
     float cachedFeedback  = 0.93f;
     float cachedDecayGain = 0.9999f;
 
+    // Bidirectional bore state. The two rails form a closed digital-waveguide
+    // pair, each carrying one-way travel (half the sounding period):
+    //   exciteDCBlockZ1 - one-pole state for the DC blocker on the excitation
+    //     path. The jet bias and reed flow carry a large DC component; blocking
+    //     it at the source keeps the whole loop DC-free, so the junction
+    //     compressors see only the acoustic signal. Without this the reed's DC
+    //     flow chokes the bell compression and the reed fails to speak.
+    //   bellLowpassZ1 - one-pole state for the bell reflection lowpass. An open
+    //     pipe end reflects nearly the full band; a flared bell reflects only
+    //     frequencies below the horn cutoff and radiates the rest, so Bore
+    //     lowers this cutoff as the flare opens.
+    float exciteDCBlockZ1 = 0.f;
+    float bellLowpassZ1   = 0.f;
+
     // Smoothed primary delay - lerped each sample to avoid pitch CV clicks.
     float a_fingerDelay = 0.f;
 
@@ -81,10 +93,17 @@ struct AulosVoice {
     // Tune startupRampCoeff for a shorter/longer mask window.
     float startupGain = 1.f;
 
+    // Smoothed pitch-loudness correction. The correction target tracks the
+    // played frequency, which snaps between notes - unsmoothed, that 20-30%
+    // gain step on a still-ringing bore is a small click at every note change.
+    // 0 means "snap to target on first use" (set by init/clear).
+    float loudnessSmooth = 0.f;
+
     void init(float sr) {
-        // rightGoingRail is the primary resonator: full round-trip delay, sized
-        // identically to the old primaryWaveguide (0.055s covers the lowest practical pitch).
-        // leftGoingRail is the bell-reflection path: one-way half-period (0.028s).
+        // Each rail carries one-way travel: half the sounding period. Buffers
+        // are generous (the right rail keeps its legacy 0.055s size); the usable
+        // pitch range is set by the smaller left rail (0.028s), reaching
+        // fundamentals down to roughly 18Hz.
         rightGoingRail.init(sr, 0.055f);
         leftGoingRail.init(sr,  0.028f);
         // Jet buffer must cover ~half the period of the lowest fundamental
@@ -109,6 +128,9 @@ struct AulosVoice {
         a_fingerDelay     = 0.f;
         asleep            = true;
         startupGain       = 1.f;
+        loudnessSmooth    = 0.f;
+        exciteDCBlockZ1 = 0.f;
+        bellLowpassZ1   = 0.f;
     }
 
     void clear() {
@@ -134,6 +156,9 @@ struct AulosVoice {
         a_fingerDelay     = 0.f;
         asleep            = true;
         startupGain       = 1.f;
+        loudnessSmooth    = 0.f;
+        exciteDCBlockZ1 = 0.f;
+        bellLowpassZ1   = 0.f;
         a_reedMorph = t_reedMorph = 0.5f;
         a_bore      = t_bore      = 0.3f;
         a_tone      = t_tone      = 0.5f;
@@ -153,14 +178,14 @@ struct Aulos : Module {
 
     enum ParamId {
         // Slider bank - 8 sliders (each PARAM + ATT)
-        EDGE_PARAM,       EDGE_ATT,
-        JET_PARAM,        JET_ATT,
+        REED_PARAM,       REED_ATT,
+        BORE_PARAM,       BORE_ATT,
         DRIVE_PARAM,      DRIVE_ATT,
         RES_PARAM,        RES_ATT,        // loop feedback (Lip / Holes on panel)
         AIR_PARAM,        AIR_ATT,
         CHIFF_PARAM,      CHIFF_ATT,
         AULOS_PARAM,      AULOS_ATT,   // R channel pipe pitch offset -1..+1 oct
-        WARMTH_PARAM,     WARMTH_ATT,
+        DAMP_PARAM,       DAMP_ATT,
         BREATH_PARAM,     BREATH_ATT,
         VIBRATO_ATT,
         PIPE_TUNE_PARAM,
@@ -180,13 +205,13 @@ struct Aulos : Module {
         GATE_INPUT,
         BREATH_CV_INPUT,
         VIBRATO_INPUT,
-        EDGE_CV_INPUT,
-        JET_CV_INPUT,
+        REED_CV_INPUT,
+        BORE_CV_INPUT,
         DRIVE_CV_INPUT,
         RES_CV_INPUT,
         AIR_CV_INPUT,
         AULOS_CV_INPUT,  // CV for R channel pitch offset
-        WARMTH_CV_INPUT,
+        DAMP_CV_INPUT,
         CHIFF_CV_INPUT,
         AUDIO_IN_INPUT,
         DRONE_CV_INPUT,
@@ -242,14 +267,12 @@ struct Aulos : Module {
     float followTime    = 0.25f;
     float attackCurve   = 0.3f;
     float releaseCurve  = -0.5f;
-    float waveguideGain = 1.0f;
-    float decayValue    = 0.7f;
+    float waveguideGain = 1.4f;
+    float decayValue    = 0.9f;
     float attackValue   = 0.1f;   // attack time 0..1, set in context menu
     float releaseValue  = 0.3f;   // release time 0..1, set in context menu
 
-    // Internal vibrato LFO. Free-running sine, normalled into the VIBRATO_INPUT:
-    // when no cable is patched, this drives both pitch and breath modulation;
-    // otherwise the patched CV takes over pitch only. Depth is set by VIBRATO_ATT.
+    // Internal vibrato LFO. 
     float vibratoRate        = 7.0f;   // Hz, set in context menu (good flute range 5-9)
     float vibratoBreathDepth = 0.5f;   // breath wobble relative to pitch wobble, 0..1
     float vibratoPhase       = 0.f;    // 0..1 accumulator
@@ -269,18 +292,17 @@ struct Aulos : Module {
     float legatoProgressR[AULOS_MAX_POLY] = {};
 
     // Per-voice feedback-dip ramp, 1.0 at transition start, decays to 0.
-    // Applied as loopFeedback multiplier so the resonator briefly releases
-    // energy at the slur point - the audible "give" between notes.
+    // Applied as loopFeedback multiplier so the resonator briefly releases during transitions
     float legatoDipL[AULOS_MAX_POLY] = {};
     float legatoDipR[AULOS_MAX_POLY] = {};
-
-    // Per-sample glide step for the frequency interpolation, computed in the
-    // skip block. Sized so PITCH_DECIM steps advance the glide proportionally
-    // to legatoTime - the glide completes over the full menu time.
     float cachedLegatoStep = 0.f;
 
     bool droneActive      = false;
     bool manualGateActive = false;
+
+    // Smoothed drone duck. Toggling drone applied an instant 0.6 / 1.0 gain
+    // step to a sounding R voice - an audible click. This fades the duck over roughly 10ms.
+    float droneLevelSmooth = 1.f;
     rack::dsp::SchmittTrigger droneToggleTrig;
     rack::dsp::SchmittTrigger droneCVTrig;
 
@@ -294,13 +316,13 @@ struct Aulos : Module {
     float displayRegisterR       = 0.0f;
     float displayPipeRatio       = 1.0f;
     float displayPipeFreq        = 261.63f;
-    // New display quantities
     float displayRMS             = 0.0f;
     float displayRMSR            = 0.0f;
     float displayAir             = 0.0f;
     float displayChiff           = 0.0f;
     float displayChiffR          = 0.0f;
-    float displayEdge            = 0.0f;
+    float displayReed            = 0.0f;
+    float displayBore            = 0.0f;
     float displaySaturation      = 0.0f;
     float displaySaturationR     = 0.0f;
 
@@ -346,10 +368,10 @@ struct Aulos : Module {
     Aulos() {
         config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
 
-        configParam(EDGE_PARAM,          0.f,  1.f,  0.1f, "Edge");
-        configParam(EDGE_ATT,           -1.f,  1.f,  0.f,  "Edge Att.");
-        configParam(JET_PARAM,           0.f,  1.f,  0.0f, "Jet");
-        configParam(JET_ATT,            -1.f,  1.f,  0.f,  "Jet Att.");
+        configParam(REED_PARAM,          0.f,  1.f,  0.1f, "Reed");
+        configParam(REED_ATT,           -1.f,  1.f,  0.f,  "Reed Att.");
+        configParam(BORE_PARAM,          0.f,  1.f,  0.0f, "Bore");
+        configParam(BORE_ATT,           -1.f,  1.f,  0.f,  "Bore Att.");
         configParam(DRIVE_PARAM,         0.f,  1.f,  0.6f, "Drive");
         configParam(DRIVE_ATT,          -1.f,  1.f,  0.f,  "Drive Att.");
         configParam(RES_PARAM,           0.f,  1.f,  0.6f, "Resonance");
@@ -358,10 +380,10 @@ struct Aulos : Module {
         configParam(AIR_ATT,            -1.f,  1.f,  0.f,  "Air Att.");
         configParam(CHIFF_PARAM,         0.f,  1.f,  0.4f, "Chiff");
         configParam(CHIFF_ATT,          -1.f,  1.f,  0.f,  "Chiff Att.");
-        configParam(AULOS_PARAM,        -1.f,  1.f,  0.0f, "Aulos");
-        configParam(AULOS_ATT,          -1.f,  1.f,  0.f,  "Aulos Att.");
-        configParam(WARMTH_PARAM,        0.f,  1.f,  0.1f, "Warmth");
-        configParam(WARMTH_ATT,         -1.f,  1.f,  0.f,  "Warmth Att.");
+        configParam(AULOS_PARAM,        -1.f,  1.f,  0.0f, "Secondary Pipe");
+        configParam(AULOS_ATT,          -1.f,  1.f,  0.f,  "Secondary Pipe Att.");
+        configParam(DAMP_PARAM,          0.f,  1.f,  0.1f, "Damp");
+        configParam(DAMP_ATT,           -1.f,  1.f,  0.f,  "Damp Att.");
         configParam(BREATH_PARAM,        0.f,  1.f,  0.7f, "Breath");
         configParam(BREATH_ATT,         -1.f,  1.f,  0.f,  "Breath Att.");
         configParam(VIBRATO_ATT,         0.f,  1.f,  0.3f, "Vibrato Depth");
@@ -379,13 +401,13 @@ struct Aulos : Module {
         configInput(GATE_INPUT,        "Gate");
         configInput(BREATH_CV_INPUT,   "Breath CV");
         configInput(VIBRATO_INPUT,     "Vibrato (FM)");
-        configInput(EDGE_CV_INPUT,     "Edge CV");
-        configInput(JET_CV_INPUT,      "Jet CV");
+        configInput(REED_CV_INPUT,     "Reed CV");
+        configInput(BORE_CV_INPUT,     "Bore CV");
         configInput(DRIVE_CV_INPUT,    "Drive CV");
         configInput(RES_CV_INPUT,      "Resonance CV");
         configInput(AIR_CV_INPUT,      "Air CV");
-        configInput(AULOS_CV_INPUT,    "Aulos CV");
-        configInput(WARMTH_CV_INPUT,   "Warmth CV");
+        configInput(AULOS_CV_INPUT,    "Secondary Pipe CV");
+        configInput(DAMP_CV_INPUT,     "Damp CV");
         configInput(CHIFF_CV_INPUT,    "Chiff CV");
         configInput(AUDIO_IN_INPUT,    "Audio In");
         configInput(DRONE_CV_INPUT,    "Drone CV");
@@ -421,9 +443,10 @@ struct Aulos : Module {
         followTime    = 0.25f;
         attackCurve   = 0.3f;
         releaseCurve  = -0.5f;
-        waveguideGain = 1.0f;
-        decayValue    = 0.7f;
+        waveguideGain = 1.4f;
+        decayValue    = 0.9f;
         droneActive   = false;
+        droneLevelSmooth = 1.f;
         moduleTime    = 0.f;
         attackValue   = 0.3f;
         releaseValue  = 0.5f;
@@ -459,11 +482,11 @@ struct Aulos : Module {
         followTime    = gr("followTime",   0.25f);
         attackCurve   = gr("attackCurve",  0.3f);
         releaseCurve  = gr("releaseCurve", -0.5f);
-        waveguideGain = gr("waveguideGain",1.0f);
-        decayValue    = gr("decayValue",   0.7f);
+        waveguideGain = gr("waveguideGain",1.4f);
+        decayValue    = gr("decayValue",   0.9f);
         attackValue   = gr("attackValue",  0.3f);
         releaseValue  = gr("releaseValue", 0.5f);
-        vibratoRate        = gr("vibratoRate",        7.0f);
+        vibratoRate        = gr("vibratoRate",        5.0f);
         vibratoBreathDepth = gr("vibratoBreathDepth", 0.5f);
         legatoEnabled = gb("legatoEnabled", false);
         legatoTime    = gr("legatoTime",   60.f);
@@ -489,15 +512,18 @@ struct Aulos : Module {
     
         // ── Gate rise ─────────────────────────────────────────────────────────
         if (gateHigh && !v.lastGateHigh) {
-            v.chiffCounter  = 0;
-            v.safetyRMS     = 0.f;
-            v.safetyDecay   = 0.f;
-            v.a_fingerDelay = 0.f;
-            // In legato the waveguide is already running - skip the startup mask
-            // so the note change is seamless. Only mute on a cold note-on.
-            if (!legatoActive) v.startupGain = 0.f;
-            // Do not reset registerSmooth on gate rise - legato register
-            // transitions carry over smoothly between notes.
+            // Chiff fires on every note-on - that is articulation, not a click.
+            v.chiffCounter = 0;
+
+            bool coldStart = (v.breathOut < 0.5f) && (v.safetyRMS < 0.05f);
+            if (coldStart) {
+                v.safetyRMS     = 0.f;
+                v.safetyDecay   = 0.f;
+                v.a_fingerDelay = 0.f;
+                // In legato the waveguide is already running - skip the startup
+                // mask so the note change is seamless.
+                if (!legatoActive) v.startupGain = 0.f;
+            }
         }
         v.lastGateHigh = gateHigh;
 
@@ -555,37 +581,66 @@ struct Aulos : Module {
         // activeFraction uses the folded finger frequency so all registers
         // map into the same bore-length range, reusing the same tube geometry.
         float activeFraction = refFreq / foldedFingerFreq;
-        activeFraction = clamp(activeFraction, 0.50f, 1.02f);
+        activeFraction = clamp(activeFraction, 0.50f, 2.0f);
 
         float fullPipeDelaySamples = freqToDelaySamples(pipeFreq, v.a_bore, sr);
         float primaryDelaySamples  = fullPipeDelaySamples * activeFraction;
-        // rightGoingRail is sized for the full round-trip period (0.055s), same as the
-        // old primaryWaveguide. Clamp here before the overblow and smoothing steps.
+        // primaryDelaySamples is the full round-trip period - the working
+        // quantity for the register, overblow, and smoothing logic.  
         primaryDelaySamples = clamp(primaryDelaySamples, 2.f, (float)v.rightGoingRail.bufSize - 4.f);
 
         // Energy-overblow: very loud playing pushes safetyDecay above 0.5,
-        // halving the tube period so the mode bumps up. This is independent of
-        // register and composes with it - blowing hard in register 1 can tip
-        // into a brief register-2 excitation.
+        // halving the tube period so the mode bumps up. 
         float overblowAmt    = clamp(v.safetyDecay, 0.f, 1.f);
         float overblowTarget = primaryDelaySamples * ((overblowAmt > 0.5f) ? 0.5f : 1.0f);
 
         if (v.a_fingerDelay < 2.f) v.a_fingerDelay = overblowTarget;
-        if (legatoActive) {
-            // The outer loop is already gliding fingerFreq smoothly, so
-            // a_fingerDelay should track the current overblowTarget directly.
-            // Any lag here would cause the bore to fall behind the jet,
-            // breaking regeneration mid-glide.
-            v.a_fingerDelay = overblowTarget;
-        } else {
-            // Fast one-pole removes zipper noise from the 8-sample pitch decimation.
-            v.a_fingerDelay += 0.05f * (overblowTarget - v.a_fingerDelay);
-        }
+        // Fast one-pole removes zipper noise from the 8-sample pitch decimation
+        // and declicks note retriggers and register-fold flips.
+        v.a_fingerDelay += 0.05f * (overblowTarget - v.a_fingerDelay);
         primaryDelaySamples = v.a_fingerDelay;
 
-        // Bell reflection rail carries one-way travel: half the period.
-        // Clamped to leftGoingRail buffer (0.028s).
-        float halfDelaySamples = clamp(primaryDelaySamples * 0.5f, 2.f, (float)v.leftGoingRail.bufSize - 4.f);
+        // Each rail carries one-way travel: half the round-trip period, so the
+        // closed loop comes back to exactly one period.  
+        float railDelaySamples = clamp(primaryDelaySamples * 0.5f, 2.f, (float)v.leftGoingRail.bufSize - 4.f);
+
+        // Bore -> bell flare, two stages. flare stays near 0 through the bottom
+        // of the Bore range (cylindrical pipe) then develops across the upper
+        // travel. brassZone engages only in the top quarter: through Bore 0.75
+        // the tube fills out toward a wide clarinet-like body, and past 0.75
+        // the flare completes and the brass character develops on top.
+        // Tune flareKnee for where the body starts widening, and the 0.75
+        // breakpoint for where the brass stage begins.
+        const float flareKnee = 0.3f;
+        float flare = clamp((v.a_bore - flareKnee) / (1.f - flareKnee), 0.f, 1.f);
+        flare = flare * flare;   // ease-in - flare blooms late and fast
+        float brassZone = clamp((v.a_bore - 0.75f) / 0.25f, 0.f, 1.f);
+        brassZone = brassZone * brassZone;   // ease-in - brass arrives smoothly
+
+        // Bell reflection lowpass weight. Horn physics: below the horn cutoff
+        // the wave reflects back into the tube, above it the wave radiates out.
+        // The input weight sets the cutoff: near 1 the lowpass is transparent (a
+        // plain open pipe end reflects nearly the full band); lower weights
+        // reflect only the lows. The body stage descends only to
+        // bellBodyWeight, keeping the reflection band wide enough that the
+        // loop stays loud and fully locked (the old single-stage descent to
+        // 0.09 starved the loop above Bore 0.9 - quiet instead of brassy).
+        // The brass zone completes the descent to bellFlaredWeight (roughly
+        // 700Hz at 48kHz) so the full harmonic series radiates at the top.
+        // Tune bellOpenWeight / bellBodyWeight / bellFlaredWeight.
+        const float bellOpenWeight   = 0.95f;
+        const float bellBodyWeight   = 0.42f;
+        const float bellFlaredWeight = 0.3f;
+        float bellLowpassWeight = bellOpenWeight + flare * (bellBodyWeight - bellOpenWeight)
+                                + brassZone * (bellFlaredWeight - bellBodyWeight)
+                                * clamp(flare * 2.f, 0.f, 1.f);
+        if (bellLowpassWeight < bellFlaredWeight) bellLowpassWeight = bellFlaredWeight;
+
+        // The bell lowpass adds group delay ((1 - weight) / weight samples at
+        // low frequency), which would flatten the pitch as the flare opens.
+        // Shorten the return rail by that amount so Bore does not detune the note.
+        float bellPhaseComp = (1.f - bellLowpassWeight) / bellLowpassWeight;
+        float leftRailDelay = clamp(railDelaySamples - bellPhaseComp, 2.f, (float)v.leftGoingRail.bufSize - 4.f);
 
         // ── Excitation ────────────────────────────────────────────────────────
         // Noise increases per register - upper registers are inherently breathy.
@@ -606,25 +661,33 @@ struct Aulos : Module {
         toneGain *= (1.f - overdrive * 0.75f);
 
         float effectiveDrive = toneGain * (0.3f + v.a_reedMorph * 0.3f) * (1.0f + v.a_bore * 0.3f);
-        float reedExcite     = breathLevel + noiseVal;
 
         // ── Bidirectional bore pre-read ───────────────────────────────────────────
-        // rightGoingRail (full period, primary resonator) -- the bore output that
-        //   has circulated one full round trip. Feeds the jet (same role as old
-        //   tubeEndSample from primaryWaveguide).
-        // leftGoingRail (half period, bell reflection) -- the return wavefront from
-        //   the bell, arriving at the embouchure after one one-way trip. Mixed into
-        //   the output to add the return-path timbral component.
-        float rightAtBell      = v.rightGoingRail.readEnd(primaryDelaySamples);
-        float leftAtEmbouchure = v.leftGoingRail.readEnd(halfDelaySamples);
+        // The two rails form a closed digital-waveguide pair, each carrying
+        // one-way travel:
+        //   rightGoingRail carries embouchure -> bell (forward wave).
+        //   leftGoingRail  carries bell -> embouchure (return wave).
+        // rightAtBell is the forward wave arriving at the bell this sample; it
+        //   feeds the bell reflection and the radiated output.
+        // leftAtEmbouchure is the return wave arriving back at the embouchure;
+        //   it deflects the jet, loads the reed, and re-enters the forward rail
+        //   through the embouchure reflection - closing the loop at exactly one
+        //   round trip.
+        float rightAtBell      = v.rightGoingRail.readEnd(railDelaySamples);
+        float leftAtEmbouchure = v.leftGoingRail.readEnd(leftRailDelay);
 
+        // ── Exciter A: air jet (flute) ────────────────────────────────────────────
         // Jet bias: higher registers need more air velocity to lock the mode.
-        // Tune jetRegScale for how eagerly the flute speaks in upper registers.
-        const float jetRegScale = 0.25f;
-        float jetBias  = breathLevel * (0.8f - v.a_bore * 0.6f) * (1.f + v.registerSmooth * jetRegScale);
-        // Jet reads the primary bore output (rightAtBell = full round-trip signal),
-        // identical to the old tubeEndSample path.
-        float jetInput = rightAtBell + jetBias + noiseVal;
+        // The bias also sets even-harmonic generation (the cubic's x-squared
+        // term only exists off-center), so it must not collapse at high Bore -
+        // the previous 0.6 reduction starved the flare of the even partials it
+        // is supposed to radiate. Tune jetRegScale for how eagerly the flute
+        // speaks in upper registers, and the 0.3 for bias vs Bore balance.
+        const float jetRegScale = 0.4f;
+        float jetBias  = breathLevel * (0.8f - v.a_bore * 0.3f) * (1.f + v.registerSmooth * jetRegScale);
+        // The jet is deflected by the acoustic wave arriving back at the
+        // embouchure - regeneration closes at exactly one round trip.
+        float jetInput = leftAtEmbouchure + jetBias + noiseVal;
         float jetOut   = aulosJetFunction(clamp(jetInput, -3.f, 3.f));
 
         // Jet travel time ~0.47 of the played period. fingerFreq (unfolded) is
@@ -632,10 +695,85 @@ struct Aulos : Module {
         // distance, which is independent of which bore mode locks.
         float jetDelaySamples = clamp(sr * 0.00107f * (440.f / fingerFreq), 2.f, sr * 0.028f);
 
-        float fluteExcite = v.jetDelay.process(jetOut, jetDelaySamples) * 1.3f;
-        float fluteAmt    = 0.3f + (1.f - v.a_reedMorph) * 0.55f;
-        float reedAmt     = 0.15f + v.a_reedMorph * 0.70f;  //these are aligned so that we always have a mix of both modes
-        float excite      = reedExcite * reedAmt + fluteExcite * fluteAmt; 
+        // Jet velocity shortens the travel time as blowing pressure rises
+        // (velocity scales with the square root of pressure). This is the real
+        // overblow mechanism: harder breath shifts the jet phase toward the
+        // second bore mode, so maximum Breath tips the note into the octave.
+        // Softer breath lengthens the jet - fundamental-heavy and slightly
+        // reluctant, like real under-blowing. Normalized to 1.0 at the default
+        // Breath setting so nominal tuning and register behavior are unchanged.
+        // Tune the clamp bounds for how far breath can push the jet phase.
+        float jetVelocityScale = clamp(sqrtf(0.62f / fmaxf(breathLevel, 0.05f)), 0.75f, 1.5f);
+        jetDelaySamples = clamp(jetDelaySamples * jetVelocityScale, 2.f, sr * 0.028f);
+
+        // Jet flow gain: the jet's acoustic output is proportional to jet
+        // velocity, which is set by blowing pressure. With no breath there is
+        // no jet - the flute must fall silent at Breath = 0 instead of
+        // free-running on loop gain alone. This also creates the threshold of
+        // oscillation: the loop only crosses unity gain once breath exceeds a
+        // light blowing level (around 0.17 on the Breath slider), and near the
+        // threshold the tone builds up over many round trips - the natural
+        // speaking bloom of a flute attack as the breath envelope rises. The
+        // gain saturates at 1 near the default Breath setting, so harder
+        // blowing pushes the jet bias toward overblow rather than adding
+        // linear gain. Tune jetBreathScale: larger = speaks at lighter breath.
+        const float jetBreathScale = 1.6f;
+        float jetFlowGain = clamp(breathLevel * jetBreathScale, 0.f, 1.f);
+        float jetPath = v.jetDelay.process(jetOut, jetDelaySamples) * 1.3f * jetFlowGain;
+
+        // ── Exciter B: beating reed (clarinet/oboe) ────────────────────────────────
+        // The reed is driven by the differential pressure across it: mouth
+        // pressure (breathLevel) minus the bore pressure pushing back
+        // (leftAtEmbouchure, the wave arriving at the mouthpiece end). The
+        // asymmetric reed function beats shut against rising pressure, producing
+        // the odd-harmonic-rich reed tone. No jet delay - the reed couples the
+        // mouth directly to the tube.
+        // Tune reedPressureGain to place the reed's sweet spot in the Breath
+        // range (the beat peak sits at deltaP around 0.63, so lower values move
+        // the strongest drive toward harder blowing).
+        const float reedPressureGain = 2.0f;
+        float reedDeltaP = breathLevel * reedPressureGain - leftAtEmbouchure;
+
+        // Reed flow gain, mirroring the jet: the reed's oscillating flow scales
+        // with blowing pressure. Without this the reed function's small-signal
+        // gain is LARGEST at zero pressure (its slope peaks at deltaP = 0), so
+        // the instrument got louder the softer it was blown and kept sounding
+        // at Breath = 0. Gated, the reed is silent with no breath, speaks past
+        // a light blowing threshold, and its drive rides the breath envelope.
+        // Tune reedBreathScale: larger = speaks at lighter breath.
+        const float reedBreathScale = 1.6f;
+        float reedFlowGain = clamp(breathLevel * reedBreathScale, 0.f, 1.f);
+        float reedPath = aulosReedFunction(reedDeltaP) * reedFlowGain + noiseVal;
+
+        // Embouchure reflection sign, needed both for the crossover boost here
+        // and at the junction below. Pressure-wave convention: -1 for the
+        // flute's open embouchure, +1 for the reed's closed mouthpiece. The
+        // steep slope holds full reflection outside the middle of the Reed
+        // range so only a narrow crossover opens the tube loop.
+        // Tune embSignSlope for a wider/narrower flute-reed crossover.
+        const float embSignSlope = 6.f;
+        float embSign = clamp((2.f * v.a_reedMorph - 1.f) * embSignSlope, -1.f, 1.f);
+
+        // ── Exciter crossfade (Reed control) ──────────────────────────────────────
+        // Equal-power crossfade: a_reedMorph=0 is pure jet/flute, a_reedMorph=1
+        // is pure reed, and the middle keeps both exciters at 0.707 weight
+        // rather than 0.5 so the transition stays voiced. The reed exciter is
+        // intrinsically weaker than the jet, so it is boosted to keep the
+        // crossfade roughly level-matched across the Reed control.
+        // Tune reedMakeupGain if the reed end feels too quiet or too loud.
+        const float reedMakeupGain = 2.4f;
+        float excite = jetPath * sqrtf(1.f - v.a_reedMorph)
+                     + reedPath * reedMakeupGain * sqrtf(v.a_reedMorph);
+
+        // Crossover boost: where the embouchure reflection sign passes through
+        // zero (mid Reed) the tube loop opens, and neither exciter alone could
+        // regenerate - previously a dead zone. Extra excitation proportional to
+        // the missing reflection keeps the middle voiced as a breathy, driven
+        // transition between the flute and reed regimes.
+        // Tune crossoverBoost: 0 restores the plain crossfade.
+        const float crossoverBoost = 1.2f;
+        excite *= 1.f + crossoverBoost * (1.f - embSign * embSign);
+
         excite += audioIn;
         excite *= waveguideGainV;
 
@@ -648,50 +786,110 @@ struct Aulos : Module {
             v.chiffCounter++;
         }
 
-        // ── Bore junctions ────────────────────────────────────────────────────────
-        // rightGoingRail: primary resonator at full period, with loopFeedback.
-        //   Identical role to the old primaryWaveguide -- the direct feedback
-        //   provides the loop gain that sustains the bore resonance.
-        // leftGoingRail: bell reflection at half period, no internal feedback.
-        //   The forward wave at the bell reflects back (phase-inverted) through this
-        //   rail and arrives at the embouchure after one one-way trip. This models
-        //   the return wavefront and adds timbral content from the return path to
-        //   the output, replacing the non-physical secondary waveguide.
+        // ── Bore junctions (true bidirectional waveguide) ─────────────────────────
+        // The bore is a closed pair of half-period rails. The round-trip loop
+        // gain is split across the two physical reflection junctions:
+        //   embouchure junction - where the return wave re-enters the forward
+        //     rail alongside the exciter. Flute (open embouchure) reflects with
+        //     inversion here; reed (closed mouthpiece) reflects WITHOUT
+        //     inversion, which is what makes a clarinet sound odd-harmonic and
+        //     hollow an octave below a flute of the same tube length.
+        //   bell junction - where the forward wave partially reflects (inverted,
+        //     open end) and partially radiates, split by frequency below.
+        // The product of the two junction gains sets the sustain, matched to the
+        // old single-rail loop feedback for the same ring-off behavior.
         float envelopeGate = clamp(v.breathOut * 0.15f, 0.f, 1.f);
-        float loopFeedback = rack::crossfade(cachedDecayGainV * 0.8f, v.cachedFeedback, envelopeGate);
+        float loopGain = rack::crossfade(cachedDecayGainV * 0.8f, v.cachedFeedback, envelopeGate);
 
         // Legato inflection: feedback dip at slur transitions.
         // Tune dipFeedbackDepth for more/less resonator release (0 = none).
         const float dipFeedbackDepth = 0.18f;
-        loopFeedback *= (1.f - legatoDip * dipFeedbackDepth);
+        loopGain *= (1.f - legatoDip * dipFeedbackDepth);
 
-        // Feedback reduces slightly in higher registers - upper registers are
-        // less stable and more sensitive to embouchure. Tune registerFeedbackDrop.
-        const float registerFeedbackDrop = 0.03f;
-        loopFeedback *= (1.f - v.registerSmooth * registerFeedbackDrop);
+        // Feedback reduces in higher registers - upper registers are less
+        // stable, more sensitive to embouchure, and ring shorter. Raised from
+        // 0.03 so the registers read as distinct characters: low register full
+        // and ringing, top register more "blown" and immediate.
+        // Tune registerFeedbackDrop.
+        const float registerFeedbackDrop = 0.06f;
+        loopGain *= (1.f - v.registerSmooth * registerFeedbackDrop);
 
         float boreDamp = (0.35f - v.a_bore * 0.28f) * clamp(261.63f / fingerFreq, 0.25f, 1.0f);
         // At C4: full boreDamp. Above C4: scales down - higher pitch, less damping.
 
-        float reedDamp = (1.f - v.a_reedMorph) * 0.5f;
+        // Flute-mode damping, relieved as Bore widens (wider bore, lower wall
+        // losses) and scaled with pitch the same way boreDamp already is: a
+        // fixed damp voiced for C4 strips every harmonic from notes an octave
+        // or two up, which is what made the upper registers sound thin - a
+        // beginner's airy squeak instead of a supported high note.
+        // Tune the 0.8 relief factor (0 restores fixed flute damping).
+        float fluteDamp = (1.f - v.a_reedMorph) * 0.5f * (1.f - v.a_bore * 0.8f)
+                        * clamp(261.63f / fingerFreq, 0.25f, 1.0f);
 
         // Register 3 adds extra damping - thinner, more penetrating tone.
         // Tune registerDampScale to adjust how much extra loss the top register has.
         const float registerDampScale = 0.04f;
         float registerDampExtra = clamp(v.registerSmooth - 1.f, 0.f, 1.f) * registerDampScale;
-        float totalDamp = clamp(v.cachedDampCoeff + reedDamp + registerDampExtra, 0.f, 0.95f);
+        float totalDamp = clamp(v.cachedDampCoeff + fluteDamp + registerDampExtra, 0.f, 0.95f);
 
-        // Primary resonator: excitation with loopFeedback and tone damping.
-        // Identical to the old primaryWaveguide -- this provides the bore resonance.
-        float loopSat = v.loopSaturator.process(excite, effectiveDrive);
-        v.rightGoingRail.process(loopSat, primaryDelaySamples, totalDamp, loopFeedback, boreDamp);
+        // Split loopGain into two junction reflections whose product ~= loopGain.
+        // sqrt keeps the round-trip gain (and thus sustain/stability) matched to
+        // the old single-rail loop regardless of how the split is weighted.
+        float junctionGain = sqrtf(clamp(loopGain, 0.f, 0.999f));
 
-        // Bell reflection: rightAtBell reflects with open-end phase inversion into
-        // leftGoingRail. Amplitude-dependent compression (0.30) matches the internal
-        // compression in AulosWaveguide. No internal feedback -- pure one-way trip.
+        // Embouchure reflection (embSign is computed with the exciters above).
+        // With the bell also inverting, the flute loop (embSign -1) is net
+        // positive (full harmonic series at the played pitch) while the reed
+        // loop (embSign +1) is net negative (odd harmonics an octave below -
+        // authentic clarinet behavior for the same tube length).
+        float embReflection  = junctionGain * embSign;
+
+        // The saturator shapes only the fresh excitation, never the recirculating
+        // wave - the tube itself is linear, the nonlinearity lives in the exciter.
+        // Passing the recirculation through the saturator would eat roughly half
+        // the loop gain at typical drive and stop the bore from ringing.
+        float exciteSat = v.loopSaturator.process(excite, effectiveDrive);
+
+        // DC blocker at the excitation source. The jet bias and reed flow carry
+        // large DC; blocked here, the whole loop stays DC-free and the junction
+        // compressors below see only the acoustic signal. One-pole highpass,
+        // roughly 20Hz at 48kHz. Tune exciteDCCoeff (smaller = lower cutoff).
+        const float exciteDCCoeff = 0.0026f;
+        v.exciteDCBlockZ1 += exciteDCCoeff * (exciteSat - v.exciteDCBlockZ1);
+        float exciteAC = exciteSat - v.exciteDCBlockZ1;
+
+        // The forward rail is driven by the exciter PLUS the return wave folded
+        // back through the embouchure reflection. Amplitude compression on the
+        // return keeps the closed loop from running away, matching the internal
+        // compression constant in AulosWaveguide. The rails run with zero
+        // internal feedback - all recirculation happens at the two junctions.
+        float embCompGain = 1.f / (1.f + fabsf(leftAtEmbouchure) * 0.30f);
+        float forwardIn   = exciteAC + embReflection * embCompGain * leftAtEmbouchure;
+
+        // Brass nonlinearity: Modeled as a gentle amplitude-dependent compression of the forward wave,
+        // applied a little more every round trip and scaled by brassZone so the
+        // body stage of Bore (through 0.75) stays clean and full - the brass
+        // character develops only in the top quarter of the control. 
+        const float brassZoneDrive = 1.1f;
+        float brassAmt = brassZone * brassZoneDrive;
+        forwardIn = forwardIn / (1.f + brassAmt * fabsf(forwardIn));
+
+        // Level makeup for the brass compression. 
+        const float brassMakeup = 0.75f;
+        forwardIn *= 1.f + brassAmt * v.safetyRMS * brassMakeup;
+
+        v.rightGoingRail.process(forwardIn, railDelaySamples, totalDamp, 0.f, boreDamp);
+
+        // ── Bell reflection: horn-cutoff model controlled by Bore ─────────────────
+        v.bellLowpassZ1 = bellLowpassWeight * rightAtBell
+                        + (1.f - bellLowpassWeight) * v.bellLowpassZ1;
+        float bellRadiated = rightAtBell - v.bellLowpassZ1;   // escapes the flare
+
+        // The reflection is the lowpassed wave, inverted (open-end pressure
+        // reflection) and amplitude-compressed like the embouchure junction.
         float bellCompGain = 1.f / (1.f + fabsf(rightAtBell) * 0.30f);
-        float bellInput    = -loopFeedback * bellCompGain * rightAtBell;
-        v.leftGoingRail.process(bellInput, halfDelaySamples, 0.f, 0.f, boreDamp);
+        float bellInput    = -junctionGain * bellCompGain * v.bellLowpassZ1;
+        v.leftGoingRail.process(bellInput, railDelaySamples, 0.f, 0.f, boreDamp);
 
         // ── Stability / overblow ──────────────────────────────────────────────────
         // Track energy from both bore components. Fast attack, slow release.
@@ -713,10 +911,21 @@ struct Aulos : Module {
         }
 
         // ── Output mix ────────────────────────────────────────────────────────────
-        // Primary bore output (rightAtBell) mixed with the bell-reflection component
-        // (leftAtEmbouchure). The return wavefront adds comb-filtered harmonic content
-        // that differs from the old secondary waveguide's sub-harmonic resonator.
-        float voiceOut = rightAtBell * 0.5f + leftAtEmbouchure * 0.5f;
+        // Single-point radiated pickup. The forward traveling wave at the bell
+        // (rightAtBell) carries the full harmonic series; bellRadiated is the
+        // energy that escaped the flare, growing and brightening as Bore opens.
+        // The return wave is deliberately NOT mixed in: leftAtEmbouchure is
+        // rightAtBell reflected (inverted) and delayed half a period, so at
+        // every EVEN harmonic it arrives anti-phase, and the old two-end mix
+        // comb-cancelled those harmonics by ~10dB - that was the hollow, thin
+        // flute at low Bore.  
+        const float bellRadiateBase  = 0.4f;
+        const float bellRadiateFlare = 1.5f;
+        const float bellRadiateBrass = 0.9f;
+        float voiceOut = rightAtBell * 0.85f
+                       + bellRadiated * (bellRadiateBase + flare * bellRadiateFlare
+                                         + brassZone * bellRadiateBrass);
+
         voiceOut = v.dcBlocker.process(voiceOut);
         voiceOut = v.outputCap.process(voiceOut);
         voiceOut = v.outputDCBlocker.process(voiceOut);
@@ -728,7 +937,14 @@ struct Aulos : Module {
             midBand       = v.envLPF.process(midBand);
             v.dynEnvOut   = v.dynFollower.process(midBand);
         }
-        voiceOut *= clamp(sqrtf(440.f / fingerFreq), 0.25f, 3.0f); // pitch loudness correction
+        // Pitch loudness correction, smoothed: the target tracks the played
+        // frequency, which snaps between notes, and an instant 20-30% gain
+        // step on a ringing bore is itself a click. The one-pole glides it
+        // over ~20 samples, matching the delay smoother.
+        float loudnessTarget = clamp(sqrtf(440.f / fingerFreq), 0.25f, 3.0f);
+        if (v.loudnessSmooth <= 0.f) v.loudnessSmooth = loudnessTarget;
+        v.loudnessSmooth += 0.05f * (loudnessTarget - v.loudnessSmooth);
+        voiceOut *= v.loudnessSmooth;
 
         // Ramp from 0 to 1 over ~15ms on note onset to mask waveguide startup transient.
         // One-pole approach to 1.0 - coeff ~0.004 reaches ~95% in ~15ms at 48kHz.
@@ -781,14 +997,14 @@ struct Aulos : Module {
 
             // Read all 8 slider values with their CV inputs.
             float sliderVal[8];
-            sliderVal[0] = clamp(getCV(EDGE_CV_INPUT,  EDGE_ATT,  params[EDGE_PARAM].getValue()),  0.f, 1.f);
-            sliderVal[1] = clamp(getCV(JET_CV_INPUT,  JET_ATT,  params[JET_PARAM].getValue()),  0.f, 1.f);
+            sliderVal[0] = clamp(getCV(REED_CV_INPUT,  REED_ATT,  params[REED_PARAM].getValue()),  0.f, 1.f);
+            sliderVal[1] = clamp(getCV(BORE_CV_INPUT,  BORE_ATT,  params[BORE_PARAM].getValue()),  0.f, 1.f);
             sliderVal[2] = clamp(getCV(DRIVE_CV_INPUT,  DRIVE_ATT,  params[DRIVE_PARAM].getValue()),  0.f, 1.f);
             sliderVal[3] = clamp(getCV(RES_CV_INPUT,   RES_ATT,   params[RES_PARAM].getValue()),   0.f, 1.f);
             sliderVal[4] = clamp(getCV(AIR_CV_INPUT, AIR_ATT, params[AIR_PARAM].getValue()), 0.f, 1.f);
             sliderVal[5] = clamp(getCV(CHIFF_CV_INPUT, CHIFF_ATT, params[CHIFF_PARAM].getValue()), 0.f, 1.f);
             // sliderVal[6] = AULOS_PARAM - read per-sample below
-            sliderVal[7] = clamp(getCV(WARMTH_CV_INPUT,  WARMTH_ATT,  params[WARMTH_PARAM].getValue()),  0.f, 1.f);
+            sliderVal[7] = clamp(getCV(DAMP_CV_INPUT,  DAMP_ATT,  params[DAMP_PARAM].getValue()),  0.f, 1.f);
 
             // Damp -> loop LPF coefficient, two-phase mapping from Droplet:
             // Phase 1 (0->0.25):   blend in 8kHz LPF.
@@ -925,6 +1141,10 @@ struct Aulos : Module {
 
         // Drone: R voice locked to pipe fundamental, gate always on.
         bool droneEffective = droneActive;
+        // Fade the drone duck (1.0 normal, 0.6 drone) over ~10ms so toggling
+        // drone never steps the gain of a sounding R voice.
+        // Tune the coefficient for a faster/slower fade.
+        droneLevelSmooth += 0.002f * ((droneEffective ? 0.6f : 1.0f) - droneLevelSmooth);
         const int displayVoice = 0;
 
         // R voices are only processed when the R output is patched. On reconnect,
@@ -1000,10 +1220,6 @@ struct Aulos : Module {
             // processVoice (a_fingerDelay), so the decimation is inaudible for
             // pitch CV and vibrato-rate FM.
             if (doPitch || wokeL || wokeR) {
-                // Envelope-gate the internal vibrato by this voice's breath
-                // envelope so it fades in/out with the note. Patched FM CV is
-                // global and ungated. One-sample envelope lag is inaudible at
-                // control rate.
                 float vibGate    = clamp(v.breathOut * 0.1f, 0.f, 1.f);
                 float fmDepth    = vibratoExternal + vibratoInternal * vibGate;
 
@@ -1142,9 +1358,6 @@ struct Aulos : Module {
             // ── Right voice ───────────────────────────────────────────────────
             float voiceOutR = 0.f;
             if (activeR) {
-                // Drone mode ducks R slightly so it sits behind the melody.
-                float droneLevel = droneEffective ? 0.6f : 1.0f;
-
                 voiceOutR = processVoice(vR,
                     sr, gateHighR,
                     breathR, attackSamples, releaseSamples,
@@ -1155,7 +1368,9 @@ struct Aulos : Module {
                     legatoProgressR[vi] < 1.f,
                     aulosTrack ? pipeFreqR : pipeFreq);  // tracking: use R pipe as ref; two-pipes: use L pipe
 
-                voiceOutR *= droneLevel;
+                // Drone mode ducks R behind the melody - droneLevelSmooth fades
+                // the duck so toggling drone is clickless.
+                voiceOutR *= droneLevelSmooth;
             }
 
             // ── Per-voice outputs ─────────────────────────────────────────────
@@ -1209,14 +1424,15 @@ struct Aulos : Module {
             displayRegister  = voices[displayVoice].registerSmooth;
             displayRegisterR = processR ? voicesR[displayVoice].registerSmooth : 0.f;
 
-            displayBreathR         = processR ? voicesR[displayVoice].breathOut * 0.1f * (droneEffective ? 0.6f : 1.0f) : 0.f;
+            displayBreathR         = processR ? voicesR[displayVoice].breathOut * 0.1f * droneLevelSmooth : 0.f;
             displayOverblow        = voices[displayVoice].safetyDecay;
             displayOverblowR       = processR ? voicesR[displayVoice].safetyDecay : 0.f;
 
             displayRMS        = voices[displayVoice].dynEnvOut;
-            displayRMSR       = processR ? voicesR[displayVoice].dynEnvOut * (droneEffective ? 0.6f : 1.0f) : 0.f;
+            displayRMSR       = processR ? voicesR[displayVoice].dynEnvOut * droneLevelSmooth : 0.f;
             displayAir        = voices[displayVoice].a_noise;
-            displayEdge       = voices[displayVoice].a_reedMorph;
+            displayReed       = voices[displayVoice].a_reedMorph;
+            displayBore       = voices[displayVoice].a_bore;
             displaySaturation = clamp(voices[displayVoice].safetyRMS - 0.6f, 0.f, 1.f);
             displaySaturationR = processR ? clamp(voicesR[displayVoice].safetyRMS - 0.6f, 0.f, 1.f) : 0.f;
             {
@@ -1277,9 +1493,9 @@ struct PipeDisplay : TransparentWidget {
             const float rowH = (H - gap) * 0.5f;
 
             if (!module) {
-                drawTube(args.vg, 1.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f,
+                drawTube(args.vg, 1.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f,
                          3.f, 0.f, W * 0.5f, rowH);
-                drawTube(args.vg, 1.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f,
+                drawTube(args.vg, 1.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f,
                          3.f, rowH + gap, W, rowH);
             }
             else {
@@ -1298,26 +1514,28 @@ struct PipeDisplay : TransparentWidget {
 
                 drawTube(args.vg,
                          module->displayActiveFraction,
+                         module->displayBore,
                          module->displayBreath,
                          module->displayOverblow,
                          module->displayRegister,
                          module->displayRMS,
                          module->displayAir,
                          module->displayChiff,
-                         module->displayEdge,
+                         module->displayReed,
                          module->displaySaturation,
                          3.f, 0.f,
                          lWidth, rowH);
 
                 drawTube(args.vg,
                          module->displayActiveFractionR,
+                         module->displayBore,
                          module->displayBreathR,
                          module->displayOverblowR,
                          module->displayRegisterR,
                          module->displayRMSR,
                          module->displayAir,
                          module->displayChiffR,
-                         module->displayEdge,
+                         module->displayReed,
                          module->displaySaturationR,
                          3.f, rowH + gap,
                          rWidth, rowH);
@@ -1330,6 +1548,8 @@ struct PipeDisplay : TransparentWidget {
     // bx, by: top-left of the bounding rect for this tube.
     // bw, bh: width and height of the bounding rect.
     // activeFraction: position of the first open finger hole along the tube.
+    // bore: a_bore 0..1, reshapes the pipe silhouette from a plain cylinder
+    //   toward a flared bell (see tubeHalfHeight below).
     // breath: breath envelope 0..1, controls tube opacity.
     // overblow: safetyDecay 0..1, triggers overblow outline.
     // registerValue: smoothed register 0..2, drives standing wave mode count.
@@ -1339,7 +1559,7 @@ struct PipeDisplay : TransparentWidget {
     // edge: a_reedMorph 0..1, shifts standing wave color toward warm amber.
     // saturation: pre-overblow safetyRMS indicator 0..1, warms tube color early.
     void drawTube(NVGcontext* vg,
-          float activeFraction, float breath, float overblow,
+          float activeFraction, float bore, float breath, float overblow,
           float registerValue,
           float rms, float air, float chiff, float edge, float saturation,
           float bx, float by, float bw, float bh) {
@@ -1351,8 +1571,21 @@ struct PipeDisplay : TransparentWidget {
 
         // Narrower tube — better aspect ratio.
         const float baseH = bh * 0.28f;
+
+        // Bore changes the pipe silhouette 
+        float bodyStage = clamp((bore - 0.3f) / 0.7f, 0.f, 1.f);
+        bodyStage = bodyStage * bodyStage;
+        float bellStage = clamp((bore - 0.75f) / 0.25f, 0.f, 1.f);
+        bellStage = bellStage * bellStage;
+        const float bodyWidenAmount = 0.2f;
+        const float bellFlareAmount = 0.4f;
+        float boreShape = clamp(bodyStage * bodyWidenAmount + bellStage * bellFlareAmount, 0.f, 1.f);
+
+        const float mouthHalf = baseH * (0.88f - boreShape * 0.44f);
+        const float bellHalf  = baseH * (1.00f + boreShape * 1.00f);
+        const float shapeExponent = 1.0f + boreShape * 3.0f;
         auto tubeHalfHeight = [&](float xNorm) {
-            return baseH * (0.88f + 0.12f * xNorm);
+            return mouthHalf + powf(xNorm, shapeExponent) * (bellHalf - mouthHalf);
         };
 
         const int CURVE_STEPS = 64;
@@ -1409,7 +1642,7 @@ struct PipeDisplay : TransparentWidget {
             float warm = fmaxf(pressure, 0.f);
             float cool = fmaxf(-pressure, 0.f);
 
-            // Edge shifts color toward amber as reedMorph increases.
+            // Reed shifts color toward amber as reedMorph increases.
             // Saturation warms the color before overblow kicks in.
             float r = 0.08f + warm * (0.85f + edge * 0.15f)
                             + saturation * warm * 0.20f;
@@ -1591,8 +1824,8 @@ struct AulosWidget : ModuleWidget {
 
         // ── Pipe display ──────────────────────────────────────────────────────
         {
-            auto* disp     = createWidget<PipeDisplay>(mm2px(Vec(7.f, 10.f)));
-            disp->box.size = mm2px(Vec(panelW - 14.f, 21.0f));
+            auto* disp     = createWidget<PipeDisplay>(mm2px(Vec(7.f, 11.5f)));
+            disp->box.size = mm2px(Vec(panelW - 14.f, 18.0f));
 
             disp->module   = module;
             addChild(disp);
@@ -1607,14 +1840,14 @@ struct AulosWidget : ModuleWidget {
 
         struct SlSpec { Aulos::ParamId param, att; Aulos::InputId cv; int color; };
         const SlSpec specs[8] = {
-            {Aulos::EDGE_PARAM,  Aulos::EDGE_ATT,  Aulos::EDGE_CV_INPUT,  1},  // blue
-            {Aulos::JET_PARAM,  Aulos::JET_ATT,  Aulos::JET_CV_INPUT,  1},  // blue
+            {Aulos::REED_PARAM,  Aulos::REED_ATT,  Aulos::REED_CV_INPUT,  1},  // blue
+            {Aulos::BORE_PARAM,  Aulos::BORE_ATT,  Aulos::BORE_CV_INPUT,  1},  // blue
             {Aulos::DRIVE_PARAM,  Aulos::DRIVE_ATT,  Aulos::DRIVE_CV_INPUT,  2},  // white
             {Aulos::RES_PARAM,   Aulos::RES_ATT,   Aulos::RES_CV_INPUT,   3},  // yellow
             {Aulos::AIR_PARAM, Aulos::AIR_ATT, Aulos::AIR_CV_INPUT, 3},  // yellow
             {Aulos::CHIFF_PARAM, Aulos::CHIFF_ATT, Aulos::CHIFF_CV_INPUT, 3},  // yellow
             {Aulos::AULOS_PARAM, Aulos::AULOS_ATT, Aulos::AULOS_CV_INPUT, 2},  // white
-            {Aulos::WARMTH_PARAM,  Aulos::WARMTH_ATT,  Aulos::WARMTH_CV_INPUT,  4},  // red
+            {Aulos::DAMP_PARAM,  Aulos::DAMP_ATT,  Aulos::DAMP_CV_INPUT,  4},  // red
         };
         for (int i = 0; i < 8; ++i) {
             const SlSpec& s = specs[i];
@@ -1751,8 +1984,8 @@ struct AulosWidget : ModuleWidget {
 
         menu->addChild(new MenuSeparator());
         menu->addChild(createMenuLabel("Resonator"));
-        addFSlider(&m->waveguideGain, 0.f, 1.75f,  1.0f, "Waveguide Gain");
-        addFSlider(&m->decayValue,    0.f, 1.f,  0.7f, "Decay (ring-off time)");
+        addFSlider(&m->waveguideGain, 0.f, 1.75f,  1.4f, "Waveguide Gain");
+        addFSlider(&m->decayValue,    0.f, 1.f,  0.9f, "Decay (ring-off time)");
 
         menu->addChild(new MenuSeparator());
         menu->addChild(createMenuLabel("Envelope"));
@@ -1765,7 +1998,7 @@ struct AulosWidget : ModuleWidget {
 
         menu->addChild(new MenuSeparator());
         menu->addChild(createMenuLabel("Vibrato"));
-        addFSlider(&m->vibratoRate,        3.f,  12.f, 7.0f, "Rate (Hz)");
+        addFSlider(&m->vibratoRate,        3.f,  12.f, 5.0f, "Rate (Hz)");
         addFSlider(&m->vibratoBreathDepth, 0.f,   1.f, 0.5f, "Breath Coupling");
 
         menu->addChild(new MenuSeparator());
