@@ -185,7 +185,7 @@ struct Aulos : Module {
         AIR_PARAM,        AIR_ATT,
         CHIFF_PARAM,      CHIFF_ATT,
         AULOS_PARAM,      AULOS_ATT,   // R channel pipe pitch offset -1..+1 oct
-        DAMP_PARAM,       DAMP_ATT,
+        WOOD_PARAM,       WOOD_ATT,
         BREATH_PARAM,     BREATH_ATT,
         VIBRATO_ATT,
         PIPE_TUNE_PARAM,
@@ -211,7 +211,7 @@ struct Aulos : Module {
         RES_CV_INPUT,
         AIR_CV_INPUT,
         AULOS_CV_INPUT,  // CV for R channel pitch offset
-        DAMP_CV_INPUT,
+        WOOD_CV_INPUT,
         CHIFF_CV_INPUT,
         AUDIO_IN_INPUT,
         DRONE_CV_INPUT,
@@ -382,8 +382,8 @@ struct Aulos : Module {
         configParam(CHIFF_ATT,          -1.f,  1.f,  0.f,  "Chiff Att.");
         configParam(AULOS_PARAM,        -1.f,  1.f,  0.0f, "Secondary Pipe");
         configParam(AULOS_ATT,          -1.f,  1.f,  0.f,  "Secondary Pipe Att.");
-        configParam(DAMP_PARAM,          0.f,  1.f,  0.1f, "Damp");
-        configParam(DAMP_ATT,           -1.f,  1.f,  0.f,  "Damp Att.");
+        configParam(WOOD_PARAM,          0.f,  1.f,  0.1f, "Wood");
+        configParam(WOOD_ATT,           -1.f,  1.f,  0.f,  "Wood Att.");
         configParam(BREATH_PARAM,        0.f,  1.f,  0.7f, "Breath");
         configParam(BREATH_ATT,         -1.f,  1.f,  0.f,  "Breath Att.");
         configParam(VIBRATO_ATT,         0.f,  1.f,  0.3f, "Vibrato Depth");
@@ -407,7 +407,7 @@ struct Aulos : Module {
         configInput(RES_CV_INPUT,      "Resonance CV");
         configInput(AIR_CV_INPUT,      "Air CV");
         configInput(AULOS_CV_INPUT,    "Secondary Pipe CV");
-        configInput(DAMP_CV_INPUT,     "Damp CV");
+        configInput(WOOD_CV_INPUT,     "Wood CV");
         configInput(CHIFF_CV_INPUT,    "Chiff CV");
         configInput(AUDIO_IN_INPUT,    "Audio In");
         configInput(DRONE_CV_INPUT,    "Drone CV");
@@ -1004,7 +1004,7 @@ struct Aulos : Module {
             sliderVal[4] = clamp(getCV(AIR_CV_INPUT, AIR_ATT, params[AIR_PARAM].getValue()), 0.f, 1.f);
             sliderVal[5] = clamp(getCV(CHIFF_CV_INPUT, CHIFF_ATT, params[CHIFF_PARAM].getValue()), 0.f, 1.f);
             // sliderVal[6] = AULOS_PARAM - read per-sample below
-            sliderVal[7] = clamp(getCV(DAMP_CV_INPUT,  DAMP_ATT,  params[DAMP_PARAM].getValue()),  0.f, 1.f);
+            sliderVal[7] = 0.6f*clamp(getCV(WOOD_CV_INPUT,  WOOD_ATT,  params[WOOD_PARAM].getValue()),  0.f, 1.f);
 
             // Damp -> loop LPF coefficient, two-phase mapping from Droplet:
             // Phase 1 (0->0.25):   blend in 8kHz LPF.
@@ -1847,7 +1847,7 @@ struct AulosWidget : ModuleWidget {
             {Aulos::AIR_PARAM, Aulos::AIR_ATT, Aulos::AIR_CV_INPUT, 3},  // yellow
             {Aulos::CHIFF_PARAM, Aulos::CHIFF_ATT, Aulos::CHIFF_CV_INPUT, 3},  // yellow
             {Aulos::AULOS_PARAM, Aulos::AULOS_ATT, Aulos::AULOS_CV_INPUT, 2},  // white
-            {Aulos::DAMP_PARAM,  Aulos::DAMP_ATT,  Aulos::DAMP_CV_INPUT,  4},  // red
+            {Aulos::WOOD_PARAM,  Aulos::WOOD_ATT,  Aulos::WOOD_CV_INPUT,  4},  // red
         };
         for (int i = 0; i < 8; ++i) {
             const SlSpec& s = specs[i];
