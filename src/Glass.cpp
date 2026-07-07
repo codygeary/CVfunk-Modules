@@ -97,6 +97,7 @@ struct Glass : Module {
         DAMP_GATE_INPUT,
         AUDIO_IN_INPUT,
         AUDIO_IN_CV_INPUT,
+        ROOT_INPUT,
         INPUTS_LEN
     };
 
@@ -273,6 +274,8 @@ struct Glass : Module {
         configInput(WOBBLE_CV_INPUT, "Axis Wobble CV");
         configInput(FM_CV_INPUT,     "FM CV");
         configInput(VOLUME_CV_INPUT, "Volume CV");
+        configInput(ROOT_INPUT, "Root CV");
+        
         configParam(AUDIO_IN_GAIN_PARAM, 0.f, 1.f, 0.5f, "Audio In Gain");
         configParam(AUDIO_IN_GAIN_ATT,  -2.f, 2.f, 0.f, "Audio In Gain Att.");
         configInput(AUDIO_IN_INPUT,    "Audio In");
@@ -428,6 +431,9 @@ struct Glass : Module {
             cachedWobbleDepth = clamp(
                 getCV(WOBBLE_CV_INPUT, WOBBLE_ATT, params[WOBBLE_PARAM].getValue()), 0.f, 1.0f);
             cachedRootOffset = params[ROOT_PARAM].getValue();
+            if (inputs[ROOT_INPUT].isConnected() ){
+               cachedRootOffset = clamp(cachedRootOffset + inputs[ROOT_INPUT].getVoltage(), -2.f, 2.f);
+            }
 
             cachedAttackSamples  = sr * 0.002f * powf(2000.f, attackValue);
             cachedReleaseSamples = sr * 0.002f * powf(2000.f, releaseValue);
@@ -914,7 +920,9 @@ struct GlassWidget : ModuleWidget {
         const float cx = panelW * 0.5f;
 
         // Row 0: Root knob | FM (CV + trim + knob) | Damp button (momentary)
-        addParam(createParamCentered<RoundLargeBlackKnob>( p(  44.5f, 85.f), module, Glass::ROOT_PARAM));
+        addParam(createParamCentered<RoundBlackKnob>( p(  44.5f+5.f, 85.f), module, Glass::ROOT_PARAM));
+        addInput(createInputCentered<ThemedPJ301MPort>(    p(  44.5f-5.f, 85.f), module, Glass::ROOT_INPUT));
+        
         addInput(createInputCentered<ThemedPJ301MPort>(    p( cx+8.f+5.f, 85.f), module, Glass::FM_CV_INPUT));
         addParam(createParamCentered<Trimpot>(             p(cx+17.f+5.f, 85.f), module, Glass::FM_ATT));
         addParam(createParamCentered<RoundBlackKnob>(      p(cx+26.f+5.f, 85.f), module, Glass::FM_PARAM));
