@@ -12,7 +12,7 @@ With over 40 modules and ongoing development, CV funk emphasizes macro-driven mo
 
 > **[CV funk User Manual Website](https://codygeary.github.io/CV-Funk-Manual/)**
 > 
-> **[CV funk User Manual (PDF)](/img/CV_funk_Manual.pdf)**
+> **[CV funk User Manual (PDF)](https://codygeary.github.io/CV-Funk-Manual/CV_funk_Manual.pdf)**
 
 The manual covers all modules in the collection: panel controls and I/O, operating modes and signal ranges, and patch ideas and example workflows. If you are new to CV funk, start here.
 
