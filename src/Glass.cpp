@@ -714,23 +714,18 @@ struct Glass : Module {
 struct BowlDisplay : Widget {
     Glass* module = nullptr;
     float  animPhase = 0.f;   // widget-side rotation phase, always advancing
-    double lastTime  = 0.0;   // for wall-clock delta
 
     void step() override {
         Widget::step();
-        // Advance animPhase each UI frame using glfwGetTime() delta.
-        // This runs regardless of DSP dormancy state.
+        // Advance animPhase each UI frame using Rack's own frame duration.
+        // Runs regardless of DSP dormancy state so the sheen keeps spinning
+        // even when no bowls are sounding.
         float speedHz = (module && module->cachedSpeedHz > 0.f)
                       ? module->cachedSpeedHz : 0.f;
-        double now = glfwGetTime();
-        if (lastTime > 0.0) {
-            float dt = (float)(now - lastTime);
-            // Clamp dt to avoid a large jump after module load or tab switch.
-            dt = clamp(dt, 0.f, 0.1f);
-            animPhase += speedHz * dt;
-            if (animPhase >= 1.f) animPhase -= 1.f;
-        }
-        lastTime = now;
+        float dt = APP->window->getLastFrameDuration();
+        dt = clamp(dt, 0.f, 0.1f);   // guard against load/tab-switch jumps
+        animPhase += speedHz * dt;
+        if (animPhase >= 1.f) animPhase -= 1.f;
     }
 
     void draw(const DrawArgs& args) override {
