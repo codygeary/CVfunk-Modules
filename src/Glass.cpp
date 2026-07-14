@@ -37,7 +37,8 @@ struct GlassBowlState {
     GlassDCBlocker    dcBlocker;
 
     float baseDelaySamples = 100.f;  // nominal delay for this bowl's pitch
-    float delaySamples     = 100.f;  // actual delay after FM, updated each sample
+    float delaySamples     = 100.f;  // actual delay after FM, updated sub-rate on FM change
+    float sinePhaseInc     = 0.01f;  // 1/delaySamples, cached sub-rate on FM change
     float envOut           = 0.f;
     float sinePhase        = 0.f;
 
@@ -47,6 +48,7 @@ struct GlassBowlState {
         pressureEnv.reset();
         baseDelaySamples = sr / pitchHz;
         delaySamples     = baseDelaySamples;
+        sinePhaseInc     = 1.f / delaySamples;
         envOut        = 0.f;
         // Stagger starting phases across bowls using the golden ratio.
         sinePhase     = fmodf((float)bowlIndex * 0.6180339f, 1.f);
@@ -57,6 +59,8 @@ struct GlassBowlState {
         dcBlocker.reset();
         pressureEnv.reset();
         delaySamples  = baseDelaySamples;
+        sinePhaseInc  = 1.f / delaySamples;
+        waveguide.setDelay(delaySamples);
         envOut        = 0.f;
         sinePhase     = 0.f;
     }
@@ -138,6 +142,10 @@ struct Glass : Module {
     float cachedFmRatio       = 1.f;
     float cachedAttackSamples = 1000.f;
     float cachedReleaseSamples= 10000.f;
+    // Morph denominators depend only on attack/release curve (cached sub-rate).
+    // Precomputed here so the bowl loop never recomputes glassFastExp(a) 37x/sample.
+    GlassMorphCoeff cachedAttackCoeff;
+    GlassMorphCoeff cachedReleaseCoeff;
     float cachedTone = 0.f;
     float noiseCutoffMax    = 1000.f; // frequency cutoff for dry finger noise excitation
     // Intensity of the damp gate and per-note mute: how far toward 300Hz the
@@ -153,6 +161,8 @@ struct Glass : Module {
     float cachedWobbleDepth    = 0.15f;  // axis wobble depth, cached sub-rate
     float cachedRootOffset     = 0.f;    // root transpose, cached sub-rate
     float cachedFmRatioInv     = 1.f;    // 1/cachedFmRatio -- multiply instead of divide per bowl
+    float lastFmRatioInv       = -1.f;   // sentinel: forces bowl-weight recompute on first block
+    bool  fmWeightsDirty       = true;   // set on init/SR change to force a full weight recompute
     float cachedPressureShare  = 1.f;    // hand pressure distributed across active finger count
     int   cachedBowlForChannel[GLASS_MAX_POLY] = {};  // cached nearestBowl per VOCT channel
     float cachedVoctForChannel[GLASS_MAX_POLY] = {};  // last V/oct read per channel
@@ -230,7 +240,15 @@ struct Glass : Module {
             bowls[b].init(sr, voct2freq(BOWL_VOCT[b]), b);
             bowls[b].baseDelaySamples = sr / voct2freq(BOWL_VOCT[b]);
             bowls[b].delaySamples     = bowls[b].baseDelaySamples;
+            bowls[b].sinePhaseInc     = 1.f / bowls[b].delaySamples;
+            // Seed the delay-read weights so the first samples read correctly
+            // even before the sub-rate block runs.
+            bowls[b].waveguide.setDelay(bowls[b].delaySamples);
         }
+        // Force a full weight recompute on the next sub-rate block (FM ratio may
+        // differ from the seed above once params/CV are read).
+        fmWeightsDirty = true;
+        lastFmRatioInv = -1.f;
     }
 
     void panic() {
@@ -426,6 +444,22 @@ struct Glass : Module {
                 clamp(getCV(FM_CV_INPUT, FM_ATT, params[FM_PARAM].getValue()) * 0.167f, -0.5f, 0.5f));
             cachedFmRatioInv = 1.f / cachedFmRatio;
 
+            // Delay-read weights depend only on delaySamples, which depends only
+            // on the (fixed) per-bowl baseDelaySamples and cachedFmRatioInv.
+            // Recompute all 37 bowls' weights only when FM actually moves (knob,
+            // attenuverter, or patched CV). When FM is static -- the normal case,
+            // since FM here is LFO/manual, not audio rate -- this is skipped
+            // entirely and the per-sample read uses the cached weights.
+            if (fmWeightsDirty || fabsf(cachedFmRatioInv - lastFmRatioInv) > 1e-6f) {
+                for (int b = 0; b < GLASS_BOWLS; ++b) {
+                    bowls[b].delaySamples = bowls[b].baseDelaySamples * cachedFmRatioInv;
+                    bowls[b].sinePhaseInc = 1.f / bowls[b].delaySamples;
+                    bowls[b].waveguide.setDelay(bowls[b].delaySamples);
+                }
+                lastFmRatioInv  = cachedFmRatioInv;
+                fmWeightsDirty  = false;
+            }
+
             // Wobble depth and root transpose: slow-changing, read here so the
             // bowl loop never touches params or inputs at audio rate.
             cachedWobbleDepth = clamp(
@@ -437,6 +471,8 @@ struct Glass : Module {
 
             cachedAttackSamples  = sr * 0.002f * powf(2000.f, attackValue);
             cachedReleaseSamples = sr * 0.002f * powf(2000.f, releaseValue);
+            cachedAttackCoeff.set(attackCurve);
+            cachedReleaseCoeff.set(releaseCurve);
 
             float spread = params[SPREAD_PARAM].getValue();
             if (spread != lastSpread) recomputePanGains(spread);
@@ -545,8 +581,6 @@ struct Glass : Module {
         float globalTremoloSine = (cachedSpeedHz > 0.01f)
             ? glassDspSin(tremoloPhase * 2.f * float(M_PI)) : 0.f;
 
-        float fmRatioInv = cachedFmRatioInv;
-
         // ── Bowl DSP loop ─────────────────────────────────────────────────────
         // Ext input feeds only bowls whose gate is currently held (envOut > 0).
         // When gate releases, ext stops feeding that bowl and it decays freely.
@@ -568,19 +602,19 @@ struct Glass : Module {
             state.envOut = state.pressureEnv.process(
                 gateHigh[b], sustainLevel[b],
                 cachedAttackSamples, cachedReleaseSamples,
-                attackCurve, releaseCurve);
+                cachedAttackCoeff, cachedReleaseCoeff);
 
             bool bowlAudible = (state.envOut > 0.0001f) || (bowlEnergy[b] > idleThreshold);
             if (!bowlAudible) continue;
 
-            // FM: apply FM ratio to base delay length each sample.
-            state.delaySamples = state.baseDelaySamples * fmRatioInv;
+            // FM delay length and sinePhaseInc are cached sub-rate (updated only
+            // when FM changes), so nothing to recompute per sample here.
 
             // ── Friction excitation (gate-driven) ────────────────────────────
             float excitation = 0.f;
 
             if (state.envOut > 0.0001f) {
-                state.sinePhase += 1.f / state.delaySamples;
+                state.sinePhase += state.sinePhaseInc;
                 if (state.sinePhase >= 1.f) state.sinePhase -= 1.f;
                 float sineVal = glassDspSin(state.sinePhase * 2.f * float(M_PI));
 
@@ -623,12 +657,11 @@ struct Glass : Module {
 
             float bowlRaw = state.waveguide.process(
                 excitation + extContrib,
-                state.delaySamples,
                 lpfCoeff,
                 cachedFeedback);
 
             bowlRaw = state.dcBlocker.process(bowlRaw);
-            if (!std::isfinite(bowlRaw)) { bowlRaw = 0.f; state.waveguide.clear(); }
+            if (!std::isfinite(bowlRaw)) { bowlRaw = 0.f; state.waveguide.softReset(); }
 
             mixL += bowlRaw * panGainL[b];
             mixR += bowlRaw * panGainR[b];

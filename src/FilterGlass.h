@@ -39,6 +39,34 @@ inline float glassMorphShape(float t, float m, float A = 6.f) {
     return (glassFastExp(a * t) - 1.f) / (glassFastExp(a) - 1.f);
 }
 
+// Morph parameters for one curve, precomputed once per sub-rate block.
+// The denominator (glassFastExp(a) - 1) and the linear-passthrough flag
+// depend only on the curve value, which is cached sub-rate -- so they must
+// not be recomputed 37x per sample inside the bowl loop.
+struct GlassMorphCoeff {
+    float a        = 0.f;    // m * A
+    float invDenom = 1.f;    // 1 / (glassFastExp(a) - 1)
+    bool  linear   = true;   // true when |a| < 1e-3 -> passthrough
+
+    void set(float m, float A = 6.f) {
+        a = m * A;
+        linear = fabsf(a) < 1e-3f;
+        if (!linear) {
+            float denom = glassFastExp(a) - 1.f;
+            invDenom = 1.f / denom;
+        } else {
+            invDenom = 1.f;
+        }
+    }
+};
+
+// Numerator still varies with t (per sample), but the denominator and the
+// linear check are taken from the precomputed coefficient.
+inline float glassMorphShapeCoeff(float t, const GlassMorphCoeff& c) {
+    if (c.linear) return t;
+    return (glassFastExp(c.a * t) - 1.f) * c.invDenom;
+}
+
 // glassDspSin / glassDspCos
 // Taylor-series sin/cos accurate to <0.0002 across full range.
 // Wraps input to (-pi, pi] before evaluating the polynomial.
@@ -155,6 +183,15 @@ struct GlassBowl {
     float lpfZ       = 0.f;
     float lastOut    = 0.f;
 
+    // Precomputed delay-read coefficients. Valid only while the delay length is
+    // unchanged. Because writeIndex advances by exactly 1 each sample and the
+    // delay is constant between FM changes, the read fraction and the four
+    // Lagrange basis weights are invariant, and the integer read base is just
+    // writeIndex minus a fixed backward offset. Recomputed (via setDelay) only
+    // when the delay actually changes -- see Glass FM dirty-flag handling.
+    int   readBackOffset = 1;      // writeIndex - base, constant for fixed delay
+    float lw0 = 0.f, lw1 = 1.f, lw2 = 0.f, lw3 = 0.f;  // Lagrange basis weights
+
     void init(float sr, float lowestPitchHz = 130.81f) {
         float maxDelaySec = 1.f / lowestPitchHz * 1.5f;
         int needed = (int)ceilf(maxDelaySec * sr) + 8;
@@ -167,26 +204,45 @@ struct GlassBowl {
         lastOut = 0.f;
     }
 
-    inline float lagrangeRead(float delaySamples) const {
+    // Recompute read coefficients for a new delay length. Uses the exact same
+    // float expressions as the original per-sample read so the cheap read path
+    // below is bit-identical to it. Call this only when the delay changes.
+    void setDelay(float delaySamples) {
         delaySamples = rack::clamp(delaySamples, 1.f, (float)bufSize - 4.f);
-        float rp   = (float)writeIndex - delaySamples;
-        int   base = ((int)floorf(rp)) & bufMask;
+        // Compute base relative to writeIndex==0; the backward offset from
+        // writeIndex to base is constant regardless of writeIndex value.
+        float rp   = -delaySamples;
+        int   baseAtZero = (int)floorf(rp);   // may be negative; used only as offset
         float frac = rp - floorf(rp);
-        float y0   = buf[(base - 1) & bufMask];
-        float y1   = buf[base       & bufMask];
-        float y2   = buf[(base + 1) & bufMask];
-        float y3   = buf[(base + 2) & bufMask];
-        return glassLagrange(y0, y1, y2, y3, frac);
+        readBackOffset = -baseAtZero;         // writeIndex - base for any writeIndex
+        // Precompute the four Lagrange cubic basis weights for this fraction.
+        float t = frac;
+        lw0 = (-t * (t-1.f) * (t-2.f)) / 6.f;
+        lw1 = ((t+1.f) * (t-1.f) * (t-2.f)) / 2.f;
+        lw2 = (-(t+1.f) * t * (t-2.f)) / 2.f;
+        lw3 = ((t+1.f) * t * (t-1.f)) / 6.f;
+    }
+
+    // Cheap fixed-weight interpolated read. base tracks writeIndex minus the
+    // precomputed constant offset; no floorf, clamp, or polynomial per sample.
+    inline float lagrangeRead() const {
+        int base = (writeIndex - readBackOffset) & bufMask;
+        float y0 = buf[(base - 1) & bufMask];
+        float y1 = buf[ base       & bufMask];
+        float y2 = buf[(base + 1) & bufMask];
+        float y3 = buf[(base + 2) & bufMask];
+        return lw0*y0 + lw1*y1 + lw2*y2 + lw3*y3;
     }
 
     // excitation:   signal injected this sample.
     // delaySamples: bowl resonant frequency period in samples.
     // lpfCoeff:     one-pole LPF coeff on feedback (0=bright, ~0.3=dull).
     // feedbackGain: loop recirculation. < 1 = decay, > 1 = overblow.
-    float process(float excitation, float delaySamples,
-                  float lpfCoeff, float feedbackGain) {
+    // The delay length is set separately via setDelay() and only when it
+    // changes, so process() no longer takes it per sample.
+    float process(float excitation, float lpfCoeff, float feedbackGain) {
 
-        float delayed = lagrangeRead(delaySamples);
+        float delayed = lagrangeRead();
 
         // One-pole LPF on feedback path.
         lpfZ = (1.f - lpfCoeff) * delayed + lpfCoeff * lpfZ;
@@ -208,6 +264,17 @@ struct GlassBowl {
         lpfZ    = 0.f;
         lastOut = 0.f;
     }
+
+    // Cheap in-loop recovery: reset only the filter state, not the whole
+    // ring buffer. The isfinite guards in process() already stop a non-finite
+    // value from persisting in lpfZ/writeVal, so a full std::fill (up to 1024
+    // floats) per non-finite sample is unnecessary and is a per-sample spike
+    // source when several bowls trip at once. Zeroing lpfZ/lastOut breaks the
+    // feedback path so any stray buffer contents decay out naturally.
+    void softReset() {
+        lpfZ    = 0.f;
+        lastOut = 0.f;
+    }
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -225,7 +292,8 @@ struct GlassPressureEnv {
 
     float process(bool gateHigh, float sustainLevel,
                   float attackSamples, float releaseSamples,
-                  float attackCurve,   float releaseCurve) {
+                  const GlassMorphCoeff& attackCoeff,
+                  const GlassMorphCoeff& releaseCoeff) {
 
         float peak = rack::clamp(sustainLevel, 0.f, 1.f);
 
@@ -241,7 +309,7 @@ struct GlassPressureEnv {
             } else {
                 float t = counter / attackSamples;
                 out = rack::clamp(baseline + (peak - baseline)
-                                  * glassMorphShape(t, attackCurve), 0.f, 1.f);
+                                  * glassMorphShapeCoeff(t, attackCoeff), 0.f, 1.f);
             }
             if (!gateHigh) startRelease();
             break;
@@ -258,7 +326,7 @@ struct GlassPressureEnv {
                 } else {
                     float t = counter / scaledR;
                     out = rack::clamp(decayStart
-                          * (1.f - glassMorphShape(t, releaseCurve)), 0.f, 1.f);
+                          * (1.f - glassMorphShapeCoeff(t, releaseCoeff)), 0.f, 1.f);
                 }
             }
             if (gateHigh) startAttack();
