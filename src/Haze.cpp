@@ -21,6 +21,23 @@ static constexpr float HAZE_DEPTH_MAX_MS  =  8.f;   // max LFO modulation swing 
 static constexpr int   HAZE_VOICES        =  3;
 
 // -----------------------------------------------------------------------------
+// hazeLoopLimit
+// Soft limit on the value entering the delay loop.
+//
+static constexpr float HAZE_LOOP_KNEE = 10.f;
+static constexpr float HAZE_LOOP_CEIL = 14.f;
+static constexpr float HAZE_LOOP_SPAN = 2.f * (HAZE_LOOP_CEIL - HAZE_LOOP_KNEE);
+
+static inline float hazeLoopLimit(float x) {
+    float magnitude = fabsf(x);
+    if (magnitude <= HAZE_LOOP_KNEE) return x;
+    float over = (magnitude - HAZE_LOOP_KNEE) * (1.f / HAZE_LOOP_SPAN);
+    if (over > 1.f) over = 1.f;
+    float limited = HAZE_LOOP_KNEE + HAZE_LOOP_SPAN * (over - 0.5f * over * over);
+    return (x < 0.f) ? -limited : limited;
+}
+
+// -----------------------------------------------------------------------------
 // HazeDelayLine
 // Ring buffer with Lagrange 4-point fractional read, matching GlassBowl.
 // -----------------------------------------------------------------------------
@@ -315,7 +332,7 @@ struct Haze : Module {
 
     void dataFromJson(json_t* root) override {
         json_t* jl = json_object_get(root, "hazeCutoffLow");
-        if (jl) hazeCutoffLow = clamp((float)json_number_value(jl), 200.f, 20000.f);        
+        if (jl) hazeCutoffLow = clamp((float)json_number_value(jl), 200.f, 20000.f);
         json_t* jh = json_object_get(root, "hazeCutoffHigh");
         if (jh) hazeCutoffHigh = clamp((float)json_number_value(jh), 200.f, 20000.f);
         json_t* jc = json_object_get(root, "hazeApCoeff");
@@ -351,7 +368,7 @@ struct Haze : Module {
             float decaySec     = 0.12f + 11.88f * sustainNorm * sustainNorm * sustainNorm;
             cachedFeedback     = expf(-HAZE_BASE_DELAY_MS * 0.001f / decaySec);
             float cutoff = hazeCutoffHigh + sustainNorm * sustainNorm * (hazeCutoffLow - hazeCutoffHigh);
-            float lpfCoeff = (cutoff >= 19900.f)  ? 0.f : expf(-2.f * float(M_PI) * cutoff / sr);            
+            float lpfCoeff = (cutoff >= 19900.f)  ? 0.f : expf(-2.f * float(M_PI) * cutoff / sr);
             cachedLpfCoeff = lpfCoeff;
             cachedDepthSamples = depthNorm * depthNorm * HAZE_DEPTH_MAX_MS * sr * 0.001f;
         }
@@ -414,18 +431,18 @@ struct Haze : Module {
             // Adjust feedback a bit lower in allpass mode
             float feedback = cachedFeedback;
             if (allpassMode[v]){ feedback *= 0.95f;}
-            
-            
+
             float apOutL = apL[v].process(outL, HAZE_AP_DELAYS[v], hazeApCoeff);
             float apOutR = apR[v].process(outR, HAZE_AP_DELAYS[v], hazeApCoeff);
-            
+
             // Crossfade feedback path.
             float fbL = outL + apGain[v] * (apOutL - outL);
             float fbR = outR + apGain[v] * (apOutR - outR);
-            
-            delayL[v].write(clamp(inL + cachedFeedback * fbL, -12.f, 12.f));
-            delayR[v].write(clamp(inR + cachedFeedback * fbR, -12.f, 12.f));
-            
+
+            // Soft limit
+            delayL[v].write(hazeLoopLimit(inL + cachedFeedback * fbL));
+            delayR[v].write(hazeLoopLimit(inR + cachedFeedback * fbR));
+
             // Output follows the same signal entering feedback.
             outL = fbL;
             outR = fbR;
@@ -533,7 +550,7 @@ struct HazeCutoffHighQuantity : Quantity {
     HazeCutoffHighQuantity(Haze* m) : module(m) {}
     void  setValue(float v) override { module->hazeCutoffHigh = clamp(v, 200.f, 20000.f); }
     float getValue()          override { return module->hazeCutoffHigh; }
-    float getDefaultValue()   override { return 10000.f; }
+    float getDefaultValue()   override { return 20000.f; }
     float getMinValue()       override { return 200.f; }
     float getMaxValue()       override { return 20000.f; }
     std::string getLabel()    override { return "Haze cutoff @ 0%"; }
