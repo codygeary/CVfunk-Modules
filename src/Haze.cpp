@@ -21,21 +21,53 @@ static constexpr float HAZE_DEPTH_MAX_MS  =  8.f;   // max LFO modulation swing 
 static constexpr int   HAZE_VOICES        =  3;
 
 // -----------------------------------------------------------------------------
-// hazeLoopLimit
-// Soft limit on the value entering the delay loop.
-//
-static constexpr float HAZE_LOOP_KNEE = 10.f;
-static constexpr float HAZE_LOOP_CEIL = 14.f;
-static constexpr float HAZE_LOOP_SPAN = 2.f * (HAZE_LOOP_CEIL - HAZE_LOOP_KNEE);
+// HazeLoopSat -- anti-aliased soft limiter on the value entering the delay loop.
+// -----------------------------------------------------------------------------
 
-static inline float hazeLoopLimit(float x) {
-    float magnitude = fabsf(x);
-    if (magnitude <= HAZE_LOOP_KNEE) return x;
-    float over = (magnitude - HAZE_LOOP_KNEE) * (1.f / HAZE_LOOP_SPAN);
-    if (over > 1.f) over = 1.f;
-    float limited = HAZE_LOOP_KNEE + HAZE_LOOP_SPAN * (over - 0.5f * over * over);
-    return (x < 0.f) ? -limited : limited;
+static constexpr float HAZE_SAT_KNEE  = 7.f;
+static constexpr float HAZE_SAT_WIDTH = 10.5f;
+static constexpr float HAZE_SAT_CEIL  = HAZE_SAT_KNEE + 2.f * HAZE_SAT_WIDTH / 3.f;  // 14V
+
+static inline float hazeSatShape(float x) {
+    float m = fabsf(x);
+    if (m <= HAZE_SAT_KNEE) return x;
+    if (m >= HAZE_SAT_KNEE + HAZE_SAT_WIDTH) return (x < 0.f) ? -HAZE_SAT_CEIL : HAZE_SAT_CEIL;
+    float u = m - HAZE_SAT_KNEE;
+    float g = HAZE_SAT_KNEE + u - u * u * u / (3.f * HAZE_SAT_WIDTH * HAZE_SAT_WIDTH);
+    return (x < 0.f) ? -g : g;
 }
+
+// Antiderivative of hazeSatShape (even function). Used for the ADAA difference.
+static inline float hazeSatAnti(float x) {
+    float m = fabsf(x);
+    if (m <= HAZE_SAT_KNEE) return 0.5f * m * m;
+    if (m >= HAZE_SAT_KNEE + HAZE_SAT_WIDTH) {
+        float Cg = -0.5f * HAZE_SAT_KNEE * HAZE_SAT_KNEE
+                 - (2.f / 3.f) * HAZE_SAT_KNEE * HAZE_SAT_WIDTH
+                 - 0.25f * HAZE_SAT_WIDTH * HAZE_SAT_WIDTH;
+        return HAZE_SAT_CEIL * m + Cg;
+    }
+    float u = m - HAZE_SAT_KNEE;
+    return HAZE_SAT_KNEE * m + 0.5f * u * u
+         - u * u * u * u / (12.f * HAZE_SAT_WIDTH * HAZE_SAT_WIDTH)
+         - 0.5f * HAZE_SAT_KNEE * HAZE_SAT_KNEE;
+}
+
+struct HazeLoopSat {
+    float last = 0.f;
+    inline float process(float x) {
+        // Fully-linear fast path: exact identity, no divide.
+        if (fabsf(x) <= HAZE_SAT_KNEE && fabsf(last) <= HAZE_SAT_KNEE) { last = x; return x; }
+        // ADAA: when the step is tiny the difference quotient is ill-conditioned,
+        // so fall back to the midpoint value (agrees to second order).
+        float d   = x - last;
+        float out = (fabsf(d) > 1e-3f) ? (hazeSatAnti(x) - hazeSatAnti(last)) / d
+                                       : hazeSatShape(0.5f * (x + last));
+        last = x;
+        return out;
+    }
+    void reset() { last = 0.f; }
+};
 
 // -----------------------------------------------------------------------------
 // HazeDelayLine
@@ -200,6 +232,10 @@ struct Haze : Module {
     // overloading downstream modules.
     GlassADAADrive saturatorL, saturatorR;
 
+    // Anti-aliased soft limiter INSIDE each feedback loop -- one per voice per
+    // channel. Holds one sample of state for the ADAA difference.
+    HazeLoopSat loopSatL[HAZE_VOICES], loopSatR[HAZE_VOICES];
+
     float lfoPhase = 0.f;
 
     // LPF cutoff at full Haze, set via context menu. At 20kHz the filter is
@@ -294,6 +330,8 @@ struct Haze : Module {
             lpfZR[v] = 0.f;
             apL[v].clear();
             apR[v].clear();
+            loopSatL[v].reset();
+            loopSatR[v].reset();
             allpassMode[v] = false;
             apGain[v]      = 0.f;
         }
@@ -432,6 +470,7 @@ struct Haze : Module {
             float feedback = cachedFeedback;
             if (allpassMode[v]){ feedback *= 0.95f;}
 
+
             float apOutL = apL[v].process(outL, HAZE_AP_DELAYS[v], hazeApCoeff);
             float apOutR = apR[v].process(outR, HAZE_AP_DELAYS[v], hazeApCoeff);
 
@@ -439,9 +478,11 @@ struct Haze : Module {
             float fbL = outL + apGain[v] * (apOutL - outL);
             float fbR = outR + apGain[v] * (apOutR - outR);
 
-            // Soft limit
-            delayL[v].write(hazeLoopLimit(inL + cachedFeedback * fbL));
-            delayR[v].write(hazeLoopLimit(inR + cachedFeedback * fbR));
+            // Anti-aliased soft limit instead of a hard clamp -- see HazeLoopSat.
+            // A memoryless clamp/knee here injects a sharp edge that recirculates
+            // for the whole decay (the repeating click); ADAA band-limits it.
+            delayL[v].write(loopSatL[v].process(inL + cachedFeedback * fbL));
+            delayR[v].write(loopSatR[v].process(inR + cachedFeedback * fbR));
 
             // Output follows the same signal entering feedback.
             outL = fbL;
