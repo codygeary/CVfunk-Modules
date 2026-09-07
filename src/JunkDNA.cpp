@@ -119,11 +119,11 @@ struct JunkDNA : Module {
     
         json_t* idxJ = json_object_get(rootJ, "sequenceIndex");
         if (idxJ)
-            sequenceIndex = json_integer_value(idxJ);
+            sequenceIndex = clamp((int)json_integer_value(idxJ), 0, GENE_CAPACITY - 1);
     
         json_t* sizeJ = json_object_get(rootJ, "geneSize");
         if (sizeJ)
-            geneSize = json_integer_value(sizeJ);
+            geneSize = clamp((int)json_integer_value(sizeJ), 1, GENE_CAPACITY);
 
         json_t* gateOutputJ = json_object_get(rootJ, "gateOutput");
         if (gateOutputJ) {
@@ -263,8 +263,8 @@ struct JunkDNA : Module {
             outputPulse.trigger(0.001f);
         }
 
-        if (sequenceIndex>geneSize){sequenceIndex = 0;} //Handle boundary conditions of sequenceIndex
-        if (sequenceIndex<0){sequenceIndex = geneSize;}
+        if (sequenceIndex>=geneSize){sequenceIndex = 0;} //Handle boundary conditions of sequenceIndex
+        if (sequenceIndex<0){sequenceIndex = geneSize - 1;}
 
         bool indexChanged = (sequenceIndex != lastSequenceIndex);
         lastSequenceIndex = sequenceIndex;
@@ -652,12 +652,14 @@ struct JunkDNAWidget : ModuleWidget {
 
     void step() override {
         JunkDNA* module = dynamic_cast<JunkDNA*>(this->module);
+        // Step children before the null-module early return so slider lights
+        // and other child widgets still update in the module library view.
+        ModuleWidget::step();
         if (!module) return;
     
         for (int i = 0; i < JunkDNA::NUM_LIGHTS; i++) {
             module->lights[i].setBrightness(module->lightStates[i]);
         }
-        ModuleWidget::step();
     }
 
     // Generic Quantity for any float member 
@@ -715,31 +717,35 @@ struct JunkDNAWidget : ModuleWidget {
         menu->addChild(new MenuSeparator());
 
         // Envelope polySpan
-        auto* aSlider = new ui::Slider();
+        // ui::Slider does not delete `quantity` in its destructor; this subclass does.
+        struct OwnedSlider : ui::Slider {
+            ~OwnedSlider() { delete quantity; quantity = nullptr; }
+        };
+        auto* aSlider = new OwnedSlider();
         aSlider->quantity = new FloatMemberQuantity(junkDNAModule, &JunkDNA::aOutputVal,
             "Adenine Output Val", -10.f, 10.f, 1.f, 2);
         aSlider->box.size.x = 200.f;
         menu->addChild(aSlider);
 
-        auto* tSlider = new ui::Slider();
+        auto* tSlider = new OwnedSlider();
         tSlider->quantity = new FloatMemberQuantity(junkDNAModule, &JunkDNA::tOutputVal,
             "Thymine Output Val", -10.f, 10.f, 2.f, 2);
         tSlider->box.size.x = 200.f;
         menu->addChild(tSlider);
 
-        auto* cSlider = new ui::Slider();
+        auto* cSlider = new OwnedSlider();
         cSlider->quantity = new FloatMemberQuantity(junkDNAModule, &JunkDNA::cOutputVal,
             "Cytosine Output Val", -10.f, 10.f, 3.f, 2);
         cSlider->box.size.x = 200.f;
         menu->addChild(cSlider);
 
-        auto* gSlider = new ui::Slider();
+        auto* gSlider = new OwnedSlider();
         gSlider->quantity = new FloatMemberQuantity(junkDNAModule, &JunkDNA::gOutputVal,
             "Guanine Output Val", -10.f, 10.f, 4.f, 2);
         gSlider->box.size.x = 200.f;
         menu->addChild(gSlider);
 
-        auto* xSlider = new ui::Slider();
+        auto* xSlider = new OwnedSlider();
         xSlider->quantity = new FloatMemberQuantity(junkDNAModule, &JunkDNA::xOutputVal,
             "Gap (X) Output Val", -10.f, 10.f, -1.f, 2);
         xSlider->box.size.x = 200.f;
@@ -768,7 +774,7 @@ struct JunkDNAWidget : ModuleWidget {
         };
     
         for (const auto& pair : codes) {
-            std::string label = pair.first + " — " + pair.second;
+            std::string label = pair.first + " - " + pair.second;
             menu->addChild(createMenuItem(label));
         }
     }

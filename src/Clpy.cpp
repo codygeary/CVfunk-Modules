@@ -369,7 +369,11 @@ struct ClpyWidget : ModuleWidget {
                 return string::f("%.1f kHz", khz);
             }
         };
-        auto* fcSlider = new ui::Slider();
+        // ui::Slider does not delete `quantity` in its destructor; this subclass does.
+        struct OwnedSlider : ui::Slider {
+            ~OwnedSlider() { delete quantity; quantity = nullptr; }
+        };
+        auto* fcSlider = new OwnedSlider();
         fcSlider->quantity = new FilterCutoffQuantity(m);
         fcSlider->box.size.x = 200.f;
         menu->addChild(fcSlider);

@@ -460,6 +460,9 @@ struct ImpulseControllerWidget : ModuleWidget {
 
     void step() override {
         ImpulseController* module = dynamic_cast<ImpulseController*>(this->module);
+        // Step children before the null-module early return so slider lights
+        // and other child widgets still update in the module library view.
+        ModuleWidget::step();
         if (!module) return;
 
         for (int groupIndex = 0; groupIndex < MAX_NODES; ++groupIndex) {
@@ -468,7 +471,6 @@ struct ImpulseControllerWidget : ModuleWidget {
                 module->lights[lightId].setBrightness(lightBrightness);
             }
         }
-        ModuleWidget::step();        
     }     
 };
 

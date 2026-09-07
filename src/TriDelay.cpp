@@ -515,6 +515,7 @@ struct EnvDisplay : TransparentWidget {
     }
 
     void drawLayer(const DrawArgs& args, int layer) override {
+        if (layer != 1) { TransparentWidget::drawLayer(args, layer); return; }
         if (!module) return;
 
         centerX = box.size.x / 2.0f;

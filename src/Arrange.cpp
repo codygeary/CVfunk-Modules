@@ -760,6 +760,9 @@ struct ArrangeWidget : ModuleWidget {
 
     void step() override {
         Arrange* module = dynamic_cast<Arrange*>(this->module);
+        // Step children before the null-module early return so slider lights
+        // and other child widgets still update in the module library view.
+        ModuleWidget::step();
         if (!module) return;
 
         // Update Stage progress display
@@ -829,7 +832,6 @@ struct ArrangeWidget : ModuleWidget {
                 }               
             }
         }
-        ModuleWidget::step();    
     }
 
     // Update the context menu structure and ensure correct function calling

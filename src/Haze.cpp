@@ -466,11 +466,6 @@ struct Haze : Module {
             if (apGain[v] < apTarget) apGain[v] = std::min(apGain[v] + srApStep, apTarget);
             else                      apGain[v] = std::max(apGain[v] - srApStep, apTarget);
 
-            // Adjust feedback a bit lower in allpass mode
-            float feedback = cachedFeedback;
-            if (allpassMode[v]){ feedback *= 0.95f;}
-
-
             float apOutL = apL[v].process(outL, HAZE_AP_DELAYS[v], hazeApCoeff);
             float apOutR = apR[v].process(outR, HAZE_AP_DELAYS[v], hazeApCoeff);
 
@@ -693,6 +688,10 @@ struct HazeWidget : ModuleWidget {
     }
     void step() override {
         Haze* module = dynamic_cast<Haze*>(this->module);
+
+        // Step children (slider lights track the handle here) even when the
+        // module is null, so the library/browser view renders them correctly.
+        ModuleWidget::step();
         if (!module) return;
         for (int v = 0; v < HAZE_VOICES; ++v) {
             float pos = clamp( module->lfoSinL[v], 0.f, 1.f);
@@ -709,7 +708,6 @@ struct HazeWidget : ModuleWidget {
                 module->lights[Haze::LED0_B + v * 3].setBrightness(pos);
             }
         }
-        ModuleWidget::step();
     }
     void appendContextMenu(Menu* menu) override {
         Haze* module = dynamic_cast<Haze*>(this->module);

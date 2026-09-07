@@ -28,7 +28,7 @@
 // Utility
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Four-point Lagrange interpolation — identical to droplet_lagrange().
+// Four-point Lagrange interpolation - identical to droplet_lagrange().
 // Evaluates a cubic interpolant through four equally spaced samples y0..y3
 // at fractional position t in [0,1] between y1 and y2.
 inline float aulosLagrange(float y0, float y1, float y2, float y3, float t) {
@@ -56,20 +56,20 @@ inline float aulosDspSin(float x) {
 
 
 
-// Cubic jet nonlinearity — models the vortex-to-edge coupling in a flute
+// Cubic jet nonlinearity - models the vortex-to-edge coupling in a flute
 // embouchure. Soft symmetric saturation: output approaches +-2/3 as x -> +-inf.
 // Keeps flute mode cleaner than the asymmetric reed saturator.
 inline float aulosJetFunction(float x) {
     return x - x * x * x * (1.f / 3.f);
 }
 
-// Reed reflection function — models a pressure-controlled beating reed (the
+// Reed reflection function - models a pressure-controlled beating reed (the
 // clarinet/oboe family) as opposed to the flute's air jet. The input is the
 // differential pressure across the reed (mouth pressure minus bore pressure).
 //
 // Physical behaviour, and why it is asymmetric (unlike the jet):
 //   - Positive deltaP (mouth > bore) pushes the reed toward closure. As it
-//     closes, the flow it admits saturates and then chokes off — the reed
+//     closes, the flow it admits saturates and then chokes off - the reed
 //     "beats" shut. Modeled as a hard saturating curve that flattens toward a
 //     ceiling: large positive deltaP admits little extra flow.
 //   - Negative deltaP (bore > mouth) blows the reed open; flow rises more
@@ -80,11 +80,11 @@ inline float aulosJetFunction(float x) {
 // Output is a normalized flow term (roughly [-1, 1]) that the caller scales by
 // breath level. Tune reedBeat for a harder/softer slap at closure.
 inline float aulosReedFunction(float deltaP) {
-    const float reedBeat = 1.6f;   // closure hardness — larger = sharper beat
+    const float reedBeat = 1.6f;   // closure hardness - larger = sharper beat
     if (deltaP >= 0.f) {
         // Reed closing: saturate toward a ceiling (flow chokes off).
         float s = deltaP * reedBeat;
-        return s / (1.f + s * s);   // rises, peaks, then falls back — beating
+        return s / (1.f + s * s);   // rises, peaks, then falls back - beating
     } else {
         // Reed opening: softer, near-linear admittance.
         float s = deltaP;
@@ -92,7 +92,7 @@ inline float aulosReedFunction(float deltaP) {
     }
 }
 
-// Fast exponential approximation via repeated squaring — same as Dunes/Droplet.
+// Fast exponential approximation via repeated squaring - same as Dunes/Droplet.
 // Accurate to ~0.1% for |x| < 8, which covers all envelope curve use cases.
 inline float aulosFastExp(float x) {
     x = 1.0f + x / 256.0f;
@@ -101,7 +101,7 @@ inline float aulosFastExp(float x) {
     return x;
 }
 
-// Exponential curve shaping for envelope segments — same as Dunes morphShape().
+// Exponential curve shaping for envelope segments - same as Dunes morphShape().
 // t in [0,1], m in [-1,1]: m=0 linear, m>0 convex (fast rise),
 // m<0 concave (slow rise). A=6 gives a perceptually wide range.
 inline float aulosMorphShape(float t, float m, float A = 6.f) {
@@ -174,7 +174,7 @@ struct AulosOnePoleHPF {
 struct AulosNyquistCap {
     float z = 0.f, coeff = 0.8f;
     void setSampleRate(float sr) {
-        // Fixed cutoff at ~0.225 * sr — well above audible range, catches alias energy.
+        // Fixed cutoff at ~0.225 * sr - well above audible range, catches alias energy.
         coeff = rack::clamp(1.f - expf(-2.f * float(M_PI) * 0.225f), 0.5f, 0.99f);
         (void)sr;  // cutoff is normalized, sr not needed
     }
@@ -245,14 +245,14 @@ struct ADAADrive {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AulosWaveguide
-// Bidirectional delay line — the bore resonator.
+// Bidirectional delay line - the bore resonator.
 //
 // The write path applies a one-pole LPF (dampCoeff) that models material
 // absorption. Amplitude-dependent loop gain compression (same mechanism as
 // AlloyNode in Droplet) prevents nonlinear runaway at high resonance.
 //
 // process() injects `input` and returns the delayed read at `delaySamples`.
-// readEnd() reads at a specified delay without advancing the write pointer —
+// readEnd() reads at a specified delay without advancing the write pointer -
 // used by the flute jet feedback path before process() is called.
 //
 // Buffer sized at init for the lowest expected pitch (~18Hz at 55ms).
@@ -269,7 +269,7 @@ struct AulosWaveguide {
 
     // Per-sample drain scalar. Setting this below 1.0 causes all reads and
     // writes to be attenuated, equivalent to multiplying every buffer sample
-    // each sample — but at O(1) cost instead of O(bufSize).
+    // each sample - but at O(1) cost instead of O(bufSize).
     // Set to emergencyDrain each sample to replicate the original drain behavior
     // without iterating the buffer.
     float drainGain  = 1.f;
@@ -280,7 +280,7 @@ struct AulosWaveguide {
     // high Holes + Tone settings. Tune upward if runaway persists.
     static constexpr float compressionAmount = 0.30f;
 
-    // Intrinsic material damping — models air column loss and bore wall absorption
+    // Intrinsic material damping - models air column loss and bore wall absorption
     // present in any real instrument regardless of the user Damp slider setting.
     // Equivalent to a one-pole LPF at ~14kHz at 48kHz. Tune if the open timbre
     // is too bright or too dull at damp=0.
@@ -311,7 +311,7 @@ struct AulosWaveguide {
         return drainGain * aulosLagrange(y0, y1, y2, y3, frac);
     }
 
-    // Read the tube's far (bell) end — used by the flute jet feedback path.
+    // Read the tube's far (bell) end - used by the flute jet feedback path.
     // Call this before process() so the read precedes the write on the same sample.
     inline float readEnd(float delaySamples) const {
         return lagrangeRead(delaySamples);
@@ -324,11 +324,11 @@ struct AulosWaveguide {
     
         float delayed = lagrangeRead(delaySamples);
 
-        // Amplitude-dependent compression on the feedback path — prevents runaway.
+        // Amplitude-dependent compression on the feedback path - prevents runaway.
         float loopComp = 1.f / (1.f + fabsf(delayed) * compressionAmount);
         float loopIn   = input + feedback * loopComp * delayed;
 
-        // One-pole LPF on write path — material absorption / damping.
+        // One-pole LPF on write path - material absorption / damping.
         float effectiveDamp = fmaxf(dampCoeff, boreDamp);
         dampZ1 = (1.f - effectiveDamp) * loopIn * drainGain + effectiveDamp * dampZ1;
 
@@ -351,7 +351,7 @@ struct AulosWaveguide {
 
     void idleTick() {}
 
-    // Scale all buffer contents by gain — soft energy drain without a hard clear.
+    // Scale all buffer contents by gain - soft energy drain without a hard clear.
     // Kept for non-realtime use (e.g. panic). In the audio loop, set drainGain
     // instead for O(1) cost.
     void drain(float gain) {
@@ -365,7 +365,7 @@ struct AulosWaveguide {
 // ─────────────────────────────────────────────────────────────────────────────
 // AulosJetDelay
 // Short pure delay line for the flute jet travel path.
-// No feedback loop — just write-then-read with Lagrange interpolation.
+// No feedback loop - just write-then-read with Lagrange interpolation.
 //
 // The jet delay models the travel time of a vortex from the embouchure hole
 // to the resonator opening, ~0.47 of the played period. It is pitch-scaled
@@ -416,7 +416,7 @@ struct AulosJetDelay {
 //
 // Phases: IDLE -> GROWTH (attack) -> SUSTAIN (gate held) -> DECAY (release).
 //
-// sustainLevel (0-1) scales the peak — unlike Dunes where peak is fixed at 10V.
+// sustainLevel (0-1) scales the peak - unlike Dunes where peak is fixed at 10V.
 // This means SUSTAIN knob directly controls breath pressure during a held note.
 //
 // Smooth retrigger: attack starts from the current output level rather than 0,
@@ -492,7 +492,7 @@ struct AulosBreathEnv {
         case AulosEnvPhase::DECAY:
             counter += 1.f;
             {
-                // Scale release time proportionally to level at gate-fall —
+                // Scale release time proportionally to level at gate-fall -
                 // a soft note releases proportionally faster than a loud one.
                 float scale   = rack::clamp(decayStart / 10.f, 0.f, 1.f);
                 float scaledR = releaseSamples * scale;

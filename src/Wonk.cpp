@@ -434,12 +434,12 @@ struct WonkWidget : ModuleWidget {
                 float xPos;
 
                 if (unipolar) {
-                    // Map 0–10V across full width
+                    // Map 0-10V across full width
                     float widthScale = box.size.x / 10.f;
                     rectWidth = value * widthScale;
                     xPos = 0.f; // start at left edge
                 } else {
-                    // Map -5–+5V across split center
+                    // Map -5-+5V across split center
                     float centerX = box.size.x / 2.0f;
                     float widthScale = centerX / 5.0f;
                     rectWidth = std::fabs(value) * widthScale;
@@ -561,6 +561,9 @@ struct WonkWidget : ModuleWidget {
 
     void step() override {
         Wonk* module = dynamic_cast<Wonk*>(this->module);
+        // Step children before the null-module early return so slider lights
+        // and other child widgets still update in the module library view.
+        ModuleWidget::step();
         if (!module) return;
 
         if (module->syncActive) {
@@ -574,7 +577,6 @@ struct WonkWidget : ModuleWidget {
             } else {
             module->paramQuantities[Wonk::MOD_DEPTH]->displayMultiplier = 1.f;
         }
-        ModuleWidget::step(); 
     }
 };
 

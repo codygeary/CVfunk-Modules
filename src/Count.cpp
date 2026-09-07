@@ -364,6 +364,9 @@ struct CountWidget : ModuleWidget {
 
     void step() override {
         Count* module = dynamic_cast<Count*>(this->module);
+        // Step children before the null-module early return so slider lights
+        // and other child widgets still update in the module library view.
+        ModuleWidget::step();
         if (!module) return;
 
         // --- keep inputTextField in sync with maxCount ---
@@ -386,7 +389,6 @@ struct CountWidget : ModuleWidget {
 
         countDisplay->text = numStr;
         countDisplay->setFontSize(fontSize);
-        ModuleWidget::step();
     }
 
     DigitalDisplay* createDigitalDisplay(Vec position, std::string initialValue) {

@@ -502,35 +502,40 @@ struct Strata : Module {
                 copyMode = static_cast<PasteMode>(v);
         }
     
+        // Every value below is used as an array or params[] subscript, so clamp on load the same
+        // way copyMode above is range-checked. semiStage and octStage reach
+        // params[SEMI_1_KNOB + semiStage] / params[OCT_1_KNOB + octStage], leftStage/rightStage
+        // become activeStage for params[SEQ_1_KNOB + activeStage], and strataLayer is the second
+        // subscript of nearly every 2D array in process() -- including ones that get written.
         json_t* curStageJ = json_object_get(rootJ, "currentStage");
         if (curStageJ && json_is_integer(curStageJ)) {
-            currentStage = json_integer_value(curStageJ);
+            currentStage = clamp((int)json_integer_value(curStageJ), 0, STAGES - 1);
         }
     
         json_t* selStageJ = json_object_get(rootJ, "selectedStage");
         if (selStageJ && json_is_integer(selStageJ)) {
-            selectedStage = json_integer_value(selStageJ);
+            selectedStage = clamp((int)json_integer_value(selStageJ), 0, STAGES - 1);
         }
 
         json_t* leftStageJ = json_object_get(rootJ, "leftStage");
         if (leftStageJ && json_is_integer(leftStageJ)) {
-            leftStage = json_integer_value(leftStageJ);
+            leftStage = clamp((int)json_integer_value(leftStageJ), 0, 3);
         }
         json_t* rightStageJ = json_object_get(rootJ, "rightStage");
         if (rightStageJ && json_is_integer(rightStageJ)) {
-            rightStage = json_integer_value(rightStageJ);
+            rightStage = clamp((int)json_integer_value(rightStageJ), 0, 3);
         }
         json_t* semiStageJ = json_object_get(rootJ, "semiStage");
         if (semiStageJ && json_is_integer(semiStageJ)) {
-            semiStage = json_integer_value(semiStageJ);
+            semiStage = clamp((int)json_integer_value(semiStageJ), 0, 6);
         }
         json_t* octStageJ = json_object_get(rootJ, "octStage");
         if (octStageJ && json_is_integer(octStageJ)) {
-            octStage = json_integer_value(octStageJ);
+            octStage = clamp((int)json_integer_value(octStageJ), 0, 3);
         }
         json_t* strataLayerJ = json_object_get(rootJ, "strataLayer");
         if (strataLayerJ && json_is_integer(strataLayerJ)) {
-            strataLayer = json_integer_value(strataLayerJ);
+            strataLayer = clamp((int)json_integer_value(strataLayerJ), 0, 3);
         }
     
         json_t* endPulseAtStageJ = json_object_get(rootJ, "endPulseAtStage");
@@ -861,6 +866,50 @@ struct Strata : Module {
                 
     }
 
+    // Advance semiStage to the next enabled semitone step.
+    //
+    // This was copy-pasted at two points in process(), which is how the ping-pong wrap came to be
+    // wrong in both. With exactly one enabled step the reflection targets fall outside the list
+    // (activeCount - 2 == -1, and 1 == activeCount), so active[idx] read off the end of the array
+    // and semiStage became garbage -- which is then used as params[SEMI_1_KNOB + semiStage].
+    void advanceSemiStage() {
+        // --- Build list of active semitone steps ---
+        int active[7];
+        int activeCount = 0;
+
+        for (int s = 0; s < 7; s++) {
+            if (buttonStates[s + 8][strataLayer]) {
+                active[activeCount++] = s;  // Store the actual index
+            }
+        }
+
+        if (activeCount == 0) return;   // nothing enabled: hold position
+
+        // Find current index in active list
+        int idx = 0;
+        for (int i = 0; i < activeCount; i++)
+            if (active[i] == semiStage) { idx = i; break; }
+
+        // Determine direction
+        if (semiSwitch == 0) sequenceDir = +1;
+        else if (semiSwitch == 2) sequenceDir = -1;
+
+        // Advance the sequence
+        if (semiSwitch == 1) { // ping-pong
+            idx += sequenceDir;
+            if (idx >= activeCount) { idx = activeCount - 2; sequenceDir = -1; }
+            else if (idx < 0)      { idx = 1; sequenceDir = +1; }
+            idx = clamp(idx, 0, activeCount - 1);   // one active step: reflect onto itself
+        }
+        else {  // forward/reverse wrap
+            idx += sequenceDir;
+            if (idx >= activeCount) idx = 0;
+            if (idx < 0)            idx = activeCount - 1;
+        }
+
+        semiStage = active[idx];
+    }
+
     void process(const ProcessArgs& args) override {
     
         noteSampled = false;
@@ -1090,42 +1139,12 @@ struct Strata : Module {
             if (beatCountSemi >= static_cast<int>(divide[8][strataLayer])) {
                 beatCountSemi = 0;
                 beatTimer_semi.reset();
-            
-                // --- Build list of active semitone steps ---
-                int active[7];
-                int activeCount = 0;
-                
-                for (int s = 0; s < 7; s++) {
-                    if (buttonStates[s + 8][strataLayer]) {
-                        active[activeCount++] = s;  // Store the actual index
-                    }
-                }
-                
-                if (activeCount == 0) return;   // never allow zero active
-            
-                // Find current index in active list
-                int idx = 0;
-                for (int i = 0; i < activeCount; i++)
-                    if (active[i] == semiStage) { idx = i; break; }
-            
-                // Determine direction
-                if (semiSwitch == 0) sequenceDir = +1;
-                else if (semiSwitch == 2) sequenceDir = -1;
-            
-                // Advance the sequence
-                if (semiSwitch == 1) { // ping-pong
-                    idx += sequenceDir;
-                    if (idx >= activeCount) { idx = activeCount - 2; sequenceDir = -1; }
-                    else if (idx < 0)      { idx = 1; sequenceDir = +1; }
-                }
-                else {  // forward/reverse wrap
-                    idx += sequenceDir;
-                    if (idx >= activeCount) idx = 0;
-                    if (idx < 0)            idx = activeCount - 1;
-                }
-            
-                if (divide[8][strataLayer]>0 && multiply[8][strataLayer]>0) {
-                    semiStage = active[idx];
+
+                // The divide/multiply test used to guard only the final assignment; with the body
+                // in a helper it guards the whole advance, which is the same thing except that
+                // sequenceDir is no longer updated while the semi sequencer is switched off.
+                if (divide[8][strataLayer] > 0.f && multiply[8][strataLayer] > 0.f) {
+                    advanceSemiStage();
                 }
             }
           
@@ -1155,7 +1174,7 @@ struct Strata : Module {
                 beatTimer.reset();
                 subBeatCount++;
         
-                // Only produce sub-beats for intermediate positions — the last sub-beat is skipped so the stage advance triggers
+                // Only produce sub-beats for intermediate positions - the last sub-beat is skipped so the stage advance triggers
                 if (subBeatCount < multiply[currentStage][strataLayer]) {
                     if (mainSwitch >= 1 ) patternIndex++; //increment patternIndex based on the mode setting
                     if (patternIndex >= patternStages)
@@ -1192,39 +1211,7 @@ struct Strata : Module {
                 
                 // Only advance on intermediate sub-beats (not the last one)
                 if (subBeatCount_semi < multiply[8][strataLayer]) {
-                    // --- Build list of active semitone steps ---
-                    int active[7];
-                    int activeCount = 0;
-                    
-                    for (int s = 0; s < 7; s++) {
-                        if (buttonStates[s + 8][strataLayer]) {
-                            active[activeCount++] = s;
-                        }
-                    }
-                    
-                    if (activeCount > 0) {
-                        // Find current index in active list
-                        int idx = 0;
-                        for (int i = 0; i < activeCount; i++)
-                            if (active[i] == semiStage) { idx = i; break; }
-        
-                        // Determine direction
-                        int dir = (semiSwitch == 2) ? -1 : +1;
-        
-                        // Advance the sequence
-                        if (semiSwitch == 1) { // ping-pong
-                            idx += sequenceDir;
-                            if (idx >= activeCount) { idx = activeCount - 2; sequenceDir = -1; }
-                            else if (idx < 0)      { idx = 1; sequenceDir = +1; }
-                        }
-                        else {  // forward/reverse wrap
-                            idx += dir;
-                            if (idx >= activeCount) idx = 0;
-                            if (idx < 0)            idx = activeCount - 1;
-                        }
-        
-                        semiStage = active[idx];
-                    }
+                    advanceSemiStage();
                 }
             }
         }
@@ -1263,6 +1250,10 @@ struct Strata : Module {
             }
             if (buttonStates[octStage+8+7][strataLayer]<1) octStage++; //skip stages that are off
         }
+        // With every octave step switched off the loop above increments its way out at octStage
+        // == 4, and params[OCT_1_KNOB + 4] is SEQ_1_BUTTON -- so the octave offset picked up
+        // that button's value. Wrap once more on the way out.
+        if (octStage >= 4) octStage = 0;
 
         //Beat Outputs      
         bool DonActive = false;
@@ -1313,6 +1304,11 @@ struct Strata : Module {
             activeStage = rightStage + 4;
         }
 
+        // DELIBERATE, do not delete: these second calls advance the pulse generators a second
+        // time per sample, so a pulse triggered with trigger(beatInterval) is actually held for
+        // beatInterval/2 -- a 50% gate rather than a gate that never falls between back-to-back
+        // notes. Removing them doubles every gate width. If you want to make it explicit, drop
+        // these two lines AND halve every trigger() duration above at the same time.
         DonPulse.process(args.sampleTime);
         KaPulse.process(args.sampleTime);
         
@@ -1765,6 +1761,9 @@ struct StrataWidget : ModuleWidget {
 
     void step() override {
         Strata* module = dynamic_cast<Strata*>(this->module);
+        // Step children before the null-module early return so slider lights
+        // and other child widgets still update in the module library view.
+        ModuleWidget::step();
         if (!module) return;
 
         // Update ratio displays
@@ -2039,7 +2038,6 @@ struct StrataWidget : ModuleWidget {
         }
 
 
-        ModuleWidget::step();         
     }  
 
     DigitalDisplay* createDigitalDisplay(Vec position, std::string initialValue) {
@@ -2057,7 +2055,9 @@ struct StrataWidget : ModuleWidget {
         ModuleWidget::appendContextMenu(menu);
     
         Strata* strataModule = dynamic_cast<Strata*>(module);
-        assert(strataModule); // Ensure the cast succeeds
+        // assert() compiles out under NDEBUG, and the MenuItem::step() overrides below dereference
+        // this pointer every frame, so check it for real.
+        if (!strataModule) return;
     
         // Separator for visual grouping in the context menu
         menu->addChild(new MenuSeparator());

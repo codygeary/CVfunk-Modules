@@ -314,6 +314,9 @@ struct HubWidget : ModuleWidget {
 
     void step() override {
         Hub* module = dynamic_cast<Hub*>(this->module);
+        // Step children before the null-module early return so slider lights
+        // and other child widgets still update in the module library view.
+        ModuleWidget::step();
         if (!module) return;
     
         if (voltDisplay_I) {
@@ -351,7 +354,6 @@ struct HubWidget : ModuleWidget {
                 module->lights[Hub::HUB_IIB_1+i].setBrightness(-val2);
             }
         } 
-        ModuleWidget::step();
     }
 
     DigitalDisplay* createDigitalDisplay(Vec position, std::string initialValue) {

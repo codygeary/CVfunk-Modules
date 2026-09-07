@@ -811,11 +811,11 @@ struct TunerWidget : ModuleWidget {
         addChild(centsDisp);
         addChild(freqDisp);
 
-        addInput(createInputCentered<PJ301MPort>    (Vec((box.size.x / 6) * 1.f, 170), module, Tuner::AUDIO_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>    (Vec((box.size.x / 6) * 1.f, 170), module, Tuner::AUDIO_INPUT));
         addParam(createParamCentered<RoundBlackKnob>(Vec((box.size.x / 6) * 2.f, 160), module, Tuner::OFFSET_PARAM));
         addParam(createParamCentered<RoundBlackKnob>(Vec((box.size.x / 6) * 3.f, 160), module, Tuner::GAIN_PARAM));
         addParam(createParamCentered<RoundBlackKnob>(Vec((box.size.x / 6) * 4.f, 160), module, Tuner::WIDTH_PARAM));
-        addOutput(createOutputCentered<PJ301MPort>  (Vec((box.size.x / 6) * 5.f, 170), module, Tuner::FREQ_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>  (Vec((box.size.x / 6) * 5.f, 170), module, Tuner::FREQ_OUTPUT));
 
         // --- Channel 2 ---
         const float channelOffset = 165.f;
@@ -834,11 +834,11 @@ struct TunerWidget : ModuleWidget {
         addChild(centsDisp2);
         addChild(freqDisp2);
 
-        addInput(createInputCentered<PJ301MPort>    (Vec((box.size.x / 6) * 1.f, 170 + channelOffset), module, Tuner::AUDIO2_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>    (Vec((box.size.x / 6) * 1.f, 170 + channelOffset), module, Tuner::AUDIO2_INPUT));
         addParam(createParamCentered<RoundBlackKnob>(Vec((box.size.x / 6) * 2.f, 160 + channelOffset), module, Tuner::OFFSET2_PARAM));
         addParam(createParamCentered<RoundBlackKnob>(Vec((box.size.x / 6) * 3.f, 160 + channelOffset), module, Tuner::GAIN2_PARAM));
         addParam(createParamCentered<RoundBlackKnob>(Vec((box.size.x / 6) * 4.f, 160 + channelOffset), module, Tuner::WIDTH2_PARAM));
-        addOutput(createOutputCentered<PJ301MPort>  (Vec((box.size.x / 6) * 5.f, 170 + channelOffset), module, Tuner::FREQ2_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>  (Vec((box.size.x / 6) * 5.f, 170 + channelOffset), module, Tuner::FREQ2_OUTPUT));
     }
 
     DigitalDisplay* createDigitalDisplay(Vec position, std::string initialValue) {
@@ -950,6 +950,9 @@ struct TunerWidget : ModuleWidget {
 
     void step() override {
         Tuner* module = dynamic_cast<Tuner*>(this->module);
+        // Step children before the null-module early return so slider lights
+        // and other child widgets still update in the module library view.
+        ModuleWidget::step();
         if (!module) return;
 
         updateNoteDisplay(module, 0, noteDisp,  centsDisp,  freqDisp);
@@ -980,7 +983,6 @@ struct TunerWidget : ModuleWidget {
             }
         }
 
-        ModuleWidget::step();
     }
 };
 

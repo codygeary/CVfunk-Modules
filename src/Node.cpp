@@ -58,7 +58,10 @@ struct Node : Module {
     float volTotalL = 0.0f,   volTotalR = 0.0f;
     float Ch1TotalL = 0.0f,   Ch1TotalR = 0.0f;
     float Ch2TotalL = 0.0f,   Ch2TotalR = 0.0f;
-    float lastInputL = 0.0f, lastInputR = 0.0f;
+    // Previous ADAA input per polyphony voice. The poly output path saturates each voice, so
+    // one shared history would hand voice c the previous voice's sample. Mono uses index 0.
+    float lastInputL[16] = {0.0f}, lastInputR[16] = {0.0f};
+    float decayRate = 0.999f;   // metering decay, a pure function of the sample rate
     float volume = 0.0f;
     float Ch1L = 0.0f, Ch1R = 0.0f;
     float Ch2L = 0.0f, Ch2R = 0.0f;
@@ -116,15 +119,15 @@ struct Node : Module {
             polySum = json_boolean_value(polySumJ);
         }
 
-        // Load transitionTime
+        // Load transitionTime. Clamp to the same range the menu slider enforces so a hand-edited
+        // or truncated patch cannot put a 0 into the 1.f/transitionSamples divide.
         json_t* transitionTimeJ = json_object_get(rootJ, "transitionTime");
         if (transitionTimeJ) {
-            transitionTime = json_real_value(transitionTimeJ);
+            transitionTime = clamp((float)json_number_value(transitionTimeJ), 1.f, 4000.f);
         }
-        json_t* transitionSamplesJ = json_object_get(rootJ, "transitionSamples");
-        if (transitionSamplesJ) {
-            transitionSamples = json_real_value(transitionSamplesJ);
-        }
+        // The serialized "transitionSamples" is a sample count, so it is wrong whenever the patch
+        // is reopened at a different sample rate. Derive it from the time instead of loading it.
+        transitionSamples = transitionTime * 0.001f * APP->engine->getSampleRate();
 
         // Load muteState array
         json_t* muteJ = json_object_get(rootJ, "muteState");
@@ -158,22 +161,60 @@ struct Node : Module {
         configOutput(OUT1, "Output L");
         configOutput(OUT2, "Output R");
 
-        transitionSamples = transitionTime * 0.001f * APP->engine->getSampleRate(); // 10 ms * sample rate
+        updateSampleRateDependents();
+    }
+
+    void onSampleRateChange() override {
+        updateSampleRateDependents();
+    }
+
+    void updateSampleRateDependents() {
+        float sr = APP->engine->getSampleRate();
+        decayRate = pow(0.999f, sr / 96000.f);  // was recomputed with pow() every sample
+        transitionSamples = transitionTime * 0.001f * sr;
+    }
+
+    void onReset(const ResetEvent& e) override {
+        Module::onReset(e);
+        // These are module state rather than params, so Module::onReset does not clear them.
+        for (int i = 0; i < 2; i++) {
+            muteLatch[i] = false;
+            muteState[i] = false;
+            muteStatePrevious[i] = false;
+            fadeLevel[i] = 1.f;
+            transitionCount[i] = 0;
+        }
+        transitionTime = 10.f;  // matches the member initializer and the menu slider's default
+        transitionSamples = transitionTime * 0.001f * APP->engine->getSampleRate();
+    }
+
+    // Per-voice VCA CV, shared by the mono and poly paths so they cannot drift apart.
+    float polyCV(rack::engine::Input& in, int c) {
+        int n = in.getChannels();
+        if (n == 1) return clamp(in.getPolyVoltage(0) * 0.1f, 0.f, 1.f);
+        if (n > c)  return clamp(in.getPolyVoltage(c) * 0.1f, 0.f, 1.f);
+        if (n > 1)  return 0.f;
+        return 1.f;   // CV unpatched: unity
     }
 
     void process(const ProcessArgs& args) override {
         cycleCount++;
 
-        transitionSamples = transitionTime * 0.001f * APP->engine->getSampleRate(); // 10 ms * sample rate
+        // transitionTime can change from the context menu at any time, so this stays per-sample,
+        // but it no longer calls into the engine to ask for a rate that is already in args.
+        transitionSamples = transitionTime * 0.001f * args.sampleRate;
     
         // ===== XFADE CV =====
-        float xfadeParam = params[XFADE_PARAM].getValue();
-        float xfadeCV = 0.f;
+        // The CV drives the slider so the panel reflects it. Previously the CV was then added to
+        // the slider value it had just written, so from the second sample onward the CV was
+        // applied twice (clamping out beyond +/-2.5 V) and the user's slider position was gone.
+        float xfadeAmount;
         if (inputs[XFADE_IN].isConnected()) {
-            xfadeCV = clamp(inputs[XFADE_IN].getVoltage() * 0.2f, -1.f, 1.f);
-            params[XFADE_PARAM].setValue(xfadeCV); // animate param if CV connected
+            xfadeAmount = clamp(inputs[XFADE_IN].getVoltage() * 0.2f, -1.f, 1.f);
+            params[XFADE_PARAM].setValue(xfadeAmount); // animate param if CV connected
+        } else {
+            xfadeAmount = clamp(params[XFADE_PARAM].getValue(), -1.f, 1.f);
         }
-        float xfadeAmount = clamp(xfadeParam + xfadeCV, -1.f, 1.f);
         float channel2Amt = (xfadeAmount + 1.f) * 0.5f;
         float channel1Amt = 1.f - channel2Amt;
     
@@ -202,21 +243,12 @@ struct Node : Module {
     
         // ===== Process Channel 1 (stereo poly aware) =====
         int ch1Channels = std::max(inputs[_1_IN1].getChannels(), inputs[_1_IN2].getChannels());
-        int cv1Channels = inputs[CV1_IN].getChannels();
         float ch1Lsum = 0.f, ch1Rsum = 0.f;
         for (int c = 0; c < ch1Channels; c++) {
             float inL = (inputs[_1_IN1].getChannels() > c) ? inputs[_1_IN1].getPolyVoltage(c) : 0.f;
             float inR = (inputs[_1_IN2].getChannels() > c) ? inputs[_1_IN2].getPolyVoltage(c) : inL;
     
-            float cv = 1.f;
-            if (cv1Channels == 1) {
-                cv = clamp(inputs[CV1_IN].getPolyVoltage(0) * 0.1f, 0.f, 1.f);
-            } else if (cv1Channels > c) {
-                cv = clamp(inputs[CV1_IN].getPolyVoltage(c) * 0.1f, 0.f, 1.f);
-            } else if (cv1Channels > 1) {
-                cv = 0.f;
-            }
-            float gain = params[GAIN1_PARAM].getValue() * cv;
+            float gain = params[GAIN1_PARAM].getValue() * polyCV(inputs[CV1_IN], c);
     
             inL *= fadeLevel[0] * gain;
             inR *= fadeLevel[0] * gain;
@@ -230,21 +262,12 @@ struct Node : Module {
     
         // ===== Process Channel 2 (stereo poly aware) =====
         int ch2Channels = std::max(inputs[_2_IN1].getChannels(), inputs[_2_IN2].getChannels());
-        int cv2Channels = inputs[CV2_IN].getChannels();
         float ch2Lsum = 0.f, ch2Rsum = 0.f;
         for (int c = 0; c < ch2Channels; c++) {
             float inL = (inputs[_2_IN1].getChannels() > c) ? inputs[_2_IN1].getPolyVoltage(c) : 0.f;
             float inR = (inputs[_2_IN2].getChannels() > c) ? inputs[_2_IN2].getPolyVoltage(c) : inL;
     
-            float cv = 1.f;
-            if (cv2Channels == 1) {
-                cv = clamp(inputs[CV2_IN].getPolyVoltage(0) * 0.1f, 0.f, 1.f);
-            } else if (cv2Channels > c) {
-                cv = clamp(inputs[CV2_IN].getPolyVoltage(c) * 0.1f, 0.f, 1.f);
-            } else if (cv2Channels > 1) {
-                cv = 0.f;
-            }
-            float gain = params[GAIN2_PARAM].getValue() * cv;
+            float gain = params[GAIN2_PARAM].getValue() * polyCV(inputs[CV2_IN], c);
     
             inL *= fadeLevel[1] * gain;
             inR *= fadeLevel[1] * gain;
@@ -263,10 +286,7 @@ struct Node : Module {
         outL = Ch1L * channel1Amt + Ch2L * channel2Amt;
         outR = Ch1R * channel1Amt + Ch2R * channel2Amt;
     
-        // ===== METERING =====
-        float sampleRate = args.sampleRate;
-        float scaleFactor = sampleRate / 96000.f;
-        float decayRate = pow(0.999f, scaleFactor);
+        // ===== METERING =====  (decayRate is maintained by updateSampleRateDependents())
         volTotalL = volTotalL * decayRate + fabs(outL) * (1.f - decayRate);
         volTotalR = volTotalR * decayRate + fabs(outR) * (1.f - decayRate);
         Ch1TotalL = Ch1TotalL * decayRate + fabs(Ch1L) * (1.f - decayRate);
@@ -277,7 +297,9 @@ struct Node : Module {
         // ===== OUTPUT =====
         if (polyOutput) {
             // Output full poly channels instead of stereo mix
-            int polyChannels = std::max(ch1Channels, ch2Channels);
+            // With nothing patched this was setChannels(0) with a loop body that never ran, so the
+            // port kept whatever voltage it last held. Floor at one channel of silence instead.
+            int polyChannels = std::max(1, std::max(ch1Channels, ch2Channels));
             outputs[OUT1].setChannels(polyChannels);
             outputs[OUT2].setChannels(polyChannels);
         
@@ -287,11 +309,14 @@ struct Node : Module {
                 float ch2L = (inputs[_2_IN1].getChannels() > c) ? inputs[_2_IN1].getPolyVoltage(c) : 0.f;
                 float ch2R = (inputs[_2_IN2].getChannels() > c) ? inputs[_2_IN2].getPolyVoltage(c) : ch2L;
         
-                // Apply gains, fades, and crossfade per channel
-                float outL = (ch1L * fadeLevel[0] * params[GAIN1_PARAM].getValue() * channel1Amt) +
-                             (ch2L * fadeLevel[1] * params[GAIN2_PARAM].getValue() * channel2Amt);
-                float outR = (ch1R * fadeLevel[0] * params[GAIN1_PARAM].getValue() * channel1Amt) +
-                             (ch2R * fadeLevel[1] * params[GAIN2_PARAM].getValue() * channel2Amt);
+                // Apply gains, CV, fades, and crossfade per channel. The CV inputs were missing
+                // here, so patching CV I / CV II did nothing at all in poly output mode.
+                float gain1 = params[GAIN1_PARAM].getValue() * polyCV(inputs[CV1_IN], c);
+                float gain2 = params[GAIN2_PARAM].getValue() * polyCV(inputs[CV2_IN], c);
+                float outL = (ch1L * fadeLevel[0] * gain1 * channel1Amt) +
+                             (ch2L * fadeLevel[1] * gain2 * channel2Amt);
+                float outR = (ch1R * fadeLevel[0] * gain1 * channel1Amt) +
+                             (ch2R * fadeLevel[1] * gain2 * channel2Amt);
         
                 // Clamp and ADAA just like stereo mode
                 float maxHeadRoom = 13.14f;
@@ -300,10 +325,10 @@ struct Node : Module {
 
                 float inputL = outL / 10.f; //fix ADAA to be more technically correct
                 float inputR = outR / 10.f;
-                outL = applyADAA(inputL, lastInputL, args.sampleRate);
-                outR = applyADAA(inputR, lastInputR, args.sampleRate);
-                lastInputL = inputL;  // Store input, not output
-                lastInputR = inputR;
+                outL = applyADAA(inputL, lastInputL[c], args.sampleRate);
+                outR = applyADAA(inputR, lastInputR[c], args.sampleRate);
+                lastInputL[c] = inputL;  // Store input, not output; one history per voice
+                lastInputR[c] = inputR;
         
                 outputs[OUT1].setVoltage(clamp(outL * volume * 6.9f, -10.f, 10.f), c);
                 outputs[OUT2].setVoltage(clamp(outR * volume * 6.9f, -10.f, 10.f), c);
@@ -316,11 +341,15 @@ struct Node : Module {
             outR = clamp(outR, -maxHeadRoom, maxHeadRoom);
             float inputL = outL / 10.f;
             float inputR = outR / 10.f;
-            outL = applyADAA(inputL, lastInputL, args.sampleRate);
-            outR = applyADAA(inputR, lastInputR, args.sampleRate);
-            lastInputL = inputL;  // Store input, not output
-            lastInputR = inputR;
+            outL = applyADAA(inputL, lastInputL[0], args.sampleRate);
+            outR = applyADAA(inputR, lastInputR[0], args.sampleRate);
+            lastInputL[0] = inputL;  // Store input, not output
+            lastInputR[0] = inputR;
         
+            // Without this the port keeps the channel count from a previous poly pass, leaving
+            // stale voltages on voices 1..N-1 after the menu option is switched off.
+            outputs[OUT1].setChannels(1);
+            outputs[OUT2].setChannels(1);
             outputs[OUT1].setVoltage(clamp(outL * volume * 6.9f, -10.f, 10.f));
             outputs[OUT2].setVoltage(clamp(outR * volume * 6.9f, -10.f, 10.f));
         }
@@ -541,8 +570,14 @@ struct NodeWidget : ModuleWidget {
     };
 
     void appendContextMenu(Menu* menu) override {
+        // Without this the stock Rack entries (Initialize, Randomize, Preset, Bypass, Duplicate,
+        // Delete...) never appear on this module.
+        ModuleWidget::appendContextMenu(menu);
+
         Node* nodeModule = dynamic_cast<Node*>(this->module);
-        assert(nodeModule);
+        // assert() compiles out under NDEBUG, and the MenuItem::step() overrides below dereference
+        // this pointer every frame, so check it for real.
+        if (!nodeModule) return;
     
         // Separator for new section
         menu->addChild(new MenuSeparator);
@@ -568,7 +603,7 @@ struct NodeWidget : ModuleWidget {
         polyOutputItem->nodeModule = nodeModule;             // Pass the module pointer
         menu->addChild(polyOutputItem);                      // Add to context menu
 
-        // Poly Sum menu item — sums poly channels instead of averaging when mixing to mono
+        // Poly Sum menu item - sums poly channels instead of averaging when mixing to mono
         struct PolySumItem : MenuItem {
             Node* nodeModule;
             void onAction(const event::Action& e) override {
@@ -585,9 +620,15 @@ struct NodeWidget : ModuleWidget {
         menu->addChild(polySumItem);
         
         // Envelope polySpan
-        auto* fadeSlider = new ui::Slider();
+        // ui::Slider does not delete `quantity` in its destructor; this subclass does.
+        struct OwnedSlider : ui::Slider {
+            ~OwnedSlider() { delete quantity; quantity = nullptr; }
+        };
+        auto* fadeSlider = new OwnedSlider();
+        // Default is 10 ms to match the transitionTime member initializer, so that resetting the
+        // slider and initializing the module agree.
         fadeSlider->quantity = new FloatMemberQuantity(nodeModule, &Node::transitionTime,
-            "Mute Fade Time (ms)", 1.f, 4000.f, 19.f, 0);
+            "Mute Fade Time (ms)", 1.f, 4000.f, 10.f, 0);
         fadeSlider->box.size.x = 200.f;
         menu->addChild(fadeSlider);
                 

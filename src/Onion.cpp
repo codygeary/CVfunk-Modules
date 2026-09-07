@@ -255,7 +255,7 @@ struct OnionWidget : ModuleWidget {
                 //No polyphony on MM, so no need to rename the layer tooltips.
             #else
                 if (module->outputLayers == 0 || startLayer == endLayer) {
-                    // Single layer Ñ just show it
+                    // Single layer â€“ just show it
                     label = "Layer " + std::to_string(endLayer);
                 } else if (endLayer > startLayer) {
                     // Normal range without wrap

@@ -156,7 +156,8 @@ struct PressedDuck : Module {
     // For mute transition
     float transitionTime = 10.f; //transition time in ms
     float transitionSamples = 100.f; // Number of samples to complete the transition, updated in config
-    float fadeLevel[7] = {1.0f};
+    // NOTE: {1.0f} would only initialize element 0; the rest would be zeroed.
+    float fadeLevel[7] = {1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f};
     int transitionCount[7] = {0};  // Array to track transition progress for each channel
 
     bool mutedSideDucks = false;
@@ -233,15 +234,15 @@ struct PressedDuck : Module {
             isSupersamplingEnabled = json_is_true(isSupersamplingEnabledJ);
         }
 
-        // Load transitionTime
+        // Load transitionTime. Clamp to the same range the menu slider enforces so a hand-edited
+        // or truncated patch cannot put a 0 into the 1.0f/transitionSamples divide below.
         json_t* transitionTimeJ = json_object_get(rootJ, "transitionTime");
         if (transitionTimeJ) {
-            transitionTime = json_real_value(transitionTimeJ);
+            transitionTime = clamp((float)json_number_value(transitionTimeJ), 1.f, 4000.f);
         }
-        json_t* transitionSamplesJ = json_object_get(rootJ, "transitionSamples");
-        if (transitionSamplesJ) {
-            transitionSamples = json_real_value(transitionSamplesJ);
-        }
+        // The serialized "transitionSamples" is a sample count, so it is wrong whenever the patch
+        // is reopened at a different sample rate. Derive it from the time instead of loading it.
+        transitionSamples = transitionTime * 0.001f * sampleRate;
 
         // Load muteLatch and muteState arrays
         json_t* muteLatchJ = json_object_get(rootJ, "muteLatch");
@@ -305,9 +306,10 @@ struct PressedDuck : Module {
     float volTotalL = 1.0f;
     float volTotalR = 1.0f;
 
-    // Arrays to hold last computed values for differentiation
-    float lastOutputL = 0.0f;
-    float lastOutputR = 0.0f;
+    // Previous INPUT to the ADAA saturator, needed for the difference quotient.
+    // (Must be the previous input x[n-1], not the previous output.)
+    float lastAdaaInputL = 0.0f;
+    float lastAdaaInputR = 0.0f;
     float sideEnvelopeL = 0.0f;
     float sideEnvelopeR = 0.0f;
     float sideEnvelope = 0.0f;
@@ -323,7 +325,10 @@ struct PressedDuck : Module {
     float filteredSideEnvelopeL = 0.0f;
     float filteredSideEnvelopeR = 0.0f;
 
+    // Envelope constants: these depend only on the sample rate, so they are computed in
+    // updateSampleRateDependents() rather than once per sample.
     float alpha = 0.01f;
+    float decayRate = 0.999f;
 
     // For filters
     float lastInputL = 0.0f;
@@ -477,22 +482,31 @@ struct PressedDuck : Module {
         for (int i = 0; i < 6; ++i) {
             isShifted[i].store(false);
         }
-        sampleRate = APP->engine->getSampleRate();
-        transitionSamples = transitionTime * 0.001f * sampleRate;
-        hpfL.setCutoffFrequency(sampleRate, 30.0f);
-        hpfR.setCutoffFrequency(sampleRate, 30.0f);
+        updateSampleRateDependents();
      }
 
     void onSampleRateChange() override {
-         sampleRate = APP->engine->getSampleRate();
-         transitionSamples = transitionTime * 0.001f * sampleRate;
-         hpfL.setCutoffFrequency(sampleRate, 30.0f);
-         hpfR.setCutoffFrequency(sampleRate, 30.0f);
+         updateSampleRateDependents();
+    }
+
+    // Everything here is a pure function of the sample rate. decayRate in particular was being
+    // recomputed with pow() on every process() call.
+    void updateSampleRateDependents() {
+        sampleRate = APP->engine->getSampleRate();
+        float scaleFactor = sampleRate / 96000.0f; // Reference sample rate (96 kHz)
+        alpha = 0.01f / scaleFactor;               // Smoothing factor for envelope
+        decayRate = pow(0.999f, scaleFactor);      // Decay rate adjusted for sample rate
+        transitionSamples = transitionTime * 0.001f * sampleRate;
+        hpfL.setCutoffFrequency(sampleRate, 30.0f);
+        hpfR.setCutoffFrequency(sampleRate, 30.0f);
     }
 
     void onReset(const ResetEvent& e) override {
         // Reset all parameters
         Module::onReset(e);
+
+        transitionTime = 10.f;  // matches the member initializer and the menu slider's default
+        transitionSamples = transitionTime * 0.001f * sampleRate;
 
         for (int i=0; i<7; i++){
 			muteLatch[i] = false;
@@ -524,10 +538,7 @@ struct PressedDuck : Module {
         float mixL = 0.0f;
         float mixR = 0.0f;
 
-        // Calculate scale factor based on the current sample rate
-        float scaleFactor = sampleRate / 96000.0f; // Reference sample rate (96 kHz)
-        alpha = 0.01f / scaleFactor;  // Smoothing factor for envelope
-        float decayRate = pow(0.999f, scaleFactor);  // Decay rate adjusted for sample rate
+        // alpha and decayRate are maintained by updateSampleRateDependents().
 
         float compressionAmountL = 0.0f;
         float compressionAmountR = 0.0f;
@@ -574,6 +585,8 @@ struct PressedDuck : Module {
 			volTotalR = 0.0f;
 			distortTotalL = 0.0f;
 			distortTotalR = 0.0f;
+			lastAdaaInputL = 0.0f;   // this path skips the saturator, so don't keep stale history
+			lastAdaaInputR = 0.0f;
 			outputs[AUDIO_OUTPUT_L].setVoltage(0.0f);
 			outputs[AUDIO_OUTPUT_R].setVoltage(0.0f);
 			return;
@@ -857,8 +870,18 @@ struct PressedDuck : Module {
 
         float sideChain=0.f;
         if (sideConnected) sideChain = 1.f;
-        compressionAmountL = compressionAmountL/((inputCount+sideChain)*5.0f); //divide by the expected ceiling
-        compressionAmountR = compressionAmountR/((inputCount+sideChain)*5.0f); //process L and R separately
+        // Reachable with inputCount == 0 and no sidechain: patch only a VCA/pan/mute CV into a
+        // channel and the early-exit above is skipped while no channel has an audio source.
+        // That made this 0/0, and the NaN only stayed contained because the comparisons below
+        // happen to be false for NaN.
+        float envDivisor = (inputCount + sideChain) * 5.0f; //divide by the expected ceiling
+        if (envDivisor > 0.0f) {
+            compressionAmountL = compressionAmountL/envDivisor;
+            compressionAmountR = compressionAmountR/envDivisor; //process L and R separately
+        } else {
+            compressionAmountL = 0.0f;
+            compressionAmountR = 0.0f;
+        }
 
         float pressAmount = cachedPress;
         if(inputs[PRESS_CV_INPUT].isConnected()){
@@ -916,13 +939,16 @@ struct PressedDuck : Module {
         sideR *= sideVol;
 
         if (transitionCount[6] > 0) {
+            // Same shape as the per-channel fade above: only decrement while the fade is still
+            // running, otherwise the completing sample sets the count to 0 and then to -1.
             float fadeStep = (muteState[6] ? -1.0f : 1.0f) / transitionSamples;
             fadeLevel[6] += fadeStep;
-            if ((muteState[6] && fadeLevel[6] < 0.0f) || (!muteState[6] && fadeLevel[6] > 1.0f)) {
+            if ((muteState[6] && fadeLevel[6] <= 0.0f) || (!muteState[6] && fadeLevel[6] >= 1.0f)) {
                 fadeLevel[6] = muteState[6] ? 0.0f : 1.0f;
                 transitionCount[6] = 0;  // End transition
+            } else {
+                transitionCount[6]--;
             }
-            transitionCount[6]--;
         } else {
             fadeLevel[6] = muteState[6] ? 0.0f : 1.0f;
         }
@@ -1002,10 +1028,18 @@ struct PressedDuck : Module {
         float maxHeadRoom = 46.f; //1.314*35 exceeding this number results in strange wavefolding due to the polytanh bad fit beyond this point
         mixL = clamp(mixL, -maxHeadRoom, maxHeadRoom);
         mixR = clamp(mixR, -maxHeadRoom, maxHeadRoom);
-        mixL = applyADAA(mixL/35.f, lastOutputL, sampleRate); //35 is 7x5v
-        mixR = applyADAA(mixR/35.f, lastOutputR, sampleRate);
-        lastOutputL = mixL;
-        lastOutputR = mixR;
+        // First-order ADAA needs the previous INPUT sample: (F(x[n]) - F(x[n-1])) / (x[n] - x[n-1]).
+        // This was passing the previous OUTPUT, so the difference quotient spanned two different
+        // signals. Aliasing suppression still mostly worked (y[n-1] tracks x[n-1] at low levels),
+        // but the stage lost level in a signal-dependent way: measured against the true saturator
+        // at A=1.0, -0.8 dB at 100 Hz where it should be exact, and -3.4 dB at 7 kHz against
+        // -0.7 dB for the corrected form.
+        float adaaInL = mixL / 35.f; //35 is 7x5v
+        float adaaInR = mixR / 35.f;
+        mixL = applyADAA(adaaInL, lastAdaaInputL, sampleRate);
+        mixR = applyADAA(adaaInR, lastAdaaInputR, sampleRate);
+        lastAdaaInputL = adaaInL;
+        lastAdaaInputR = adaaInR;
 
         // Set outputs
         float masterVol = cachedMasterVol;
@@ -1342,7 +1376,9 @@ struct PressedDuckWidget : ModuleWidget {
         ModuleWidget::appendContextMenu(menu);
 
         PressedDuck* PressedDuckModule = dynamic_cast<PressedDuck*>(module);
-        assert(PressedDuckModule); // Ensure the cast succeeds
+        // assert() compiles out under NDEBUG, and the MenuItem::step() overrides below dereference
+        // this pointer every frame, so check it for real.
+        if (!PressedDuckModule) return;
 
         // Separator for visual grouping in the context menu
         menu->addChild(new MenuSeparator());
@@ -1435,10 +1471,17 @@ struct PressedDuckWidget : ModuleWidget {
         // Separator for new section
         menu->addChild(new MenuSeparator);
 
+        // ui::Slider does not delete `quantity` in its destructor; this subclass does.
+        struct OwnedSlider : ui::Slider {
+            ~OwnedSlider() { delete quantity; quantity = nullptr; }
+        };
+
         // Envelope polySpan
-        auto* fadeSlider = new ui::Slider();
+        auto* fadeSlider = new OwnedSlider();
+        // Default is 10 ms to match the transitionTime member initializer, so that resetting the
+        // slider and initializing the module agree.
         fadeSlider->quantity = new FloatMemberQuantity(PressedDuckModule, &PressedDuck::transitionTime,
-            "Mute Fade Time (ms)", 1.f, 4000.f, 19.f, 0);
+            "Mute Fade Time (ms)", 1.f, 4000.f, 10.f, 0);
         fadeSlider->box.size.x = 200.f;
         menu->addChild(fadeSlider);
 

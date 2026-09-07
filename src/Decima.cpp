@@ -282,7 +282,7 @@ struct DecimaWidget : ModuleWidget {
         ModuleWidget::appendContextMenu(menu);
 
         Decima* decimaModule = dynamic_cast<Decima*>(module);
-        assert(decimaModule); // Ensure the cast succeeds
+        if (!decimaModule) return;
 
         // Separator for visual grouping in the context menu
         menu->addChild(new MenuSeparator());

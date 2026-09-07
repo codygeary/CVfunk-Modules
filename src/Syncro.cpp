@@ -697,6 +697,9 @@ struct SyncroWidget : ModuleWidget {
 
     void step() override {
         Syncro* module = dynamic_cast<Syncro*>(this->module);
+        // Step children before the null-module early return so slider lights
+        // and other child widgets still update in the module library view.
+        ModuleWidget::step();
         if (!module) return;
 
         // Update BPM and Swing displays
@@ -756,7 +759,6 @@ struct SyncroWidget : ModuleWidget {
                 module->lights[Syncro::FILL_INDICATE_1 + i].setBrightness(0.0f);
             }
         }
-        ModuleWidget::step(); 
     }
 
     DigitalDisplay* createDigitalDisplay(Vec position, std::string initialValue) {

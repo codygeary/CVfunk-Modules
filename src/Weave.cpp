@@ -205,6 +205,15 @@ struct Weave : Module {
         // --- NEW: input octave tracking flag ---
         json_object_set_new(rootJ, "inputTracksOctaves", json_boolean(inputTracksOctaves));
 
+        // --- Root note state ---
+        // noteValue/playingNotes are not parameters, so the framework will not save
+        // them; persist the selected root note (keyboard latch) explicitly.
+        json_object_set_new(rootJ, "noteValue", json_integer(noteValue));
+        json_t* playingNotesJ = json_array();
+        for (int i = 0; i < 12; i++)
+            json_array_append_new(playingNotesJ, json_boolean(playingNotes[i]));
+        json_object_set_new(rootJ, "playingNotes", playingNotesJ);
+
         return rootJ;
     }
 
@@ -219,7 +228,7 @@ struct Weave : Module {
             for (int i = 0; i < 6; i++) {
                 json_t* valJ = json_array_get(permuteJ, i);
                 if (valJ)
-                    currentPermute[i] = json_integer_value(valJ);
+                    currentPermute[i] = clamp((int)json_integer_value(valJ), 0, 5); // valid permutes are 0..5
             }
         }
 
@@ -231,6 +240,34 @@ struct Weave : Module {
         json_t* inputTracksOctavesJ = json_object_get(rootJ, "inputTracksOctaves");
         if (inputTracksOctavesJ)
             inputTracksOctaves = json_boolean_value(inputTracksOctavesJ);
+
+        // --- Root note state ---
+        json_t* noteValueJ = json_object_get(rootJ, "noteValue");
+        if (noteValueJ) {
+            int loadedNote = json_integer_value(noteValueJ);
+            if (loadedNote >= 0 && loadedNote < 12)
+                noteValue = loadedNote;
+        }
+
+        json_t* playingNotesJ = json_object_get(rootJ, "playingNotes");
+        if (playingNotesJ) {
+            for (int i = 0; i < 12; i++) {
+                json_t* valJ = json_array_get(playingNotesJ, i);
+                if (valJ)
+                    playingNotes[i] = json_boolean_value(valJ);
+            }
+        }
+
+        // Keep the keyboard latch in sync with the saved note: when nothing is latched
+        // (e.g. saved while a polyphonic input had cleared the notes), latch the saved
+        // note so the keyboard display and the noteValue derivation agree on reload.
+        bool anyLatched = false;
+        for (int i = 0; i < 12; i++)
+            if (playingNotes[i]) anyLatched = true;
+        if (!anyLatched && noteValue >= 0 && noteValue < 12) {
+            for (int i = 0; i < 12; i++)
+                playingNotes[i] = (i == noteValue);
+        }
     }
 
     Weave() {
@@ -291,13 +328,18 @@ struct Weave : Module {
             // Update previous connection states
             prevNoteConnected = noteConnected;
 
-            // Check if NOTE_INPUT is connected
-            if (inputs[NOTE_INPUT].isConnected()) {
-                noteInputConnected = true;
-            }
-
             processSkipper = 0;
         }
+
+        // The NOTE input connection is tracked every sample (as with the WEAVE/CHORD/SHIFT
+        // inputs) and in both directions, so an unplug is handled promptly and a stale
+        // "connected" state can never latch the module to C.
+        noteInputConnected = inputs[NOTE_INPUT].isConnected();
+
+        // The octave offset derived from the input is reset every sample and re-applied
+        // only by the connected branch below when octave tracking is on. This keeps a
+        // stale octave from a disconnected CV out of the outputs.
+        inputOctaveOffset = 0.f;
 
         if (noteInputConnected ){
             int inputChannels = inputs[NOTE_INPUT].getChannels();
@@ -307,87 +349,50 @@ struct Weave : Module {
             }
             inputChannels = std::min(inputChannels, 16); // VCV Rack limit
 
-            if (inputChannels == 1) {
-                // Monophonic V/OCT input - treat as a root note + chord
-                inputNotPoly = true;
-
-                // Read the voltage from NOTE_INPUT and quantize it to determine which note to activate
-
-                float noteVoltage = inputs[NOTE_INPUT].getVoltage();
-                int quantizedNote = static_cast<int>(std::roundf(noteVoltage * 12.0f));
-                int octaveOffset = 0;
-
-                if (inputTracksOctaves) {
-                    // Preserve the octave information
-                    octaveOffset = static_cast<int>(std::floor(noteVoltage));
-                    // Make sure we wrap the note index properly to 0–11 range
-                    quantizedNote = ((quantizedNote % 12) + 12) % 12;
-                    inputOctaveOffset = static_cast<float>(octaveOffset);
-                } else {
-                    // Classic behavior – wrap to single octave
-                    while (quantizedNote < 0)
-                        quantizedNote += 12;
-                    while (quantizedNote > 11)
-                        quantizedNote -= 12;
-                    inputOctaveOffset = 0.f;
-                }
-
-                // Update the playingNotes array
-                for (int i = 0; i < 12; i++) {
-                    playingNotes[i] = (i == quantizedNote);
-                }
-
-                noteValue = quantizedNote; // Store the quantized note
-            } else {
-                // Polyphonic V/OCT input - spread notes out over 6 channels
-                inputNotPoly = false;
-
-                // Clear the playingNotes array
-                for (int i = 0; i < 12; i++) {
-                    playingNotes[i] = false;
-                }
-
-                // Number of notes to distribute
-                const int totalNotes = 6;
-
-                // Calculate how many notes each channel should control
-                int notesPerChannel = totalNotes / inputChannels;
-                int extraNotes = totalNotes % inputChannels; // For uneven divisions
-
-                int noteIndex = 0; // Start index for assigning notes
-
-                for (int nt = 0; nt<12; nt++){
-                    playingNotes[nt] = false; //clear out the playing notes
-                }
-
-                // Loop over each channel
-                for (int ch = 0; ch < inputChannels; ch++) {
-                    // Determine the number of notes for this channel
-                    int channelNotes = notesPerChannel + (ch < extraNotes ? 1 : 0);
-
-                    // Read the voltage from the current channel
-                    float noteVoltage = inputs[NOTE_INPUT].getVoltage(ch);
-                    int quantizedNote = static_cast<int>(std::roundf(noteVoltage * 12.0f));
-                    while (quantizedNote < 0)
-                        quantizedNote += 12;
-                    while (quantizedNote > 11)
-                        quantizedNote -= 12;
-
-                    for (int nt = 0; nt<12; nt++){
-                        if (nt == quantizedNote){
-                             playingNotes[nt] = true;
-                        }
-                    }
-
-                    // Assign the quantized note to the assigned notes for this channel
-                    for (int n = 0; n < channelNotes; n++) {
-                        if (noteIndex < totalNotes) {
-                            currentNotes[noteIndex] = static_cast<int>(std::roundf(noteVoltage * 12.0f)) / 12.0f; // Store the quantized note value
-                            noteIndex++;
-                        }
-                    }
+            // The Note input is a mono root source. If the attached source is
+            // polyphonic, read only the top (highest) channel and ignore the lower
+            // ones - the module has a single root, so only the top note applies.
+            int topChannel = 0;
+            int topAbsNote = static_cast<int>(std::roundf(inputs[NOTE_INPUT].getVoltage(0) * 12.0f));
+            for (int ch = 1; ch < inputChannels; ch++) {
+                int absNote = static_cast<int>(std::roundf(inputs[NOTE_INPUT].getVoltage(ch) * 12.0f));
+                if (absNote > topAbsNote) {
+                    topAbsNote = absNote;
+                    topChannel = ch;
                 }
             }
+
+            // Monophonic V/OCT input - treat as a root note + chord
+            inputNotPoly = true;
+
+            // Read the voltage from NOTE_INPUT (top channel for poly sources) and
+            // quantize it to determine which note to activate
+
+            float noteVoltage = inputs[NOTE_INPUT].getVoltage(topChannel);
+            int quantizedNote = static_cast<int>(std::roundf(noteVoltage * 12.0f));
+            int octaveOffset = 0;
+
+            if (inputTracksOctaves) {
+                // Preserve the octave information
+                octaveOffset = static_cast<int>(std::floor(noteVoltage));
+                // Make sure we wrap the note index properly to 0-11 range
+                quantizedNote = ((quantizedNote % 12) + 12) % 12;
+                inputOctaveOffset = static_cast<float>(octaveOffset);
+            } else {
+                // Classic behavior - wrap to single octave
+                while (quantizedNote < 0)
+                    quantizedNote += 12;
+                while (quantizedNote > 11)
+                    quantizedNote -= 12;
+                inputOctaveOffset = 0.f;
+            }
+
+            // Update the playingNotes array
+            for (int i = 0; i < 12; i++) {
+                playingNotes[i] = (i == quantizedNote);
+            }
+
+            noteValue = quantizedNote; // Store the quantized note
         } else {
             inputNotPoly = true;
             // Otherwise, use the current active note from the playingNotes array
@@ -589,7 +594,7 @@ struct Weave : Module {
         // Compute the octave based on the lowest note (integer octave range)
         int lowestOctave = static_cast<int>(std::floor(lowestNote));
 
-        // Root is noteValue (0–11) scaled to volts + that octave
+        // Root is noteValue (0-11) scaled to volts + that octave
         float rootVoltage = (noteValue / 12.0f) + lowestOctave + extOffset;
 
         // Clamp for safety
@@ -785,6 +790,8 @@ struct WeaveWidget : ModuleWidget {
         }
     };
 
+    KeyboardDisplay* keyboardDisplay = nullptr;
+
     WeaveWidget(Weave* module) {
         setModule(module);
         setPanel(createPanel(
@@ -802,28 +809,28 @@ struct WeaveWidget : ModuleWidget {
         float leftW = -9.f;
         addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(45.0+leftW, 42.0f)), module, Weave::WEAVE_KNOB_PARAM));
         addParam(createParamCentered<Trimpot>(mm2px(Vec(55.0+leftW, 42.00)), module, Weave::WEAVE_ATT_PARAM));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(65.0+leftW-1.f, 42.00)), module, Weave::WEAVE_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(65.0+leftW-1.f, 42.00)), module, Weave::WEAVE_INPUT));
         addParam(createParamCentered<RoundHugeBlackKnob>(mm2px(Vec(23.299+left, 62.14)), module, Weave::CHORD_KNOB_PARAM));
         addLightsAroundKnob(module, mm2px(23.299+left), mm2px(62.14), Weave::CHORD_1_LIGHT, 17, 32.f);
 
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(8.872, 13.656)), module, Weave::TRIG_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(8.872, 13.656)), module, Weave::TRIG_INPUT));
         addParam(createParamCentered<TL1105>(mm2px(Vec(8.872, 6.656)), module, Weave::TRIG_BUTTON));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(8.872, 32.024)), module, Weave::RESET_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(8.872, 32.024)), module, Weave::RESET_INPUT));
         addParam(createParamCentered<TL1105>(mm2px(Vec(8.872, 25.024)), module, Weave::RESET_BUTTON));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(9.193+7, 112.123)), module, Weave::NOTE_INPUT));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(23.561+7, 112.123)), module, Weave::CHORD_INPUT));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(37.95+7, 112.123)), module, Weave::SHIFT_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(9.193+7, 112.123)), module, Weave::NOTE_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(23.561+7, 112.123)), module, Weave::CHORD_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(37.95+7, 112.123)), module, Weave::SHIFT_INPUT));
         addParam(createParamCentered<Trimpot>(mm2px(Vec(56-7, 73)), module, Weave::SHIFT_KNOB_PARAM));
 
         float right = 4.5f;
         float spacing = 11.0f;
         for (int out=0; out<7; out++){
             if (out==6) spacing +=.5f;
-            addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(62.642+right, 16.0f+out*spacing)), module, Weave::OUTPUT_1+out));
+            addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(62.642+right, 16.0f+out*spacing)), module, Weave::OUTPUT_1+out));
         }
 
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(62.642+right, 16.0f+7*12-1)), module, Weave::TRIG_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(62.642+right, 16.0f+8*12)), module, Weave::POLY_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(62.642+right, 16.0f+7*12-1)), module, Weave::TRIG_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(62.642+right, 16.0f+8*12)), module, Weave::POLY_OUTPUT));
 
 
         //Octave Buttons
@@ -853,7 +860,7 @@ struct WeaveWidget : ModuleWidget {
 
         if (module) {
             // Quantizer display
-            KeyboardDisplay* keyboardDisplay = createWidget<KeyboardDisplay>(mm2px(Vec(10.7f-5.f, 87.5f)));
+            keyboardDisplay = createWidget<KeyboardDisplay>(mm2px(Vec(10.7f-5.f, 87.5f)));
             keyboardDisplay->box.size = mm2px(Vec(50.501f, 16.168f));
             keyboardDisplay->setModule(module);
             addChild(keyboardDisplay);
@@ -919,7 +926,15 @@ struct WeaveWidget : ModuleWidget {
 
     void step() override {
         Weave* module = dynamic_cast<Weave*>(this->module);
+        // Step children before the null-module early return so slider lights
+        // and other child widgets still update in the module library view.
+        ModuleWidget::step();
         if (!module) return;
+
+        // The keyboard keys read module->playingNotes at draw time, and Rack redraws
+        // the self-illuminating (layer 1) pass every frame, so the lit keys always
+        // indicate the note actually being played even when the Root Note CV rewrites
+        // playingNotes at audio rate. No layer invalidation is needed.
 
         int rootNoteVal = 0;
         std::string rootNoteNames[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
@@ -981,7 +996,6 @@ struct WeaveWidget : ModuleWidget {
             module->lights[Weave::OCTAVE_UP_LIGHT].setBrightness(0.0f);
             module->lights[Weave::OCTAVE_DOWN_LIGHT].setBrightness(0.0f);
         }
-        ModuleWidget::step(); 
     }
     DigitalDisplay* createDigitalDisplay(Vec position, std::string initialValue, float fontSize) {
         DigitalDisplay* display = new DigitalDisplay();

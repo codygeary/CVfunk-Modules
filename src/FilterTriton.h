@@ -40,7 +40,7 @@ static inline BiquadCoeffs makeHighpass(float fn, float Q) {
     return c;
 }
 
-// Number of biquad stages — 8 gives -96dB/oct at maximum sharpness
+// Number of biquad stages - 8 gives -96dB/oct at maximum sharpness
 static const int TRITON_STAGES = 8;
 
 // Magnitude with sharpness blend across all 8 stages.
@@ -80,7 +80,7 @@ struct NyquistCap {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FilterTriton — 8-stage cascaded biquad, LP or HP, scalar
+// FilterTriton - 8-stage cascaded biquad, LP or HP, scalar
 //
 // sharpness 0..1 : blends output from stage 0 (-12dB/oct) to stage 7 (-96dB/oct)
 //                  All 8 stages always run. Q values are Butterworth throughout.
@@ -112,7 +112,7 @@ public:
             0.72537555f,  // k=5: cos(9pi/32)
             0.90100653f,  // k=6: cos(11pi/32)
             1.24722195f,  // k=7: cos(13pi/32)
-            2.56291556f,  // k=8: cos(15pi/32)  — highest Q stage
+            2.56291556f,  // k=8: cos(15pi/32)  - highest Q stage
         };
 
         auto type = (mode == LOWPASS)
@@ -163,7 +163,7 @@ private:
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FilterTritonSIMD — 8-stage cascaded biquad, 4-lane float_4 SIMD
+// FilterTritonSIMD - 8-stage cascaded biquad, 4-lane float_4 SIMD
 //
 // Each lane is an independent filter with its own coefficients and state.
 // Intended use in Triton: two instances per voice cover all 8 filters:
@@ -180,29 +180,29 @@ private:
 //
 // Note: all 4 lanes share one sharpness value (last setLane call wins).
 // When width is mapped to sharpness, sharpL != sharpR; the last lane's value
-// is used for the blend — a known limitation of the 4-lane layout.
+// is used for the blend - a known limitation of the 4-lane layout.
 // ─────────────────────────────────────────────────────────────────────────────
 struct FilterTritonSIMD {
     using float_4 = rack::simd::float_4;
 
-    // DF2T biquad delay lines — per stage, 4 lanes each
+    // DF2T biquad delay lines - per stage, 4 lanes each
     float_4 z1[TRITON_STAGES] = {};
     float_4 z2[TRITON_STAGES] = {};
 
-    // Current (target) biquad coefficients — written by setLane(), never modified by lerp
+    // Current (target) biquad coefficients - written by setLane(), never modified by lerp
     float_4 b0[TRITON_STAGES], b1[TRITON_STAGES], b2[TRITON_STAGES];
     float_4 fa1[TRITON_STAGES], fa2[TRITON_STAGES];
 
-    // Previous coefficients — snapshot taken just before each param update.
+    // Previous coefficients - snapshot taken just before each param update.
     float_4 pb0[TRITON_STAGES], pb1[TRITON_STAGES], pb2[TRITON_STAGES];
     float_4 pfa1[TRITON_STAGES], pfa2[TRITON_STAGES];
 
-    // Active (interpolated) coefficients — what process() actually uses.
+    // Active (interpolated) coefficients - what process() actually uses.
     // Written each sample by lerpCoeffs(); starts as a copy of b0 etc.
     float_4 ab0[TRITON_STAGES], ab1[TRITON_STAGES], ab2[TRITON_STAGES];
     float_4 afa1[TRITON_STAGES], afa2[TRITON_STAGES];
 
-    // Sharpness — target, previous, and active (interpolated)
+    // Sharpness - target, previous, and active (interpolated)
     float sharp = 1.f, prevSharp = 1.f, activeSharp = 1.f;
 
     static constexpr float qButter[TRITON_STAGES] = {
@@ -210,7 +210,7 @@ struct FilterTritonSIMD {
         0.72537555f, 0.90100653f, 1.24722195f, 2.56291556f,
     };
 
-    // snapshot — call just before updating coefficients via setLane().
+    // snapshot - call just before updating coefficients via setLane().
     void snapshot() {
         for (int k = 0; k < TRITON_STAGES; k++) {
             pb0[k]  = ab0[k];  pb1[k]  = ab1[k];  pb2[k]  = ab2[k];
@@ -219,7 +219,7 @@ struct FilterTritonSIMD {
         prevSharp = activeSharp;
     }
 
-    // setLane — configure one lane (0..3). Writes to target arrays only.
+    // setLane - configure one lane (0..3). Writes to target arrays only.
     void setLane(int lane, FilterTriton::Mode mode, float normalizedCutoff,
                  float sharpness, float resonance) {
         sharpness = rack::clamp(sharpness, 0.f, 1.f);
@@ -241,7 +241,7 @@ struct FilterTritonSIMD {
         }
     }
 
-    // lerpCoeffs — blend prev -> target into the active arrays.
+    // lerpCoeffs - blend prev -> target into the active arrays.
     // Call once per sample before process(). t runs 0->1 across PARAM_STRIDE.
     void lerpCoeffs(float t) {
         float_4 ft(t);
@@ -255,7 +255,7 @@ struct FilterTritonSIMD {
         activeSharp = prevSharp + t * (sharp - prevSharp);
     }
 
-    // process — uses active (interpolated) coefficients.
+    // process - uses active (interpolated) coefficients.
     float_4 process(float_4 x) {
         float_4 s[TRITON_STAGES];
         for (int k = 0; k < TRITON_STAGES; k++) {

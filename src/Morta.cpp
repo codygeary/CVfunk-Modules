@@ -250,6 +250,9 @@ struct MortaWidget : ModuleWidget {
 
     void step() override {
         Morta* module = dynamic_cast<Morta*>(this->module);
+        // Step children before the null-module early return so slider lights
+        // and other child widgets still update in the module library view.
+        ModuleWidget::step();
         if (!module) return;
     
         // Update BPM and Swing displays
@@ -261,7 +264,6 @@ struct MortaWidget : ModuleWidget {
             
             voltDisplay->text = voltText;
         }
-        ModuleWidget::step();
     }
 
     DigitalDisplay* createDigitalDisplay(Vec position, std::string initialValue) {

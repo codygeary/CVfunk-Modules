@@ -402,7 +402,7 @@ struct FlowerDisplay : TransparentWidget {
         if (!module) drawDummy(args);
     }
 
-    // Self-contained flower preview — mirrors the live FLOWER_MODE draw loop
+    // Self-contained flower preview - mirrors the live FLOWER_MODE draw loop
     // exactly, but uses locally-computed C4 sine data instead of module state.
     void drawDummy(const DrawArgs& args) {
         const float twoPi      = 2.0f * float(M_PI);
@@ -447,7 +447,7 @@ struct FlowerDisplay : TransparentWidget {
                     float angle  = twoPi * ((float)i / (sr / freq));
                     float radius = maxRadius * (0.5f + 0.5f * sample * (0.5f / maxVal));
 
-                    // FFT intensity — same formula as live code
+                    // FFT intensity - same formula as live code
                     float fftI = (1.f - FFTknob) + FFTknob * clamp(intensity[flowerIdx], 0.f, 1.f);
                     radius = std::min(radius * fftI, maxRadius);
 

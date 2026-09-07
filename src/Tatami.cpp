@@ -655,15 +655,15 @@ struct TatamiWidget : ModuleWidget {
         addChild(createWidget<ThemedScrew>(Vec(RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
         addChild(createWidget<ThemedScrew>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(19.242, 69.353)), module, Tatami::SHAPE_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(19.242, 69.353)), module, Tatami::SHAPE_INPUT));
         addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(27.918, 69.353)), module, Tatami::SHAPE_ATT_PARAM));
         addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(56.926, 69.353)), module, Tatami::SHAPE_PARAM));
 
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(19.242, 84.386)), module, Tatami::COMPRESS_INPUT));     
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(19.242, 84.386)), module, Tatami::COMPRESS_INPUT));     
         addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(27.918, 84.386)), module, Tatami::COMPRESS_ATT_PARAM));
         addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(56.926, 84.386)), module, Tatami::COMPRESS_PARAM));
 
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(19.242,  99.62)), module, Tatami::SYMMETRY_INPUT));     
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(19.242,  99.62)), module, Tatami::SYMMETRY_INPUT));     
         addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(27.918,  99.62)), module, Tatami::SYMMETRY_ATT_PARAM));
         addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(56.926, 99.62)), module, Tatami::SYMMETRY_PARAM));
      
@@ -671,14 +671,14 @@ struct TatamiWidget : ModuleWidget {
         addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(27.918, 114.25)), module, Tatami::DENSITY_ATT_PARAM));
         addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(68.752, 114.25)), module, Tatami::DENSITY_PARAM2));
 
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(6.815, 114.252)), module, Tatami::DENSITY_INPUT1));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(19.242, 114.252)), module, Tatami::DENSITY_INPUT2));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(6.815, 114.252)), module, Tatami::DENSITY_INPUT1));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(19.242, 114.252)), module, Tatami::DENSITY_INPUT2));
 
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(6.815, 57.326)), module, Tatami::AUDIO_L_INPUT));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(6.815, 70.756)), module, Tatami::AUDIO_R_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(6.815, 57.326)), module, Tatami::AUDIO_L_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(6.815, 70.756)), module, Tatami::AUDIO_R_INPUT));
 
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(69.152, 57.326)), module, Tatami::AUDIO_L_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(69.152, 70.756)), module, Tatami::AUDIO_R_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(69.152, 57.326)), module, Tatami::AUDIO_L_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(69.152, 70.756)), module, Tatami::AUDIO_R_OUTPUT));
 
         // Create and add the WaveDisplay
         WaveDisplay* waveDisplay = createWidget<WaveDisplay>(mm2px(Vec(7.981, 12.961))); // Positioning

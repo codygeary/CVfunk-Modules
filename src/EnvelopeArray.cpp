@@ -650,13 +650,15 @@ struct EnvelopeArrayWidget : ModuleWidget {
     void step() override {
 
         EnvelopeArray* module = dynamic_cast<EnvelopeArray*>(this->module);
+        // Step children before the null-module early return so slider lights
+        // and other child widgets still update in the module library view.
+        ModuleWidget::step();
         if (!module) return;
 
         for (int part = 0; part < 6; part++){
             module->lights[EnvelopeArray::_1_LIGHT + part].setBrightness(module->out[part] / 10.0);
             module->lights[EnvelopeArray::_1_LIGHT + 6 + part].setBrightness(module->gate_no_output[part] / 10.0);
         }
-        ModuleWidget::step();
     }       
 };
 

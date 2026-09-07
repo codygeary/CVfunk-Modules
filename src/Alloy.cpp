@@ -255,7 +255,7 @@ struct Alloy : Module {
 
         json_t* nodeCountJ = json_object_get(rootJ, "nodeCount");
         if (nodeCountJ) {
-            nodeCount = json_integer_value(nodeCountJ);
+            nodeCount = clamp((int)json_integer_value(nodeCountJ), 4, MAX_NODES); // menu offers 4/8/12/16
         }
     }
 
@@ -623,9 +623,11 @@ struct AlloyWidget : ModuleWidget {
 
     void step() override {
         Alloy* module = dynamic_cast<Alloy*>(this->module);
+        // Step children before the null-module early return so slider lights
+        // and other child widgets still update in the module library view.
+        ModuleWidget::step();
         if (!module) return;
             module->lights[Alloy::IMPULSE_LIGHT].setBrightness(module->exciteEnv[0]>0.0f ? 1.0f : 0.f);
-        ModuleWidget::step();
     }
 
     void appendContextMenu(Menu* menu) override {

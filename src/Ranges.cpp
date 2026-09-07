@@ -44,7 +44,7 @@ struct Ranges : Module {
         NUM_LIGHTS
     };
 
-    // Display state — written by process(), read by draw()
+    // Display state - written by process(), read by draw()
     float displayStart      = 0.f;
     float displayEnd        = 0.f;
     int   displayDivisions  = 1;
@@ -90,7 +90,7 @@ struct Ranges : Module {
         // ── Process each output jack ─────────────────────────────────────────
         for (int i = 0; i < 13; ++i) {
             if (i < divisions + 1) {
-                // Active output — set polyphonic voltages
+                // Active output - set polyphonic voltages
                 outputs[OUT1_OUTPUT + i].setChannels(channels);
 
                 for (int c = 0; c < channels; ++c) {
@@ -110,7 +110,7 @@ struct Ranges : Module {
                 }
                 lights[OUT1_LIGHT + i].setBrightness(1.f);
             } else {
-                // Inactive output — silence all channels
+                // Inactive output - silence all channels
                 outputs[OUT1_OUTPUT + i].setChannels(1);
                 outputs[OUT1_OUTPUT + i].setVoltage(0.f);
                 lights[OUT1_LIGHT + i].setBrightness(0.f);
@@ -134,7 +134,7 @@ struct Ranges : Module {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  RangesDisplay  — vertical voltage-range bar with gold tick marks
+//  RangesDisplay  - vertical voltage-range bar with gold tick marks
 // ─────────────────────────────────────────────────────────────────────────────
 struct RangesDisplay : TransparentWidget {
     Ranges* module = nullptr;
@@ -145,14 +145,14 @@ struct RangesDisplay : TransparentWidget {
         const float w = box.size.x;
         const float h = box.size.y;
 
-        // Values — use neutral defaults when no module (browser / preview)
+        // Values - use neutral defaults when no module (browser / preview)
         float start     = module ? module->displayStart     :  5.f;
         float end       = module ? module->displayEnd       : -5.f;
         int   divisions = module ? module->displayDivisions :  3;
         int   active    = divisions + 1;
 
         // ── Voltage range bar ────────────────────────────────────────────────
-        // Map ±10 V to the full widget height; top = +10 V, bottom = −10 V
+        // Map ±10 V to the full widget height; top = +10 V, bottom = -10 V
         const float barX  = 0.f;
         const float barW  = w;
         const float vMin  = -10.f, vRange = 20.f;
@@ -226,7 +226,7 @@ struct RangesWidget : ModuleWidget {
         addParam(createParam<RoundBlackKnob>(mm2px(Vec(5,  97)), module, Ranges::DIVISIONS_PARAM));
         addInput(createInput<ThemedPJ301MPort>(mm2px(Vec(6, 109)),module, Ranges::DIVISIONS_INPUT));
 
-        // ── Range display — slim gold bar on the right of the gap ───────────
+        // ── Range display - slim gold bar on the right of the gap ───────────
         {
             auto* display = createWidget<RangesDisplay>(mm2px(Vec(20.0f, 16.f)));
             display->box.size = mm2px(Vec(2.f, 100.f));
@@ -234,7 +234,7 @@ struct RangesWidget : ModuleWidget {
             addChild(display);
         }
 
-        // ── Right Section — 13 outputs ────────────────────────────────────────
+        // ── Right Section - 13 outputs ────────────────────────────────────────
         for (int i = 0; i < 13; ++i) {
             float yPos = 13.f + i * 8.f;
             addChild(createLight<SmallLight<RedLight>>(

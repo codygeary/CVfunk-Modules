@@ -1502,7 +1502,7 @@ struct PipeDisplay : TransparentWidget {
                 const float airReserve = rowH * 0.7f;
 
                 float lWidth = W * 0.5f - airReserve;
-                // Reserve right-edge space for air lines — they extend past the
+                // Reserve right-edge space for air lines - they extend past the
                 // bell exit, so cap rWidth so the longest line stays in bounds.
                 // airReserve scales with rowH since line length is proportional
                 // to bellH which is proportional to rowH.
@@ -1569,7 +1569,7 @@ struct PipeDisplay : TransparentWidget {
         const float tubeW   = bw - margin * 2.f;
         const float centerY = by + bh * 0.5f;
 
-        // Narrower tube — better aspect ratio.
+        // Narrower tube - better aspect ratio.
         const float baseH = bh * 0.28f;
 
         // Bore changes the pipe silhouette 
@@ -1620,7 +1620,7 @@ struct PipeDisplay : TransparentWidget {
 
         float boreEnd = clamp(activeFraction, 0.05f, 1.f);
 
-        // RMS drives the brightness floor — tube glows even at low breath.
+        // RMS drives the brightness floor - tube glows even at low breath.
         float brightness = 0.15f + 0.85f * fmaxf(rms * 4.f, breath);
 
         const int N = 64;
@@ -1674,7 +1674,7 @@ struct PipeDisplay : TransparentWidget {
 
         // ── Air lines ─────────────────────────────────────────────────────────
         // Field-line style bezier curves at bell exit. Middle line is longest,
-        // outer lines shorter. Gentle outward curve — not radial. 9 lines total:
+        // outer lines shorter. Gentle outward curve - not radial. 9 lines total:
         // inner 5 driven by air, outer 4 only active during chiff. Flutter with time.
         {
             float bellX    = tubeX + tubeW;
@@ -1698,7 +1698,7 @@ struct PipeDisplay : TransparentWidget {
                 }
                 if (lineActive < 0.02f) continue;
 
-                // Vertical position at bell — symmetric above/below center.
+                // Vertical position at bell - symmetric above/below center.
                 float ySign   = ((float)i < centerIdx) ? -1.f : (i > centerIdx ? 1.f : 0.f);
                 float yOffset = bellH * tAbs * 0.95f * ySign;
 
@@ -1956,8 +1956,12 @@ struct AulosWidget : ModuleWidget {
             std::string getDisplayValueString() override {
                 return string::f("%.3f", val ? *val : def); }
         };
+        // ui::Slider does not delete `quantity` in its destructor; this subclass does.
+        struct OwnedSlider : ui::Slider {
+            ~OwnedSlider() { delete quantity; quantity = nullptr; }
+        };
         auto addFSlider = [&](float* v, float lo, float hi, float def, std::string lbl) {
-            auto* sl = new ui::Slider();
+            auto* sl = new OwnedSlider();
             sl->quantity   = new FloatQ(v, lo, hi, def, lbl);
             sl->box.size.x = 200.f;
             menu->addChild(sl);

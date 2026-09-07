@@ -25,7 +25,7 @@ struct OnePole {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ADAA tanh — exact Node.cpp chain
+// ADAA tanh - exact Node.cpp chain
 // ─────────────────────────────────────────────────────────────────────────────
 struct ADAADrive {
     float lastInput = 0.f;
@@ -81,7 +81,7 @@ struct CenterHzQuantity : ParamQuantity {
 // =============================================================================
 struct Triton : Module {
 
-    // Width mapping — bitmask so multiple params can be mapped simultaneously
+    // Width mapping - bitmask so multiple params can be mapped simultaneously
     enum WidthBit { W_CENTER=1, W_SPREAD=2, W_GAP=4, W_SHARP=8, W_RES=16, W_DRIVE=32 };
 
     enum ParamId {
@@ -100,7 +100,7 @@ struct Triton : Module {
         MIX_LEVEL_PARAM, MIX_LEVEL_TRIM_PARAM,
         // Width
         WIDTH_PARAM,      WIDTH_TRIM_PARAM,
-        // Per-slider width map buttons — one per mappable filter param
+        // Per-slider width map buttons - one per mappable filter param
         MAP_CENTER_PARAM, MAP_SPREAD_PARAM, MAP_GAP_PARAM,
         MAP_SHARP_PARAM,  MAP_RES_PARAM,    MAP_DRIVE_PARAM,
         PARAMS_LEN
@@ -155,20 +155,20 @@ struct Triton : Module {
         NyquistCap   nyqCapL,  nyqCapR;
         ADAADrive    driveL,   driveR;
 
-        // Envelope followers — tap L channel bands
+        // Envelope followers - tap L channel bands
         EnvFollower  envLow, envMid, envHigh;
 
-        // Feedback state — per-voice so poly channels don't cross-contaminate
+        // Feedback state - per-voice so poly channels don't cross-contaminate
         float mixL = 0.f, mixR = 0.f;            // previous mix output, used as feedback source
         float feedbackL = 0.f, feedbackR = 0.f;  // feedback amount set from resonance
         float fbGainL = 0.f, fbGainR = 0.f;      // smoothed feedback gain
         float fbEnvL  = 0.f, fbEnvR  = 0.f;      // peak envelope for AGC
 
-        // Cached levels — written by param tier, read by audio tier
+        // Cached levels - written by param tier, read by audio tier
         float driveGainL = 1.f, driveGainR = 1.f;
         float lowLvl = 1.f, midLvl = 1.f, highLvl = 1.f, mixLvl = 1.f;
 
-        // Per-voice level smoothers — needed because level CVs are polyphonic
+        // Per-voice level smoothers - needed because level CVs are polyphonic
         OnePole smLowLvl, smMidLvl, smHighLvl, smMixLvl;
 
         void init(float sampleRate) {
@@ -204,26 +204,26 @@ struct Triton : Module {
     int nVoices   = 1;
     int prevVoices = 0;
 
-    // Interpolation phase — counts samples since last param tier tick.
+    // Interpolation phase - counts samples since last param tier tick.
     // Resets to 0 each time the param divider fires; used to compute the
     // lerp fraction t = interpPhase / PARAM_STRIDE in the audio tier.
     int interpPhase = 0;
 
-    // Width mapping — bitmask, each bit enables one parameter
+    // Width mapping - bitmask, each bit enables one parameter
     int  widthTarget = 0;
     // One trigger per map button
     dsp::SchmittTrigger mapTriggers[6];  // CENTER SPREAD GAP SHARP RES DRIVE
 
-    // Clock divider — param reads and filter coefficient updates run
+    // Clock divider - param reads and filter coefficient updates run
     // every PARAM_STRIDE samples instead of every sample.
     // At 44.1kHz and stride=32: param rate ≈ 1.4kHz, inaudible given smoothers.
     static const int PARAM_STRIDE = 32;
     dsp::ClockDivider paramDivider;
 
-    // Cached feedback amounts — set from resonance in param tier, used per-voice in audio tier
+    // Cached feedback amounts - set from resonance in param tier, used per-voice in audio tier
     float cachedFeedbackL = 0.f, cachedFeedbackR = 0.f;
 
-    // Cached level knob bases and trim factors — updated in param tier every PARAM_STRIDE
+    // Cached level knob bases and trim factors - updated in param tier every PARAM_STRIDE
     // samples. At audio rate each voice only adds its own poly CV * trim to these bases,
     // avoiding repeated params[].getValue() calls (slow engine indirections) per sample.
     float cachedLowBase  = 1.f, cachedMidBase  = 1.f;
@@ -234,7 +234,7 @@ struct Triton : Module {
     // Follow time (context menu, 0..1)
     float followTime = 0.30f;
 
-    // Display state — driven by voice 0
+    // Display state - driven by voice 0
     float displayFcLow  = 0.05f, displayFcHigh = 0.25f;
     float displayFcLowR = 0.05f, displayFcHighR = 0.25f;
     float displayEnvLow = 0.f,   displayEnvMid = 0.f, displayEnvHigh = 0.f;
@@ -245,7 +245,7 @@ struct Triton : Module {
     float dispSharp = 1.f, dispSharpR = 1.f;
     float sampleRate = 44100.f;
 
-    // Envelope output scaling — when true, env outputs follow the band level knobs
+    // Envelope output scaling - when true, env outputs follow the band level knobs
     bool scaledEnvelopes = true;
 
     // Feedback enabled flag
@@ -329,7 +329,7 @@ struct Triton : Module {
         configOutput(SUM_R_OUTPUT,   "Sum R");
         configOutput(MIX_ENV_OUTPUT, "Mix Envelope");
 
-        // Bypass routing — when module is disabled, audio passes through unprocessed
+        // Bypass routing - when module is disabled, audio passes through unprocessed
         configBypass(AUDIO_L_INPUT, SUM_L_OUTPUT);
         configBypass(AUDIO_R_INPUT, SUM_R_OUTPUT);
 
@@ -388,7 +388,7 @@ struct Triton : Module {
     void process(const ProcessArgs& args) override {
         sampleRate = args.sampleRate;
 
-        // ── Voice count — deepest poly across all connected inputs ────────────
+        // ── Voice count - deepest poly across all connected inputs ────────────
         int maxCh = 1;
         for (int i=0; i<INPUTS_LEN; i++)
             if (inputs[i].isConnected()) maxCh = std::max(maxCh, inputs[i].getChannels());
@@ -400,15 +400,15 @@ struct Triton : Module {
         }
         prevVoices = nVoices;
 
-        // ── PARAM TIER — runs every PARAM_STRIDE samples ──────────────────────
+        // ── PARAM TIER - runs every PARAM_STRIDE samples ──────────────────────
         // Param reads, smoothing, filter coeff and env follower updates.
-        // Filter CV inputs support polyphony — when any filter CV has more than
+        // Filter CV inputs support polyphony - when any filter CV has more than
         // one channel, each voice reads its own channel (poly path). When all
         // filter CVs are mono or unconnected, all voices share identical smoothed
         // values (fast path). VOCT is always per-voice regardless.
         if (paramDivider.process()) {
 
-            // Per-slider map buttons — each toggles its bit in the widthTarget bitmask
+            // Per-slider map buttons - each toggles its bit in the widthTarget bitmask
             struct { ParamId p; int bit; } mapBtns[6] = {
                 {MAP_CENTER_PARAM, W_CENTER}, {MAP_SPREAD_PARAM, W_SPREAD},
                 {MAP_GAP_PARAM,    W_GAP   }, {MAP_SHARP_PARAM,  W_SHARP },
@@ -423,7 +423,7 @@ struct Triton : Module {
                 return inputs[i].isConnected() ? inputs[i].getVoltage() : 0.f;
             };
 
-            // Base center uses channel 0 of VOCT — per-voice offset applied in audio tier
+            // Base center uses channel 0 of VOCT - per-voice offset applied in audio tier
             float centerBase = params[CENTER_PARAM].getValue()
                              + inputs[VOCT_INPUT].getPolyVoltage(0)
                              + readCV(CENTER_CV_INPUT)*params[CENTER_TRIM_PARAM].getValue();
@@ -448,10 +448,10 @@ struct Triton : Module {
             float driveSc  = driveKnob;
             float widthSc  = width;
 
-            // Non-linear response curves — applied after smoothing, before width offset
-            // Sharpness: most action in top quarter — 1-(1-x)^3 stretches that range out
+            // Non-linear response curves - applied after smoothing, before width offset
+            // Sharpness: most action in top quarter - 1-(1-x)^3 stretches that range out
             sharpSc = clamp(1.f - (1.f-sharpSc)*(1.f-sharpSc)*(1.f-sharpSc), 0.f, 1.f);
-            // Resonance: most action in bottom fifth — x^3 keeps it subtle until pushed
+            // Resonance: most action in bottom fifth - x^3 keeps it subtle until pushed
             resSc   = clamp(resSc*resSc*resSc, 0.f, 1.f)*0.5f;
 
             // Width pushes L and R symmetrically in opposite directions.
@@ -469,7 +469,7 @@ struct Triton : Module {
             cachedFeedbackR = 0.5f * resR;
 
             // Detect whether any filter CV input is actually polyphonic.
-            // When all are mono (the common case) all voices share identical cutoffs —
+            // When all are mono (the common case) all voices share identical cutoffs -
             // cheap. When a poly CV is patched, each voice reads its own channel.
             bool filterCVIsPoly = inputs[CENTER_CV_INPUT].getChannels() > 1
                                 || inputs[SPREAD_CV_INPUT].getChannels() > 1
@@ -479,7 +479,7 @@ struct Triton : Module {
                                 || inputs[DRIVE_CV_INPUT ].getChannels() > 1
                                 || inputs[WIDTH_CV_INPUT ].getChannels() > 1;
 
-            // Precompute knob+trim bases for poly CV reads — avoids repeated
+            // Precompute knob+trim bases for poly CV reads - avoids repeated
             // params[].getValue() calls inside the per-voice loop
             float centerKnob = params[CENTER_PARAM].getValue();
             float spreadKnob = params[SPREAD_PARAM].getValue();
@@ -512,7 +512,7 @@ struct Triton : Module {
                 float voiceDriveL,  voiceDriveR;
 
                 if (filterCVIsPoly) {
-                    // Poly path — read each CV input's own channel for this voice
+                    // Poly path - read each CV input's own channel for this voice
                     float vCenter = centerKnob + voctOffset
                                   + inputs[CENTER_CV_INPUT].getPolyVoltage(vi)*centerTrim;
                     float vSpread = clamp(spreadKnob + inputs[SPREAD_CV_INPUT].getPolyVoltage(vi)*spreadTrim, 0.f,1.f);
@@ -522,7 +522,7 @@ struct Triton : Module {
                     float vDrive  = clamp(driveKnob2 + inputs[DRIVE_CV_INPUT ].getPolyVoltage(vi)*driveTrim,  0.f,1.f);
                     float vWidth  = clamp(widthKnob  + inputs[WIDTH_CV_INPUT ].getPolyVoltage(vi)*widthTrim, -1.f,1.f);
 
-                    // Non-linear curves — same as the mono smoother path
+                    // Non-linear curves - same as the mono smoother path
                     vSharp = clamp(1.f - (1.f-vSharp)*(1.f-vSharp)*(1.f-vSharp), 0.f, 1.f);
                     vRes   = clamp(vRes*vRes*vRes, 0.f, 1.f) * 0.5f;
 
@@ -544,7 +544,7 @@ struct Triton : Module {
                     v.feedbackL = 0.5f * voiceResL;
                     v.feedbackR = 0.5f * voiceResR;
                 } else {
-                    // Mono fast-path — use pre-smoothed module-level values,
+                    // Mono fast-path - use pre-smoothed module-level values,
                     // only substitute this voice's VOCT offset for center
                     voiceCenterL = centerL - voct0 + voctOffset;
                     voiceCenterR = centerR - voct0 + voctOffset;
@@ -558,7 +558,7 @@ struct Triton : Module {
                     v.feedbackR  = cachedFeedbackR;
                 }
 
-                // Snapshot current coefficients before overwriting — gives lerpCoeffs()
+                // Snapshot current coefficients before overwriting - gives lerpCoeffs()
                 // a valid start point for the interpolation window
                 v.filtersA.snapshot();
                 v.filtersB.snapshot();
@@ -588,7 +588,7 @@ struct Triton : Module {
                 }
             }
 
-            // Display coefficients — extract per-lane from voice 0's SIMD filters.
+            // Display coefficients - extract per-lane from voice 0's SIMD filters.
             // filtersA: lane 0=lpLowL, lane 1=hpLowL, lane 2=lpLowR, lane 3=hpLowR
             // filtersB: lane 0=hpHighL, lane 1=lpHighL, lane 2=hpHighR, lane 3=lpHighR
             auto extractLane = [](const FilterTritonSIMD& f, int stage, int lane) -> BiquadCoeffs {
@@ -610,7 +610,7 @@ struct Triton : Module {
             dispSharp  = sharpL;
             dispSharpR = sharpR;
 
-            // Cache monophonic level bases and trim factors — audio tier adds poly CV delta
+            // Cache monophonic level bases and trim factors - audio tier adds poly CV delta
             cachedLowBase  = params[LOW_LEVEL_PARAM ].getValue();
             cachedMidBase  = params[MID_LEVEL_PARAM ].getValue();
             cachedHighBase = params[HIGH_LEVEL_PARAM].getValue();
@@ -624,17 +624,17 @@ struct Triton : Module {
 
         } // end paramDivider
 
-        // ── AUDIO TIER — per-voice loop ───────────────────────────────────────
+        // ── AUDIO TIER - per-voice loop ───────────────────────────────────────
         const float fbAttack  = 0.9f;
         const float fbRelease = 0.0005f;
         const float fbTarget  = 5.0f;
 
-        // Interpolation fraction — advances 0->1 across each PARAM_STRIDE window.
+        // Interpolation fraction - advances 0->1 across each PARAM_STRIDE window.
         // All voices use the same fraction since the param tier updates them together.
         float interpT = clamp((float)interpPhase / (float)PARAM_STRIDE, 0.f, 1.f);
         interpPhase++;
 
-        // Frequency scale factors for envelope normalisation — computed once per block
+        // Frequency scale factors for envelope normalisation - computed once per block
         float fcMin      = 20.f / sampleRate;
         float fcMax      = 20000.f / sampleRate;
         float logRange   = log2f(fcMax / fcMin);
@@ -674,8 +674,8 @@ struct Triton : Module {
             float drivenL = v.driveL.process(inL, v.driveGainL);
             float drivenR = v.driveR.process(inR, v.driveGainR);
 
-            // ── Band splitting — two SIMD passes ─────────────────────────────
-            // Interpolate coefficients toward their targets before processing —
+            // ── Band splitting - two SIMD passes ─────────────────────────────
+            // Interpolate coefficients toward their targets before processing -
             // eliminates zipper noise from the 32-sample param update stride
             v.filtersA.lerpCoeffs(interpT);
             v.filtersB.lerpCoeffs(interpT);
@@ -691,14 +691,14 @@ struct Triton : Module {
                 rack::simd::float_4(drivenL, pA[1], drivenR, pA[3]));
 
             float lowL  = v.dcBlockL.process(pA[0]);
-            float midL  = pB[1];    // lpHighL(hpLowL) — true bandpass L
+            float midL  = pB[1];    // lpHighL(hpLowL) - true bandpass L
             float highL = v.nyqCapL.process(pB[0]);
             lowL  = clamp(lowL,  -12.f, 12.f);
             midL  = clamp(midL,  -12.f, 12.f);
             highL = clamp(highL, -12.f, 12.f);
 
             float lowR  = v.dcBlockR.process(pA[2]);
-            float midR  = pB[3];    // lpHighR(hpLowR) — true bandpass R
+            float midR  = pB[3];    // lpHighR(hpLowR) - true bandpass R
             float highR = v.nyqCapR.process(pB[2]);
             lowR  = clamp(lowR,  -12.f, 12.f);
             midR  = clamp(midR,  -12.f, 12.f);
@@ -715,7 +715,7 @@ struct Triton : Module {
             float envMix = clamp((envL_+envM_+envH_)/3.f, 0.f, 10.f);
 
             // ── Outputs ───────────────────────────────────────────────────────
-            // Level CVs are polyphonic — each voice reads its own CV channel and adds
+            // Level CVs are polyphonic - each voice reads its own CV channel and adds
             // it to the pre-cached monophonic knob base and trim factor, avoiding
             // repeated params[].getValue() calls (slow engine indirections) per sample.
             float lowKnobBase  = clamp(cachedLowBase  + inputs[LOW_LEVEL_CV_INPUT ].getPolyVoltage(vi)*cachedLowTrim,  0.f,1.f);
@@ -846,7 +846,7 @@ struct TritonWidget : ModuleWidget {
             
                 if(visible){
                     if(!started){
-                        // First visible point — drop a vertical line from baseline first
+                        // First visible point - drop a vertical line from baseline first
                         nvgMoveTo(args.vg, px, baseY);
                         nvgLineTo(args.vg, px, py);
                         started = true;
@@ -854,7 +854,7 @@ struct TritonWidget : ModuleWidget {
                         nvgLineTo(args.vg, px, py);
                     }
                 } else if(started){
-                    // Just went invisible — close down to baseline at this x
+                    // Just went invisible - close down to baseline at this x
                     nvgLineTo(args.vg, px, baseY);
                     started = false;
                 }
@@ -884,7 +884,7 @@ struct TritonWidget : ModuleWidget {
             nvgStrokeWidth(args.vg,0.5f);nvgStroke(args.vg);
             if(module){
                 float sharpR = module->dispSharpR;
-                // L channel — full brightness
+                // L channel - full brightness
                 auto lowPts=evalBand([&](float fn){return cascadeMagSharp(module->dispLpLow, fn,sharp);});
                 auto highPts=evalBand([&](float fn){return cascadeMagSharp(module->dispHpHigh,fn,sharp);});
                 auto midPts=evalBand([&](float fn){
@@ -894,7 +894,7 @@ struct TritonWidget : ModuleWidget {
                 drawBand(lowPts, nvgRGBAf(0.75f,0.42f,0.08f,0.50f),nvgRGBAf(1.00f,0.58f,0.05f,0.85f),envL);
                 drawBand(midPts, nvgRGBAf(0.15f,0.40f,0.88f,0.50f),nvgRGBAf(0.22f,0.54f,1.00f,0.85f),envM);
                 drawBand(highPts,nvgRGBAf(0.08f,0.78f,0.72f,0.50f),nvgRGBAf(0.10f,1.00f,0.88f,0.85f),envH);
-                // R channel — dimmer dashed-style overlay (drawn without fill, outline only)
+                // R channel - dimmer dashed-style overlay (drawn without fill, outline only)
                 auto lowPtsR=evalBand([&](float fn){return cascadeMagSharp(module->dispLpLowR, fn,sharpR);});
                 auto highPtsR=evalBand([&](float fn){return cascadeMagSharp(module->dispHpHighR,fn,sharpR);});
                 auto midPtsR=evalBand([&](float fn){
@@ -915,7 +915,7 @@ struct TritonWidget : ModuleWidget {
         }
     };
 
-    // ── Context menu — Follow slider ──────────────────────────────────────────
+    // ── Context menu - Follow slider ──────────────────────────────────────────
     struct FollowQuantity : Quantity {
         Triton* module;
         FollowQuantity(Triton* m):module(m){}
@@ -1079,7 +1079,11 @@ struct TritonWidget : ModuleWidget {
 
         menu->addChild(new MenuSeparator());
 
-        auto* followSlider=new ui::Slider();
+        // ui::Slider does not delete `quantity` in its destructor; this subclass does.
+        struct OwnedSlider : ui::Slider {
+            ~OwnedSlider() { delete quantity; quantity = nullptr; }
+        };
+        auto* followSlider=new OwnedSlider();
         followSlider->quantity=new FollowQuantity(m);
         followSlider->box.size.x=200.f;
         menu->addChild(followSlider);

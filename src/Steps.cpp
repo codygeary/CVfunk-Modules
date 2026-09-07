@@ -172,7 +172,7 @@ struct Steps : Module {
         // ── Channel count ─────────────────────────────────────────────────────
         // polyOverride == 0 → auto from cables; else locked count.
         // When locked count exceeds cable channels, getPolyVoltage() naturally
-        // telegraphs channel 0 downward — so a mono trigger fires all channels.
+        // telegraphs channel 0 downward - so a mono trigger fires all channels.
         int channels;
         if (polyOverride > 0) {
             channels = polyOverride;
@@ -229,7 +229,7 @@ struct Steps : Module {
             if (externalComp) {
                 if      (compIn > bias + 0.5f * range) comparatorOutput = -5.f;
                 else if (compIn < bias - 0.5f * range) comparatorOutput =  5.f;
-                // correction stays 0 — external input disconnects the normal
+                // correction stays 0 - external input disconnects the normal
             } else {
                 if (effectiveStep >= 0.f) {
                     if      (compIn >= bias + 0.5f * range) { comparatorOutput = -5.f; correction = -range; }
@@ -255,7 +255,7 @@ struct Steps : Module {
                 step_mix[c]  = clamp(step_mix[c], -10.f, 10.f);
             }
 
-            // Quantize only at the output — step_mix stays as a true float
+            // Quantize only at the output - step_mix stays as a true float
             // accumulator so sub-quantum steps continue to accumulate correctly.
             outputs[STEPPER_OUTPUT].setVoltage(quantize(step_mix[c]), c);
             outputs[COMPARATOR_UP_OUTPUT].setVoltage(comparatorOutput < 0.f ? 10.f : 0.f, c);
@@ -280,7 +280,7 @@ struct Steps : Module {
             lights[DOWN_LIGHT].setSmoothBrightness(0.f, args.sampleTime);
         }
 
-        // LED bargraph — step_mix[0] position within the current window
+        // LED bargraph - step_mix[0] position within the current window
         int led_level = externalComp
             ? (int)std::floor(((step_mix[0] + 10.f) / 20.f) * 10.f)
             : (int)std::floor(((step_mix[0] - (bias - 0.5f * range)) / range) * 10.f);
@@ -382,7 +382,11 @@ struct StepsWidget : ModuleWidget {
             }
         };
         menu->addChild(createMenuLabel("Poly Channel Count"));
-        auto* polySl     = new ui::Slider();
+        // ui::Slider does not delete `quantity` in its destructor; this subclass does.
+        struct OwnedSlider : ui::Slider {
+            ~OwnedSlider() { delete quantity; quantity = nullptr; }
+        };
+        auto* polySl     = new OwnedSlider();
         auto* polyQ      = new PolyQuantity();
         polyQ->m         = m;
         polySl->quantity = polyQ;
@@ -407,13 +411,13 @@ struct StepsWidget : ModuleWidget {
                 Menu* sub = new Menu;
                 const std::pair<const char*, int> entries[] = {
                     { "None (default)",             0  },
-                    { "Octaves — 1-EDO  (1 V)",     1  },
+                    { "Octaves - 1-EDO  (1 V)",     1  },
                     { "9-EDO   (1/9 V)",             9  },
-                    { "12-EDO  — Semitones",         12 },
+                    { "12-EDO  - Semitones",         12 },
                     { "17-EDO  (1/17 V)",            17 },
                     { "19-EDO  (1/19 V)",            19 },
                     { "22-EDO  (1/22 V)",            22 },
-                    { "24-EDO  — Quarter-tones",     24 },
+                    { "24-EDO  - Quarter-tones",     24 },
                     { "31-EDO  (1/31 V)",            31 },
                     { "41-EDO  (1/41 V)",            41 },
                     { "53-EDO  (1/53 V)",            53 },

@@ -449,6 +449,9 @@ struct MagnetsWidget : ModuleWidget {
 
     void step() override {
         Magnets* module = dynamic_cast<Magnets*>(this->module);
+        // Step children before the null-module early return so slider lights
+        // and other child widgets still update in the module library view.
+        ModuleWidget::step();
         if (!module) return;
 
         // After updating, set the light states
@@ -457,7 +460,6 @@ struct MagnetsWidget : ModuleWidget {
             bool spinUp = module->spinStates[i] > 0;
             module->lights[lightIndex].setBrightness(spinUp ? 1.f : 0.f);
         } 
-        ModuleWidget::step();
     } 
       
 };

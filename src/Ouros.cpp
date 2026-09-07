@@ -477,7 +477,7 @@ struct PolarXYDisplay : TransparentWidget {
     static constexpr float twoPi = 2.0f * M_PI; // Precomputed constant for 2π
 
     // Draws a static polar sine preview when no module is loaded (library / browser).
-    // A pure sine maps to a perfect circle in polar space — clean and recognisable.
+    // A pure sine maps to a perfect circle in polar space - clean and recognisable.
     void drawDummySine(const DrawArgs& args) {
         centerX    = box.size.x / 2.0f;
         centerY    = box.size.y / 2.0f;
@@ -485,7 +485,7 @@ struct PolarXYDisplay : TransparentWidget {
 
         const int N = 256;
 
-        // Orange trace (L) — full circle
+        // Orange trace (L) - full circle
         nvgBeginPath(args.vg);
         for (int i = 0; i <= N; i++) {
             float theta = ((float)i / N) * twoPi;
@@ -500,7 +500,7 @@ struct PolarXYDisplay : TransparentWidget {
         nvgStrokeWidth(args.vg, 1.0f);
         nvgStroke(args.vg);
 
-        // Blue trace (R) — quarter-phase offset so the two traces are visible
+        // Blue trace (R) - quarter-phase offset so the two traces are visible
         nvgBeginPath(args.vg);
         for (int i = 0; i <= N; i++) {
             float theta = ((float)i / N) * twoPi;

@@ -108,7 +108,7 @@ struct GlassDCBlocker {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GlassEnvFollower — RMS follower for the ENV output
+// GlassEnvFollower - RMS follower for the ENV output
 // ─────────────────────────────────────────────────────────────────────────────
 struct GlassEnvFollower {
     float rms = 0.f, coeff = 0.001f;

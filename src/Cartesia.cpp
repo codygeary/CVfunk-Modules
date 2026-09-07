@@ -340,6 +340,12 @@ struct Cartesia : Module {
         if (zStageJ) {
             zStage = json_integer_value(zStageJ);
         }
+
+        // Keep the previous-stage trackers in sync with the loaded position so the first
+        // processed sample does not emit a phantom step trigger for the loaded position.
+        previousXStage = xStage;
+        previousYStage = yStage;
+        previousZStage = zStage;
  
         json_t* copyKnobJ = json_object_get(rootJ, "copiedKnobStates");
         if (json_is_array(copyKnobJ)) {
@@ -475,9 +481,21 @@ struct Cartesia : Module {
         for (int i = 0; i < 16; i++) {
             params[KNOB00_PARAM + i].setValue(0.0f);
         }
+
+        // Reset the stage position to step 1, keeping the previous-stage trackers in sync
+        // so the reposition does not emit a step trigger.
+        xStage = 0;
+        yStage = 0;
+        zStage = 0;
+        previousXStage = 0;
+        previousYStage = 0;
+        previousZStage = 0;
     }
 
     void process(const ProcessArgs& args) override {
+
+        // Capture the running state before any toggle so we can detect a start/stop edge.
+        const bool wasRunning = sequenceRunning;
 
         if (inputs[ONOFF_INPUT].isConnected()) {
             if (onTrigger.process(inputs[ONOFF_INPUT].getVoltage())) {
@@ -487,6 +505,11 @@ struct Cartesia : Module {
         if (onButtonTrigger.process(params[ONBUTTON_PARAM].getValue())) {
             sequenceRunning = !sequenceRunning;
         }
+
+        // The sample in which the sequence is started or stopped does not advance the
+        // stage: a clock tick arriving on that same sample is ignored, so the sequence
+        // resumes exactly where it left off and its first advance comes on the next tick.
+        const bool runningChanged = (sequenceRunning != wasRunning);
 
         knobMin = params[MIN_PARAM].getValue();
         if(inputs[MINCV_INPUT].isConnected()){
@@ -541,11 +564,11 @@ struct Cartesia : Module {
                 xStage++;
                 if (xStage > 3) { xStage = 0; yStage++; }
             }
-            if (scanFwdTrigger.process(inputs[SCANFWD_INPUT].getVoltage()) && sequenceRunning) {
+            if (scanFwdTrigger.process(inputs[SCANFWD_INPUT].getVoltage()) && sequenceRunning && !runningChanged) {
                 xStage++;
                 if (xStage > 3) { xStage = 0; yStage++; }
             }
-            if (scanRevTrigger.process(inputs[SCANREV_INPUT].getVoltage()) && sequenceRunning) {
+            if (scanRevTrigger.process(inputs[SCANREV_INPUT].getVoltage()) && sequenceRunning && !runningChanged) {
                 xStage--;
                 if (xStage < 0) { xStage = 3; yStage--; }
             }
@@ -557,7 +580,7 @@ struct Cartesia : Module {
             xStage = clamp(static_cast<int>(floor(xVoltage / 2.5f)), 0, 3);
         } else {
             if (xButtonTrigger.process(params[XFWDBUTTON_PARAM].getValue())) { xStage++; }
-            if (sequenceRunning){
+            if (sequenceRunning && !runningChanged){
                 if (xRevTrigger.process(inputs[XREV_INPUT].getVoltage())) { xStage--; }
                 if (xFwdTrigger.process(inputs[XFWD_INPUT].getVoltage())) { xStage++; }
             }
@@ -569,7 +592,7 @@ struct Cartesia : Module {
             yStage = clamp(static_cast<int>(floor(yVoltage / 2.5f)), 0, 3);
         } else {
             if (yButtonTrigger.process(params[YFWDBUTTON_PARAM].getValue())) { yStage++; }
-            if (sequenceRunning){
+            if (sequenceRunning && !runningChanged){
                 if (yRevTrigger.process(inputs[YREV_INPUT].getVoltage())) { yStage--; }
                 if (yFwdTrigger.process(inputs[YFWD_INPUT].getVoltage())) { yStage++; }
             }
@@ -581,14 +604,14 @@ struct Cartesia : Module {
             zStage = clamp(static_cast<int>(floor(zVoltage / 2.5f)), 0, 3);
         } else {
             if (zButtonTrigger.process(params[ZFWDBUTTON_PARAM].getValue())) { zStage++; }
-            if (sequenceRunning){
+            if (sequenceRunning && !runningChanged){
                 if (zRevTrigger.process(inputs[ZREV_INPUT].getVoltage())) { zStage--; }
                 if (zFwdTrigger.process(inputs[ZFWD_INPUT].getVoltage())) { zStage++; }
             }
         }
 
         // Process RANDOM inputs
-        if (inputs[RANDOM_INPUT].isConnected() && sequenceRunning) {
+        if (inputs[RANDOM_INPUT].isConnected() && sequenceRunning && !runningChanged) {
             if (randomTrigger.process(inputs[RANDOM_INPUT].getVoltage())) {
                 xStage = random::u32() % 4;  // Random value between 0-3
                 yStage = random::u32() % 4;
@@ -611,11 +634,19 @@ struct Cartesia : Module {
         double deltaTime = args.sampleTime;
 
         // Process RESET inputs
+        //
+        // The step section above runs first on purpose: when a reset arrives in the same
+        // sample as a clock tick, it overwrites the tick's advance, so the sequencer
+        // lands on step 1 rather than step 2. The active level is captured in
+        // resetActive so the stage-change detection below can suppress the step trigger
+        // for a reset-caused reposition.
+        bool resetActive = false;
         if (inputs[RESET_INPUT].isConnected()) {
             if (resetTrigger.process(inputs[RESET_INPUT].getVoltage()) && sequenceRunning) {
                 xStage = 0;
                 yStage = 0;
                 zStage = 0;
+                resetActive = true;
                 resetPulse.trigger(0.001f);
             }            
         }
@@ -624,6 +655,7 @@ struct Cartesia : Module {
                 xStage = 0;
                 yStage = 0;
                 zStage = 0;
+                resetActive = true;
                 resetPulse.trigger(0.001f);                
         }
 
@@ -632,15 +664,18 @@ struct Cartesia : Module {
         yStage = (yStage + 4) % 4;
         zStage = (zStage + 4) % 4;
 
-        // Detect Z-layer (slice) change and flag display update
-        if (zStage != previousZStage) {
-            triggerPulse.trigger(0.001f);
+        // Detect stage change: recall the new layer's knob values when Z changed and
+        // fire the step trigger at most once per sample. A change caused by a reset
+        // does not emit a step trigger (downstream modules should step on the next
+        // real clock tick, not on the reset reposition).
+        const bool zStageChanged = (zStage != previousZStage);
+        if (zStageChanged) {
             displayUpdate = true;
-            previousZStage = zStage;
         }
-
-        if ( (xStage != previousXStage) || (yStage != previousYStage) || (zStage != previousZStage) ){
-            triggerPulse.trigger(0.001f);
+        if ((xStage != previousXStage) || (yStage != previousYStage) || zStageChanged) {
+            if (!resetActive) {
+                triggerPulse.trigger(0.001f);
+            }
             previousXStage = xStage;
             previousYStage = yStage;
             previousZStage = zStage;
@@ -670,6 +705,14 @@ struct Cartesia : Module {
         if (displayUpdate) {
             displayUpdate = false;
         }
+
+        // Consume the pulse generators exactly once per sample. PulseGenerator::process()
+        // decrements the remaining pulse time on every call, so each pulse must be
+        // advanced a single time and its state shared by all outputs (calling process()
+        // once per poly voice would drain the pulse polyLevels+1 times faster than
+        // intended, shortening the output triggers).
+        const bool triggerActive = triggerPulse.process(deltaTime);
+        const bool resetPulseActive = resetPulse.process(deltaTime);
 
         // Process Polyphonic Output Handling
         polyLevels = params[POLYKNOB_PARAM].getValue();
@@ -707,7 +750,7 @@ struct Cartesia : Module {
             if (buttonStates[xStage + 4 * yStage][wrappedZ]) {
                 if (gateTriggerEnabled) {
                     // If gateTriggerEnabled, output a trigger instead of a gate
-                    outputs[GATEOUT_OUTPUT].setVoltage(triggerPulse.process(deltaTime) ? 10.f : 0.f, i);
+                    outputs[GATEOUT_OUTPUT].setVoltage(triggerActive ? 10.f : 0.f, i);
                 } else {
                     // Normal gate output
                     outputs[GATEOUT_OUTPUT].setVoltage(10.f, i);
@@ -717,7 +760,7 @@ struct Cartesia : Module {
                 outputs[GATEOUT_OUTPUT].setVoltage(0.f, i);
                 if (gateTriggerEnabled) {
                     // If gateTriggerEnabled, output a trigger instead of a gate
-                    outputs[INVGATEOUT_OUTPUT].setVoltage(triggerPulse.process(deltaTime) ? 10.f : 0.f, i);
+                    outputs[INVGATEOUT_OUTPUT].setVoltage(triggerActive ? 10.f : 0.f, i);
                 } else {
                     // Normal gate output
                     outputs[INVGATEOUT_OUTPUT].setVoltage(10.f, i);
@@ -727,8 +770,8 @@ struct Cartesia : Module {
         }
         
         //Trigger Outputs
-        outputs[RESET_OUTPUT].setVoltage(resetPulse.process(deltaTime) ? 10.f : 0.f);
-        outputs[TRIGGER_OUTPUT].setVoltage(triggerPulse.process(deltaTime) ? 10.f : 0.f);
+        outputs[RESET_OUTPUT].setVoltage(resetPulseActive ? 10.f : 0.f);
+        outputs[TRIGGER_OUTPUT].setVoltage(triggerActive ? 10.f : 0.f);
         
     }
 };
@@ -1053,6 +1096,9 @@ struct CartesiaWidget : ModuleWidget {
 
     void step() override {
         Cartesia* module = dynamic_cast<Cartesia*>(this->module);
+        // Step children before the null-module early return so slider lights
+        // and other child widgets still update in the module library view.
+        ModuleWidget::step();
         if (!module) return;
 
         // Update note displays
@@ -1250,7 +1296,6 @@ struct CartesiaWidget : ModuleWidget {
          } else {
              module->lights[Cartesia::ONBUTTON_LIGHT].setBrightness(0.0f);
          }
-         ModuleWidget::step();
     }
 
     DigitalDisplay* createDigitalDisplay(Vec position, std::string initialValue) {

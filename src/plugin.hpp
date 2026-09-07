@@ -51,6 +51,7 @@ extern Model* modelTriton;
 extern Model* modelAulos;
 extern Model* modelGlass;
 extern Model* modelHaze;
+extern Model* modelTwang;
 
 
 

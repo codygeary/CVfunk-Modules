@@ -577,6 +577,9 @@ struct HexModWidget : ModuleWidget {
 
     void step() override {
         HexMod* module = dynamic_cast<HexMod*>(this->module);
+        // Step children before the null-module early return so slider lights
+        // and other child widgets still update in the module library view.
+        ModuleWidget::step();
         if (!module) return;
         
         for (int i = 0; i < 6; i++) {    
@@ -607,7 +610,6 @@ struct HexModWidget : ModuleWidget {
         } else {
             module->paramQuantities[HexMod::RATE_KNOB]->displayMultiplier = 1.0f;        
         }  
-		ModuleWidget::step();
     }   
 
     void appendContextMenu(Menu* menu) override {

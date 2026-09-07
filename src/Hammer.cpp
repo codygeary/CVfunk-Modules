@@ -69,7 +69,6 @@ struct Hammer : Module {
     dsp::SchmittTrigger onOffButtonTrigger;
 
     float SwingPhase = 0.0f;
-    float lastClockTime = -1.0f;
     float bpm = 120.0f;
     float phase = 0.0f;
     float multiply[CHANNELS+1] = {1.0f,1.0f,1.0f,1.0f,1.0f,1.0f,1.0f,1.0f,1.0f};
@@ -81,13 +80,11 @@ struct Hammer : Module {
     float PrevSyncInterval = 1.0f;
     float clockRate = 120.0f;
     float phases[CHANNELS+1] = {0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};  // Array to store phases for each clock
-    float tempPhases[CHANNELS+1] = {0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};
     float swing = 0.f;
     int outputIndex[CHANNELS] = {0,1,2,3,4,5,6,7}; //For clock rotation function
 
     int clockRotate = 0;
     int swingCount = 0;
-    int fillGlobal = 0;
     int masterClockCycle = 0;
 
     //for sample-based clocking
@@ -148,7 +145,7 @@ struct Hammer : Module {
             for (size_t i = 0; i < json_array_size(multiplyJ) && i < (CHANNELS+1); i++) {
                 json_t* val = json_array_get(multiplyJ, i);
                 if (json_is_number(val)) {
-                    multiply[i] = json_number_value(val);
+                    multiply[i] = clamp(json_number_value(val), 0.0f, 99.0f); // match button clamps
                 }
             }
         }
@@ -159,7 +156,7 @@ struct Hammer : Module {
             for (size_t i = 0; i < json_array_size(divideJ) && i < (CHANNELS+1); i++) {
                 json_t* val = json_array_get(divideJ, i);
                 if (json_is_number(val)) {
-                    divide[i] = json_number_value(val);
+                    divide[i] = clamp(json_number_value(val), 1.0f, 99.0f); // match button clamps
                 }
             }
         }
@@ -329,26 +326,35 @@ struct Hammer : Module {
                       (inputs[CLOCK_INPUT].isConnected()
                            ? 10.f * inputs[CLOCK_INPUT].getVoltage() * params[CLOCK_ATT].getValue()
                            : 0.0f);
-            
-                // Compute ideal samples per cycle as double for precision
-                double exactSamples = (args.sampleRate * 60.0) / static_cast<double>(bpm);
-                double integerPart;
-                double fractionalPart = modf(exactSamples, &integerPart);
-            
-                // Accumulate fractional error
-                masterClockError += fractionalPart;
-            
-                // Adjust integer part when enough fractional error has built up
-                if (masterClockError >= 1.0) {
-                    integerPart += 1.0;
-                    masterClockError -= 1.0;
-                } else if (masterClockError <= -1.0) {
-                    integerPart -= 1.0;
-                    masterClockError += 1.0;
-                }
-            
-                masterClockLength = static_cast<uint64_t>(integerPart);
-            } 
+            }
+
+            // CV (or V/oct underflow) can drive the rate to <= 0 / NaN, which would
+            // make the (uint64_t) cast below undefined behavior. Clamp before use.
+            // The floor matches the Clock Rate knob minimum, so a CV-killed clock
+            // simply stops (same as knob at min).
+            bpm = fmaxf(bpm, 0.000001f);
+
+            // Compute ideal samples per cycle as double for precision. Runs for both
+            // clock CV modes so the sample-based master tick always follows the
+            // current rate (previously the V/oct branch left masterClockLength
+            // stale, freezing the master at whatever rate it last had).
+            double exactSamples = (args.sampleRate * 60.0) / static_cast<double>(bpm);
+            double integerPart;
+            double fractionalPart = modf(exactSamples, &integerPart);
+
+            // Accumulate fractional error
+            masterClockError += fractionalPart;
+
+            // Adjust integer part when enough fractional error has built up
+            if (masterClockError >= 1.0) {
+                integerPart += 1.0;
+                masterClockError -= 1.0;
+            } else if (masterClockError <= -1.0) {
+                integerPart -= 1.0;
+                masterClockError += 1.0;
+            }
+
+            masterClockLength = static_cast<uint64_t>(integerPart);
         }
 
         // Compute swing
@@ -509,7 +515,6 @@ struct Hammer : Module {
                 }
             }
 
-            if (bpm <= 0) bpm = 1.0f;  // Ensure bpm is positive and non-zero
             if (ratio[i] <= 0) ratio[i] = 1.0f;  // Ensure ratio is positive and non-zero
 
             // compute normalized phase (ClockTimer reset ensures phase < 1.0)
@@ -572,6 +577,12 @@ struct Hammer : Module {
                 }
             } else {
                 outputs[CLOCK_OUTPUT + i].setVoltage(0.f);
+                if (polyConnected && i > 0) {
+                    outputs[POLY_OUTPUT].setVoltage(0.f, i - 1);
+                    // Inverted gate outs are NOT(gate): gates are forced low while
+                    // stopped, so the inverted channels hold high (0 V in phasor mode).
+                    outputs[POLY_OUTPUT].setVoltage(phasorMode ? 0.f : 10.f, i + (CHANNELS - 1));
+                }
             }
         } 
         
@@ -823,19 +834,24 @@ struct HammerWidget : ModuleWidget {
             }
         };
     
+        // ui::Slider does not delete `quantity` in its destructor; this subclass does.
+        struct OwnedSlider : ui::Slider {
+            ~OwnedSlider() { delete quantity; quantity = nullptr; }
+        };
+    
         // Helper to add the two sliders (multiply/divide) for a channel submenu.
         auto addChannelSliders = [hammerModule](Menu* parent, int channel0based) {
             // Map 0..7 -> module indexes 1..8
             int idx = channel0based + 1;
     
             // Multiply slider
-            auto* mulSlider = new ui::Slider();
+            auto* mulSlider = new OwnedSlider();
             mulSlider->quantity = new ChannelFloatQuantity(hammerModule, idx, "Multiply", 0.0f, 99.0f, 0);
             mulSlider->box.size.x = 200.f;
             parent->addChild(mulSlider);
     
             // Divide slider
-            auto* divSlider = new ui::Slider();
+            auto* divSlider = new OwnedSlider();
             divSlider->quantity = new ChannelFloatQuantity(hammerModule, idx, "Divide", 1.0f, 99.0f, 0);
             divSlider->box.size.x = 200.f;
             parent->addChild(divSlider);
@@ -856,6 +872,9 @@ struct HammerWidget : ModuleWidget {
 
     void step() override {
         Hammer* module = dynamic_cast<Hammer*>(this->module);
+        // Step children before the null-module early return so slider lights
+        // and other child widgets still update in the module library view.
+        ModuleWidget::step();
         if (!module) return;
 
         // Update ratio displays
@@ -913,7 +932,6 @@ struct HammerWidget : ModuleWidget {
         }
 
         module->lights[Hammer::ON_OFF_LIGHT].setBrightness(module->sequenceRunning ? 1.0f : 0.0f);
-        ModuleWidget::step();
     }
 
     DigitalDisplay* createDigitalDisplay(Vec position, std::string initialValue, float fontSizeFloat) {
