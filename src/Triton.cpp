@@ -191,6 +191,8 @@ struct Triton : Module {
 
         void clear() {
             filtersA.reset();  filtersB.reset();
+            dcBlockL.reset();  dcBlockR.reset();
+            nyqCapL.reset();   nyqCapR.reset();
             driveL.reset();  driveR.reset();
             envLow.reset();  envMid.reset();  envHigh.reset();
             mixL=0.f; mixR=0.f;
@@ -263,7 +265,7 @@ struct Triton : Module {
     void dataFromJson(json_t* r) override {
         json_t* j;
         j = json_object_get(r,"widthTarget");     if (j) widthTarget     = json_integer_value(j);
-        j = json_object_get(r,"followTime");      if (j) followTime      = json_real_value(j);
+        j = json_object_get(r,"followTime");      if (j) followTime      = clamp((float)json_real_value(j), 0.f, 1.f);
         j = json_object_get(r,"feedbackEnabled"); if (j) feedbackEnabled = json_boolean_value(j);
         j = json_object_get(r,"scaledEnvelopes"); if (j) scaledEnvelopes = json_boolean_value(j);
     }
@@ -693,13 +695,26 @@ struct Triton : Module {
             float lowL  = v.dcBlockL.process(pA[0]);
             float midL  = pB[1];    // lpHighL(hpLowL) - true bandpass L
             float highL = v.nyqCapL.process(pB[0]);
-            lowL  = clamp(lowL,  -12.f, 12.f);
-            midL  = clamp(midL,  -12.f, 12.f);
-            highL = clamp(highL, -12.f, 12.f);
 
             float lowR  = v.dcBlockR.process(pA[2]);
             float midR  = pB[3];    // lpHighR(hpLowR) - true bandpass R
             float highR = v.nyqCapR.process(pB[2]);
+
+            // Non-finite recovery. The clamps below turn a NaN into +12V, which
+            // hides it from the outputs but leaves it sitting in the biquad
+            // delay lines and the resonance feedback state -- the voice then
+            // stays stuck until the module is re-instantiated. Check before the
+            // clamps and rewind this voice's recursive state instead.
+            if (!std::isfinite(lowL) || !std::isfinite(midL) || !std::isfinite(highL) ||
+                !std::isfinite(lowR) || !std::isfinite(midR) || !std::isfinite(highR)) {
+                v.clear();
+                lowL = midL = highL = 0.f;
+                lowR = midR = highR = 0.f;
+            }
+
+            lowL  = clamp(lowL,  -12.f, 12.f);
+            midL  = clamp(midL,  -12.f, 12.f);
+            highL = clamp(highL, -12.f, 12.f);
             lowR  = clamp(lowR,  -12.f, 12.f);
             midR  = clamp(midR,  -12.f, 12.f);
             highR = clamp(highR, -12.f, 12.f);

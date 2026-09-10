@@ -12,9 +12,15 @@
 #include "plugin.hpp"
 #include <cmath>
 #include <algorithm>
+#include <vector>
 #include "FilterGlass.h"
 
-static constexpr int   HAZE_BUF_SIZE      = 8192;   // power-of-2; ~170ms at 48kHz, ~85ms at 96kHz
+// Power-of-2. Must hold the largest read the module can ask for, which is
+// (HAZE_BASE_DELAY_MS + HAZE_DEPTH_MAX_MS) * sampleRate: 15360 samples at
+// Rack's 768kHz ceiling. At the old 8192 the read clamped to 8188 above
+// ~410kHz, so the base delay silently shrank and the depth was crushed --
+// the chorus fell apart at high engine sample rates.
+static constexpr int   HAZE_BUF_SIZE      = 16384;  // ~341ms at 48kHz, 21ms at 768kHz
 static constexpr int   HAZE_BUF_MASK      = HAZE_BUF_SIZE - 1;
 static constexpr float HAZE_BASE_DELAY_MS = 12.f;   // center delay (ms)
 static constexpr float HAZE_DEPTH_MAX_MS  =  8.f;   // max LFO modulation swing (ms)
@@ -116,25 +122,41 @@ struct HazeDelayLine {
 static constexpr int HAZE_AP_STAGES = 4;
 
 struct HazeAllpassStage {
-    static constexpr int AP_SIZE = 512;   // power of 2, fits all delay lengths below
-    float buf[AP_SIZE] = {};
-    int   idx = 0;
+    // Sized from the sample rate at init, like the delay lines in the rest of
+    // the collection. The delay LENGTHS scale with sample rate (see
+    // HAZE_AP_DELAYS below), so a fixed buffer would either waste memory at
+    // 44.1kHz or overflow at 192kHz+.
+    std::vector<float> buf;
+    int size = 0, mask = 0, idx = 0;
+
+    void init(int sizePow2) {
+        size = sizePow2;
+        mask = size - 1;
+        buf.assign(size, 0.f);
+        idx  = 0;
+    }
 
     float process(float input, int delayLen, float g) {
-        int   readIdx = (idx - delayLen) & (AP_SIZE - 1);
+        if (delayLen < 1)    delayLen = 1;
+        if (delayLen > mask) delayLen = mask;
+        int   readIdx = (idx - delayLen) & mask;
         float delayed = buf[readIdx];
         float out     = delayed - g * input;
-        buf[idx]      = (1.f - g * g) * input + g * delayed;  // true Schroeder: buf = x + g*y
+        // Algebraically the standard Schroeder allpass, rearranged:
+        //   H(z) = (z^-D - g) / (1 - g z^-D),  |H| = 1 for any |g| < 1.
+        buf[idx]      = (1.f - g * g) * input + g * delayed;
 
-        idx           = (idx + 1) & (AP_SIZE - 1);
+        idx           = (idx + 1) & mask;
         return out;
     }
 
-    void clear() { std::fill(buf, buf + AP_SIZE, 0.f); idx = 0; }
+    void clear() { std::fill(buf.begin(), buf.end(), 0.f); idx = 0; }
 };
 
 struct HazeAllpassChain {
     HazeAllpassStage stage[HAZE_AP_STAGES];
+
+    void init(int sizePow2) { for (auto& s : stage) s.init(sizePow2); }
 
     float process(float x, const int* delays, float g) {
         for (int i = 0; i < HAZE_AP_STAGES; ++i)
@@ -145,11 +167,19 @@ struct HazeAllpassChain {
     void clear() { for (auto& s : stage) s.clear(); }
 };
 
-// Per-voice delay tables -- prime lengths, all < AP_SIZE=512.
-// Accumulated group delay at 48kHz:
+// Per-voice delay tables, in samples AT 48kHz -- prime lengths, chosen to be
+// mutually incommensurate so the four stages never line up.
+// Accumulated group delay:
 //   voice 0: 347+211+113+67 = 738 samples ~ 15.4ms
 //   voice 1: 251+167+ 89+53 = 560 samples ~ 11.7ms
 //   voice 2: 283+149+103+71 = 606 samples ~ 12.6ms
+//
+// These are scaled by sampleRate/48000 at init. As raw sample counts they made
+// Diffuse mode a different effect at every engine rate -- 15.4ms of smear at
+// 48kHz but 7.7ms at 96kHz and 3.9ms at 192kHz. Scaling every stage by the
+// same factor keeps the ratios (and so the incommensurability) exact while
+// pinning the smear to a real duration.
+static constexpr float HAZE_AP_REF_SR = 48000.f;
 static constexpr int   HAZE_AP_DELAYS[HAZE_VOICES][HAZE_AP_STAGES] = {
     { 347, 211, 113,  67 },
     { 251, 167,  89,  53 },
@@ -265,6 +295,33 @@ struct Haze : Module {
     // Per-voice LFO sin values -- written by process(), read by step() for LEDs.
     float lfoSinL[HAZE_VOICES] = {};
 
+    // Allpass delays scaled to the current sample rate, and the power-of-2
+    // buffer size that holds them. Rebuilt in onSampleRateChange.
+    int srApDelays[HAZE_VOICES][HAZE_AP_STAGES] = {};
+    int srApSize = 512;
+
+    // Rescale the diffusion delays and (re)allocate the chains for `sr`.
+    void rebuildAllpass(float sr) {
+        const float scale = sr / HAZE_AP_REF_SR;
+        int longest = 1;
+        for (int v = 0; v < HAZE_VOICES; ++v) {
+            for (int i = 0; i < HAZE_AP_STAGES; ++i) {
+                int d = (int)std::lround((float)HAZE_AP_DELAYS[v][i] * scale);
+                if (d < 1) d = 1;
+                srApDelays[v][i] = d;
+                if (d > longest) longest = d;
+            }
+        }
+        // Smallest power of 2 strictly greater than the longest delay.
+        int size = 512;
+        while (size <= longest) size <<= 1;
+        srApSize = size;
+        for (int v = 0; v < HAZE_VOICES; ++v) {
+            apL[v].init(srApSize);
+            apR[v].init(srApSize);
+        }
+    }
+
     // -- Parameter cache -------------------------------------------------------
     // Values that depend only on sample rate: computed once in onSampleRateChange.
     float srLpfBright    = 0.073f;  // exp(-2pi*20000/sr) -- upper LPF bound
@@ -309,6 +366,8 @@ struct Haze : Module {
 
         configOutput(OUT_L_OUTPUT, "Audio L");
         configOutput(OUT_R_OUTPUT, "Audio R");
+
+        rebuildAllpass(APP->engine->getSampleRate());
     }
 
     void processBypass(const ProcessArgs& args) override {
@@ -348,6 +407,7 @@ struct Haze : Module {
         srLpfBright = expf(-2.f * float(M_PI) * 20000.f / e.sampleRate);
         srBaseDelay = HAZE_BASE_DELAY_MS * e.sampleRate * 0.001f;
         srApStep    = 1.f / (0.003f * e.sampleRate);
+        rebuildAllpass(e.sampleRate);
         // Force a full parameter refresh on next process() call.
         paramDiv = PARAM_DIV;
     }
@@ -466,8 +526,8 @@ struct Haze : Module {
             if (apGain[v] < apTarget) apGain[v] = std::min(apGain[v] + srApStep, apTarget);
             else                      apGain[v] = std::max(apGain[v] - srApStep, apTarget);
 
-            float apOutL = apL[v].process(outL, HAZE_AP_DELAYS[v], hazeApCoeff);
-            float apOutR = apR[v].process(outR, HAZE_AP_DELAYS[v], hazeApCoeff);
+            float apOutL = apL[v].process(outL, srApDelays[v], hazeApCoeff);
+            float apOutR = apR[v].process(outR, srApDelays[v], hazeApCoeff);
 
             // Crossfade feedback path.
             float fbL = outL + apGain[v] * (apOutL - outL);
@@ -505,8 +565,26 @@ struct Haze : Module {
         float correction = 1.f/density;
         float correctionClamped = clamp(correction, 0.5f, 1.5f);
 
-        outputs[OUT_L_OUTPUT].setVoltage((inL * (1.f - mixNorm)* correction + satWetL * mixNorm * correctionClamped));
-        outputs[OUT_R_OUTPUT].setVoltage((inR * (1.f - mixNorm)* correction + satWetR * mixNorm * correctionClamped));
+        float finalL = inL * (1.f - mixNorm) * correction + satWetL * mixNorm * correctionClamped;
+        float finalR = inR * (1.f - mixNorm) * correction + satWetR * mixNorm * correctionClamped;
+
+        // Non-finite recovery. Each voice is its own feedback loop, and the
+        // saturator, tone LPF, DC blocker and allpass chain all carry state --
+        // one NaN and the chorus stays dead until the module is re-instantiated.
+        if (!std::isfinite(finalL) || !std::isfinite(finalR)) {
+            finalL = finalR = 0.f;
+            for (int v = 0; v < HAZE_VOICES; ++v) {
+                delayL[v].clear();   delayR[v].clear();
+                dcBlockL[v].reset(); dcBlockR[v].reset();
+                loopSatL[v].reset(); loopSatR[v].reset();
+                apL[v].clear();      apR[v].clear();
+                lpfZL[v] = 0.f;      lpfZR[v] = 0.f;
+            }
+            saturatorL.reset(); saturatorR.reset();
+        }
+
+        outputs[OUT_L_OUTPUT].setVoltage(finalL);
+        outputs[OUT_R_OUTPUT].setVoltage(finalR);
     }
 };
 

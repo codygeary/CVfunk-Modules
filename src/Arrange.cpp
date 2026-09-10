@@ -142,7 +142,7 @@ struct Arrange : Module {
             for (int i = 0; i < 7; i++) {
                 json_t* buttonJ = json_array_get(channelButtonJ, i);
                 if (buttonJ)
-                    channelButton[i] = json_integer_value(buttonJ);
+                    channelButton[i] = clamp((int)json_integer_value(buttonJ), 0, 2);
             }
         }
     
@@ -184,12 +184,14 @@ struct Arrange : Module {
 
         json_t* polyphonyChannelsJ = json_object_get(rootJ, "polyphonyChannels");
         if (polyphonyChannelsJ) {
-            polyphonyChannels = json_integer_value(polyphonyChannelsJ);
+            // Drives `outputs[CHAN_1_OUTPUT + channel]` (7 outputs exist) and
+            // `setVoltage(v, channel)` (Port::voltages is 16). Menu offers 1-7.
+            polyphonyChannels = clamp((int)json_integer_value(polyphonyChannelsJ), 1, 7);
         }
 
         json_t* prevPolyphonyChannelsJ = json_object_get(rootJ, "prevPolyphonyChannels");
         if (prevPolyphonyChannelsJ) {
-            prevPolyphonyChannels = json_integer_value(prevPolyphonyChannelsJ);
+            prevPolyphonyChannels = clamp((int)json_integer_value(prevPolyphonyChannelsJ), 1, 7);
         }
  
         // Load computedProb array
@@ -205,7 +207,8 @@ struct Arrange : Module {
         // Load maxSequenceLength
         json_t* maxSequenceLengthJ = json_object_get(rootJ, "maxSequenceLength");
         if (maxSequenceLengthJ) {
-            maxSequenceLength = json_integer_value(maxSequenceLengthJ); // Set maxSequenceLength
+            // onReset() loops `stage < maxSequenceLength` over outputValues[2048].
+            maxSequenceLength = clamp((int)json_integer_value(maxSequenceLengthJ), 128, 2048);
         }     
     }
 
@@ -840,7 +843,9 @@ struct ArrangeWidget : ModuleWidget {
         
         // Cast the module to Arrange
         Arrange* arrangeModule = dynamic_cast<Arrange*>(module);
-        assert(arrangeModule);
+        // Not assert(): the Rack SDK builds without -DNDEBUG, so a failed cast
+        // would abort the host rather than just skipping the menu.
+        if (!arrangeModule) return;
         
         // Separator for new section
         menu->addChild(new MenuSeparator);

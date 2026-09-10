@@ -213,6 +213,13 @@ struct Glass : Module {
     static float foldVoct(float voct) {
         const float lo = -1.0f;   // C3
         const float hi =  2.0f;   // C6
+        // Bound the input first. Nothing stops an upstream module from putting
+        // Inf or a huge value on V/Oct, and these loops never terminate on Inf
+        // and run ~1e30 times on 1e30 -- an infinite loop on the audio thread,
+        // which freezes the host. +-20V is far outside any real V/Oct, so every
+        // musical input folds exactly as before.
+        if (!std::isfinite(voct)) voct = 0.f;
+        voct = rack::clamp(voct, -20.f, 20.f);
         while (voct < lo)  voct += 1.f;
         while (voct > hi)  voct -= 1.f;
         return voct;
@@ -236,6 +243,16 @@ struct Glass : Module {
     }
 
     void initBowls(float sr) {
+        // Prime the per-channel V/oct cache with a value no jack can produce.
+        // Zero-initialised, the "has this channel's pitch changed?" test below
+        // reads false for a first note at exactly 0V (C4, which is what a
+        // MIDI-CV module emits for middle C) and the channel kept the
+        // zero-initialised bowl index 0 -- C3. The first C4 played on a fresh
+        // module sounded an octave low until the pitch moved.
+        for (int ch = 0; ch < GLASS_MAX_POLY; ++ch) {
+            cachedVoctForChannel[ch] = -999.f;
+            cachedBowlForChannel[ch] = 0;
+        }
         for (int b = 0; b < GLASS_BOWLS; ++b) {
             bowls[b].init(sr, voct2freq(BOWL_VOCT[b]), b);
             bowls[b].baseDelaySamples = sr / voct2freq(BOWL_VOCT[b]);
@@ -301,9 +318,12 @@ struct Glass : Module {
         configOutput(AUDIO_L_OUTPUT, "Audio L");
         configOutput(AUDIO_R_OUTPUT, "Audio R");
         configOutput(ENV_OUTPUT,     "Envelope (RMS)");
+        // initBowlVoct() FIRST: initBowls() reads BOWL_VOCT to tune each bowl,
+        // and on the first Glass instance that table is still all zeros if it
+        // is filled afterwards -- every bowl would be seeded at C4.
+        initBowlVoct();
         initBowls(48000.f);
         envFollower.setCoeff(sqrtf(150.f * 5000.f) / 48000.f, 0.4f, 48000.f);
-        initBowlVoct();
     }
 
     void onSampleRateChange() override {
@@ -339,12 +359,17 @@ struct Glass : Module {
             json_t* j = json_object_get(root, k);
             return j ? (float)json_number_value(j) : d;
         };
-        attackValue  = gr("attackValue",  0.15f);
-        releaseValue = gr("releaseValue", 0.35f);
-        attackCurve  = gr("attackCurve",  0.3f);
-        releaseCurve = gr("releaseCurve", -0.3f);
-        noiseCutoffMax      = gr("noiseCutoffMax",     1000.f);
-        dampGateIntensity   = gr("dampGateIntensity",  0.8f);
+        // Ranges match the context-menu sliders, which clamp on set.
+        // Unclamped these reach powf/expf directly: an out-of-range
+        // noiseCutoffMax makes expf overflow and poisons the shared excitation
+        // noise filter for every bowl, and an out-of-range attackValue makes
+        // powf(2000, x) infinite so the envelope never leaves its attack.
+        attackValue  = clamp(gr("attackValue",  0.15f),  0.f,  1.f);
+        releaseValue = clamp(gr("releaseValue", 0.35f),  0.f,  1.f);
+        attackCurve  = clamp(gr("attackCurve",  0.3f),  -1.f,  1.f);
+        releaseCurve = clamp(gr("releaseCurve", -0.3f), -1.f,  1.f);
+        noiseCutoffMax      = clamp(gr("noiseCutoffMax",    1000.f), 100.f, 4000.f);
+        dampGateIntensity   = clamp(gr("dampGateIntensity", 0.8f),     0.f,    1.f);
     }
 
     void process(const ProcessArgs& args) override {
@@ -605,7 +630,10 @@ struct Glass : Module {
                 cachedAttackCoeff, cachedReleaseCoeff);
 
             bool bowlAudible = (state.envOut > 0.0001f) || (bowlEnergy[b] > idleThreshold);
-            if (!bowlAudible) continue;
+            // Zero the scratch before skipping, as the energy pass below
+            // documents: leaving last sample's value here feeds a stale
+            // magnitude into the attack side of the envelope.
+            if (!bowlAudible) { bowlRawAbs[b] = 0.f; continue; }
 
             // FM delay length and sinePhaseInc are cached sub-rate (updated only
             // when FM changes), so nothing to recompute per sample here.

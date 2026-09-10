@@ -426,7 +426,7 @@ struct Strata : Module {
             for (int i = 0; i < 19; i++) {
                 json_t* valueJ = json_array_get(finalNotesJ, i);
                 if (valueJ) {
-                    finalNotes[i] = json_real_value(valueJ);
+                    finalNotes[i] = clamp((float)json_real_value(valueJ), -10.f, 10.f);
                 }
             }
         }
@@ -486,7 +486,7 @@ struct Strata : Module {
                         for (size_t z = 0; z < json_array_size(rowJ) && z < 4; z++) {
                             json_t* valJ = json_array_get(rowJ, z);
                             if (json_is_integer(valJ)) {
-                                patternState[i][z] = json_integer_value(valJ);
+                                patternState[i][z] = clamp((int)json_integer_value(valJ), 0, 2);
                             }
                         }
                     }
@@ -587,7 +587,8 @@ struct Strata : Module {
                         for (size_t z = 0; z < json_array_size(rowJ) && z < 4; z++) {
                             json_t* valJ = json_array_get(rowJ, z);
                             if (json_is_number(valJ)) {
-                                multiply[i][z] = json_number_value(valJ);
+                                // Matches the 0..99 clamp process() applies.
+                                multiply[i][z] = clamp((float)json_number_value(valJ), 0.f, 99.f);
                             }
                         }
                     }
@@ -624,7 +625,7 @@ struct Strata : Module {
                         for (size_t z = 0; z < json_array_size(rowJ) && z < 4; z++) {
                             json_t* valJ = json_array_get(rowJ, z);
                             if (json_is_number(valJ)) {
-                                divide[i][z] = json_number_value(valJ);
+                                divide[i][z] = clamp((float)json_number_value(valJ), 0.f, 99.f);
                             }
                         }
                     }

@@ -634,7 +634,9 @@ struct AlloyWidget : ModuleWidget {
         ModuleWidget::appendContextMenu(menu);
         // Cast to Alloy
         Alloy* alloyModule = dynamic_cast<Alloy*>(module);
-        assert(alloyModule);
+        // Not assert(): the Rack SDK builds without -DNDEBUG, so a failed cast
+        // would abort the host rather than just skipping the menu.
+        if (!alloyModule) return;
 
         // Separator for clarity
         menu->addChild(new MenuSeparator);

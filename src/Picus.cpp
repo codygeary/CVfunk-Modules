@@ -148,7 +148,7 @@ struct Picus : Module {
             for (size_t i = 0; i < json_array_size(patternJ) && i < PATTERNS; i++) {
                 json_t* val = json_array_get(patternJ, i);
                 if (json_is_integer(val)) {
-                    patternState[i] = json_integer_value(val);
+                    patternState[i] = clamp((int)json_integer_value(val), 0, 2);
                 }
             }
         }
@@ -178,7 +178,8 @@ struct Picus : Module {
             for (size_t i = 0; i < json_array_size(multiplyJ) && i < STAGES; i++) {
                 json_t* val = json_array_get(multiplyJ, i);
                 if (json_is_number(val)) {
-                    multiply[i] = json_number_value(val);
+                    // Matches the 0..99 clamp process() applies to these.
+                    multiply[i] = clamp((float)json_number_value(val), 0.f, 99.f);
                 }
             }
         }
@@ -189,7 +190,7 @@ struct Picus : Module {
             for (size_t i = 0; i < json_array_size(divideJ) && i < STAGES; i++) {
                 json_t* val = json_array_get(divideJ, i);
                 if (json_is_number(val)) {
-                    divide[i] = json_number_value(val);
+                    divide[i] = clamp((float)json_number_value(val), 0.f, 99.f);
                 }
             }
         }

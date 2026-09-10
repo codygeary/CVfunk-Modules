@@ -72,7 +72,7 @@ struct Onion : Module {
         // Load prevPolarity
         json_t* jp = json_object_get(rootJ, "prevPolarity");
         if (jp)
-            prevPolarity = json_number_value(jp);
+            prevPolarity = clamp((float)json_number_value(jp), 0.f, 1.f);
     }
     
     Onion() {

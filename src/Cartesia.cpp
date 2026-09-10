@@ -261,7 +261,7 @@ struct Cartesia : Module {
                     for (int z = 0; z < 4; z++) {
                         json_t* valueJ = json_array_get(rowJ, z);
                         if (valueJ) {
-                            knobStates[i][z] = json_real_value(valueJ);
+                            knobStates[i][z] = clamp((float)json_real_value(valueJ), -10.f, 10.f);
                         }
                     }
                 }
@@ -274,7 +274,7 @@ struct Cartesia : Module {
             for (int i = 0; i < 16; i++) {
                 json_t* valueJ = json_array_get(finalNotesJ, i);
                 if (valueJ) {
-                    finalNotes[i] = json_real_value(valueJ);
+                    finalNotes[i] = clamp((float)json_real_value(valueJ), -10.f, 10.f);
                 }
             }
         }
@@ -328,17 +328,19 @@ struct Cartesia : Module {
         // Load stage positions (xStage, yStage, zStage)
         json_t *xStageJ = json_object_get(rootJ, "xStage");
         if (xStageJ) {
-            xStage = json_integer_value(xStageJ);
+        // Indexes fixed-size arrays / the params or outputs vectors; unclamped a
+        // corrupted patch would run straight off the end.
+            xStage = clamp((int)json_integer_value(xStageJ), 0, 3);
         }
     
         json_t *yStageJ = json_object_get(rootJ, "yStage");
         if (yStageJ) {
-            yStage = json_integer_value(yStageJ);
+            yStage = clamp((int)json_integer_value(yStageJ), 0, 3);
         }
     
         json_t *zStageJ = json_object_get(rootJ, "zStage");
         if (zStageJ) {
-            zStage = json_integer_value(zStageJ);
+            zStage = clamp((int)json_integer_value(zStageJ), 0, 3);
         }
 
         // Keep the previous-stage trackers in sync with the loaded position so the first
@@ -352,7 +354,7 @@ struct Cartesia : Module {
             for (int i = 0; i < 16; i++) {
                 json_t* valJ = json_array_get(copyKnobJ, i);
                 if (json_is_real(valJ)) {
-                    copiedKnobStates[i] = json_real_value(valJ);
+                    copiedKnobStates[i] = clamp((float)json_real_value(valJ), -10.f, 10.f);
                 }
             }
         }
@@ -715,7 +717,11 @@ struct Cartesia : Module {
         const bool resetPulseActive = resetPulse.process(deltaTime);
 
         // Process Polyphonic Output Handling
-        polyLevels = params[POLYKNOB_PARAM].getValue();
+        // Bound the read. This is the channel count AND the channel index for
+        // setVoltage() below, and Rack does not clamp stored param values on
+        // load -- a patch saved with an out-of-range value would index past
+        // Port::voltages. configParam's range is 1..4.
+        polyLevels = clamp((int)params[POLYKNOB_PARAM].getValue(), 1, 4);
         outputs[OUTPUT_OUTPUT].setChannels(polyLevels);
         outputs[GATEOUT_OUTPUT].setChannels(polyLevels);
         outputs[INVGATEOUT_OUTPUT].setChannels(polyLevels);

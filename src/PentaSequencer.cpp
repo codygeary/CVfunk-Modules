@@ -113,7 +113,9 @@ struct PentaSequencer : Module {
 
         // Load the state of step  
         json_t* stepJ = json_object_get(rootJ, "step");
-        if (stepJ) step = json_integer_value(stepJ);
+        // Feeds currentMapping[(step + i) % 5]; a negative step makes that
+        // subscript negative.
+        if (stepJ) step = clamp((int)json_integer_value(stepJ), 0, 4);
                                   
     }
 
@@ -509,7 +511,9 @@ struct PentaSequencerWidget : ModuleWidget {
         ModuleWidget::appendContextMenu(menu);
 
         PentaSequencer* pentaSequencer = dynamic_cast<PentaSequencer*>(module);
-        assert(pentaSequencer);
+        // Not assert(): the Rack SDK builds without -DNDEBUG, so a failed cast
+        // would abort the host rather than just skipping the menu.
+        if (!pentaSequencer) return;
 
         // Separator for visual grouping in the context menu
         menu->addChild(new MenuSeparator);

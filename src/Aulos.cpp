@@ -477,19 +477,25 @@ struct Aulos : Module {
         auto gr = [&](const char* k, float d) -> float {
             json_t* j = json_object_get(root, k);
             return j ? (float)json_number_value(j) : d; };
+        // Ranges match the context-menu sliders, which clamp on set.
+        // decayValue is the important one: sharedDecayGain is 0.80 + 0.17*decay,
+        // so anything above 1 puts the waveguide's loop gain over unity and the
+        // bore diverges instead of ringing down.
         droneActive   = gb("droneActive",  false);
         aulosTrack    = gb("aulosTrack",   false);
-        followTime    = gr("followTime",   0.25f);
-        attackCurve   = gr("attackCurve",  0.3f);
-        releaseCurve  = gr("releaseCurve", -0.5f);
-        waveguideGain = gr("waveguideGain",1.4f);
-        decayValue    = gr("decayValue",   0.9f);
-        attackValue   = gr("attackValue",  0.3f);
-        releaseValue  = gr("releaseValue", 0.5f);
-        vibratoRate        = gr("vibratoRate",        5.0f);
-        vibratoBreathDepth = gr("vibratoBreathDepth", 0.5f);
+        followTime    = clamp(gr("followTime",   0.25f),  0.f,  1.f);
+        attackCurve   = clamp(gr("attackCurve",  0.3f),  -1.f,  1.f);
+        releaseCurve  = clamp(gr("releaseCurve", -0.5f), -1.f,  1.f);
+        waveguideGain = clamp(gr("waveguideGain",1.4f),   0.f,  1.75f);
+        decayValue    = clamp(gr("decayValue",   0.9f),   0.f,  1.f);
+        attackValue   = clamp(gr("attackValue",  0.3f),   0.f,  1.f);
+        releaseValue  = clamp(gr("releaseValue", 0.5f),   0.f,  1.f);
+        vibratoRate        = clamp(gr("vibratoRate",        5.0f), 3.f, 12.f);
+        vibratoBreathDepth = clamp(gr("vibratoBreathDepth", 0.5f), 0.f,  1.f);
         legatoEnabled = gb("legatoEnabled", false);
-        legatoTime    = gr("legatoTime",   60.f);
+        // Fallback default was 60ms; the declaration, onReset and the menu
+        // slider all say 20ms, so a patch predating this key glided 3x slow.
+        legatoTime    = clamp(gr("legatoTime",   20.f),   5.f, 80.f);
     }
 
     // ── DSP helper: process one voice, one sample ─────────────────────────────

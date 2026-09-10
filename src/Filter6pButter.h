@@ -25,12 +25,24 @@ public:
     //
     //  3) Here is the online calculator we use to get the Q numbers: https://www.earlevel.com/main/2016/09/29/cascading-filters/
     void setCutoffFreq(float normalizedCutoff) {
-        assert(normalizedCutoff > 0 && normalizedCutoff < .5f);
+        // The Rack SDK compiles plugins WITHOUT -DNDEBUG, so assert() is live in
+        // release builds -- an out-of-range cutoff would abort the host process.
+        // Clamp into the valid open interval instead and keep running.
+        normalizedCutoff = rack::clamp(normalizedCutoff, 1e-5f, 0.4999f);
         f[0].setParameters(rack::dsp::TBiquadFilter<float>::LOWPASS, normalizedCutoff, .51763809, 1);
         f[1].setParameters(rack::dsp::TBiquadFilter<float>::LOWPASS, normalizedCutoff, 0.70710678, 1);
         f[2].setParameters(rack::dsp::TBiquadFilter<float>::LOWPASS, normalizedCutoff, 1.9318517, 1);
     }
 
+
+    // Rewind the biquad delay lines. Needed for non-finite recovery: the
+    // recursive state is what makes a NaN stick, so clearing the output alone
+    // does not bring the filter back.
+    void reset() {
+        f[0].reset();
+        f[1].reset();
+        f[2].reset();
+    }
     // Process takes one sample of input, and generates one sample of output.
     float process(float x) {
         x = f[0].process(x);  // filter input through biquad #1

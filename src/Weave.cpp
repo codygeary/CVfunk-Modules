@@ -18,6 +18,26 @@
 #include <vector>
 #include <cmath>
 
+// ---------------------------------------------------------------------------
+// Wrap a V/Oct-style voltage to an index in [0, n).
+//
+// The float MUST be bounded before the cast. Converting a NaN or an
+// out-of-int32-range float to int is undefined behaviour, and the two build
+// targets disagree in exactly the way that hides the bug on the machine this
+// is developed on: x86 yields INT_MIN, ARM64 saturates to 0. The `while (i <
+// 0) i += 12;` loops this replaces would then spin ~179 million times on the
+// audio thread on x86 -- a hard stall -- while behaving perfectly on ARM.
+//
+// For every input those loops could actually handle this returns the identical
+// value; it is the same modulo, just written so it cannot run away.
+// ---------------------------------------------------------------------------
+static inline int wrapVoltageIndex(float volts, int n) {
+    if (!std::isfinite(volts)) volts = 0.f;
+    volts = rack::clamp(volts, -1000.f, 1000.f);
+    int i = (int)std::roundf(volts * 12.0f) % n;
+    return (i < 0) ? i + n : i;
+}
+
 // Base frequencies for each guitar string
 const float baseFrequencies[6] =  { -1.6667f, // E2
                                     -1.25f, // A2
@@ -353,9 +373,12 @@ struct Weave : Module {
             // polyphonic, read only the top (highest) channel and ignore the lower
             // ones - the module has a single root, so only the top note applies.
             int topChannel = 0;
-            int topAbsNote = static_cast<int>(std::roundf(inputs[NOTE_INPUT].getVoltage(0) * 12.0f));
+            // Bound before the cast, as elsewhere in this file.
+            int topAbsNote = static_cast<int>(std::roundf(
+                clamp(inputs[NOTE_INPUT].getVoltage(0), -1000.f, 1000.f) * 12.0f));
             for (int ch = 1; ch < inputChannels; ch++) {
-                int absNote = static_cast<int>(std::roundf(inputs[NOTE_INPUT].getVoltage(ch) * 12.0f));
+                int absNote = static_cast<int>(std::roundf(
+                    clamp(inputs[NOTE_INPUT].getVoltage(ch), -1000.f, 1000.f) * 12.0f));
                 if (absNote > topAbsNote) {
                     topAbsNote = absNote;
                     topChannel = ch;
@@ -369,6 +392,8 @@ struct Weave : Module {
             // quantize it to determine which note to activate
 
             float noteVoltage = inputs[NOTE_INPUT].getVoltage(topChannel);
+            if (!std::isfinite(noteVoltage)) noteVoltage = 0.f;
+            noteVoltage = clamp(noteVoltage, -1000.f, 1000.f);
             int quantizedNote = static_cast<int>(std::roundf(noteVoltage * 12.0f));
             int octaveOffset = 0;
 
@@ -380,10 +405,7 @@ struct Weave : Module {
                 inputOctaveOffset = static_cast<float>(octaveOffset);
             } else {
                 // Classic behavior - wrap to single octave
-                while (quantizedNote < 0)
-                    quantizedNote += 12;
-                while (quantizedNote > 11)
-                    quantizedNote -= 12;
+                quantizedNote = ((quantizedNote % 12) + 12) % 12;
                 inputOctaveOffset = 0.f;
             }
 
@@ -415,12 +437,7 @@ struct Weave : Module {
             if (inputs[CHORD_INPUT].isConnected()) {
                 // Read the voltage from CHORD_INPUT and quantize it to determine which chord to activate
                 float chordVoltage = inputs[CHORD_INPUT].getVoltage();
-                chordIndex = static_cast<int>(std::roundf(chordVoltage * 12.0f)); // Quantize to determine the active chord (0-15)
-
-                while (chordIndex < 0)
-                    chordIndex += 16;
-                while (chordIndex > 15)
-                    chordIndex -= 16;
+                chordIndex = wrapVoltageIndex(chordVoltage, 16); // Quantize to determine the active chord (0-15)
 
                 if (chordIndex != prevChordIndex){
                    noteOrChordPressed = true;
@@ -460,7 +477,10 @@ struct Weave : Module {
 
         // GUITAR FINGERING TO SEMITONE SHIFT CALCULATION
         if ( noteOrChordPressed || noteInputConnected){ //only set the value at the time the note is clicked
-            if (chordIndex >= 0 && noteValue >= 0) {
+            // Chord_Chart is 12 x 16 of std::string and Root_Offset1/2 are 16,
+            // all accessed with unchecked operator[]. The lower bound was
+            // already tested; bound the top end too.
+            if (chordIndex >= 0 && chordIndex < 16 && noteValue >= 0 && noteValue < 12) {
                 // Retrieve the chord name and fingering
                 const std::string& fingering = Chord_Chart[noteValue][chordIndex];
 

@@ -95,7 +95,10 @@ public:
     void setMode(Mode m) { mode = m; }
 
     void setParameters(float normalizedCutoff, float sharpness, float resonance) {
-        assert(normalizedCutoff > 0.f && normalizedCutoff < 0.5f);
+        // The Rack SDK compiles plugins WITHOUT -DNDEBUG, so assert() is live in
+        // release builds -- an out-of-range cutoff would abort the host process.
+        // Clamp into the valid open interval instead and keep running.
+        normalizedCutoff = rack::clamp(normalizedCutoff, 1e-5f, 0.4999f);
         sharpness = rack::clamp(sharpness, 0.f, 1.f);
         resonance = rack::clamp(resonance, 0.f, 1.f);
         sharp = sharpness;

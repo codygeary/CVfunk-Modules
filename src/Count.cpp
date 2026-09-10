@@ -77,8 +77,12 @@ struct Count : Module {
         }
 
         json_t* currentNumberJ = json_object_get(rootJ, "currentNumber");
-        if (currentNumberJ)
+        if (currentNumberJ) {
+            // maxCount is bounded just above; keep the counter in the same range.
             currentNumber = json_integer_value(currentNumberJ);
+            if (currentNumber < -MAX_LIMIT) currentNumber = -MAX_LIMIT;
+            if (currentNumber >  MAX_LIMIT) currentNumber =  MAX_LIMIT;
+        }
 
         json_t* zeroBasedJ = json_object_get(rootJ, "zeroBased");
         if (zeroBasedJ) {

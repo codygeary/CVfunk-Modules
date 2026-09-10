@@ -11,6 +11,7 @@
 
 #include "rack.hpp"
 #include "plugin.hpp"
+#include <cmath>
 using namespace rack;
 
 template<typename T, size_t Size>
@@ -99,6 +100,9 @@ struct SecondOrderHPF {
         b2 = (1 - alpha) / a;
     }
 
+    // Rewind the delay lines, keeping the coefficients.
+    void reset() { x1 = x2 = y1 = y2 = 0.f; }
+
     // Process the input sample
     float process(float input) {
         float output = a0 * input + a1 * x1 + a2 * x2 - b1 * y1 - b2 * y2;
@@ -127,6 +131,10 @@ public:
             signal = decimatingFilter.process(signal);
         }
         return signal;
+    }
+    void reset() {
+        interpolatingFilter.reset();
+        decimatingFilter.reset();
     }
 private:
     virtual float processShape(float) = 0;
@@ -446,6 +454,20 @@ struct Tatami : Module {
             if (isSupersamplingEnabled) {
                 outputL[c] = shaperL[c].process(outputL[c]);
                 outputR[c] = shaperR[c].process(outputR[c]);
+            }
+
+            // Non-finite recovery. The clamps below turn a NaN into +10V, which
+            // hides it from the port but leaves it in the ADAA memory, the HPF
+            // delay lines, the oversampling shaper and the envelope follower --
+            // the channel then sits at +10V for good. Check first, and rewind
+            // the recursive state that produced it.
+            if (!std::isfinite(outputL[c]) || !std::isfinite(outputR[c])) {
+                outputL[c] = outputR[c] = 0.f;
+                lastOutputL = lastOutputR = 0.f;
+                hpfL[c].reset();          hpfR[c].reset();
+                shaperL[c].reset();       shaperR[c].reset();
+                filteredEnvelopeL[c] = 0.f; filteredEnvelopeR[c] = 0.f;
+                envPeakL[c] = 0.f;          envPeakR[c] = 0.f;
             }
 
             outputL[c] = clamp(outputL[c], -10.0f, 10.0f);

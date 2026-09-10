@@ -127,7 +127,7 @@ struct Wonk : Module {
     void dataFromJson(json_t* rootJ) override {
         json_t* siJ = json_object_get(rootJ, "syncInterval");
         if (siJ)
-            syncInterval = (float)json_real_value(siJ);
+            syncInterval = clamp((float)json_real_value(siJ), 0.0001f, 60.f);
 
         // Load place array
         json_t* placeArrayJ = json_object_get(rootJ, "place");
@@ -136,7 +136,7 @@ struct Wonk : Module {
             json_t* val;
             json_array_foreach(placeArrayJ, i, val) {
                 if (i < 6)
-                    place[i] = (float)json_real_value(val);
+                    place[i] = clamp((float)json_real_value(val), 0.f, 1.f);
             }
         }
 
@@ -147,7 +147,7 @@ struct Wonk : Module {
             json_t* val;
             json_array_foreach(lfoPhaseArrayJ, i, val) {
                 if (i < 6)
-                    lfoPhase[i] = (float)json_real_value(val);
+                    lfoPhase[i] = clamp((float)json_real_value(val), 0.f, 1.f);
             }
         }
 
@@ -535,7 +535,9 @@ struct WonkWidget : ModuleWidget {
         ModuleWidget::appendContextMenu(menu);
 
         Wonk* wonkModule = dynamic_cast<Wonk*>(module);
-        assert(wonkModule);
+        // Not assert(): the Rack SDK builds without -DNDEBUG, so a failed cast
+        // would abort the host rather than just skipping the menu.
+        if (!wonkModule) return;
 
         // Separator for visual grouping in the context menu
         menu->addChild(new MenuSeparator());

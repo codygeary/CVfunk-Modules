@@ -118,7 +118,8 @@ struct FlowerPatch : Module {
         // Load the state of visualizerMode
         json_t* visualizerModeJ = json_object_get(rootJ, "visualizerMode");
         if (visualizerModeJ) {
-            visualizerMode = static_cast<VisualizerMode>(json_integer_value(visualizerModeJ));
+            // Casting an out-of-range integer to a 3-value enum is undefined.
+            visualizerMode = static_cast<VisualizerMode>(clamp((int)json_integer_value(visualizerModeJ), 0, 2));
         }                
     }
 

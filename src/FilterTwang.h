@@ -161,7 +161,9 @@ struct TwangADAADriveSIMD {
     float_4 process(float_4 inV, float driveGain) {
         float_4 sig  = rack::simd::clamp(inV * float_4(driveGain),
                                          float_4(-13.14f), float_4(13.14f));
-        float_4 norm = sig * float_4(0.1f);
+        // Same fold-back clamp as the scalar version above.
+        float_4 norm = rack::simd::clamp(sig * float_4(0.1f),
+                                         float_4(-1.f), float_4(1.f));
         float_4 d    = norm - lastInput;
         // Branchless equivalent of the scalar version's small-delta guard.
         float_4 safe = rack::simd::ifelse(rack::simd::fabs(d) > float_4(1e-6f),
@@ -198,7 +200,9 @@ struct TwangADAADrive {
     // so normalize into a safe range before applying them.
     float process(float inV, float driveGain) {
         float sig  = rack::clamp(inV * driveGain, -13.14f, 13.14f);
-        float norm = sig / 10.f;
+        // Past |x| ~ 1.1 the polynomial folds back instead of saturating; the
+        // clamp above lets norm reach 1.314. See GlassADAADrive.
+        float norm = rack::clamp(sig / 10.f, -1.f, 1.f);
         float out  = applyADAA(norm, lastInput);
         lastInput  = norm;
         return rack::clamp(out * 6.9f, -10.f, 10.f);
@@ -280,6 +284,13 @@ struct TwangRailSIMD {
         for (int lane = 0; lane < LANES; ++lane)
             std::fill(buf[lane].begin(), buf[lane].end(), 0.f);
         writeIndex = 0;
+    }
+
+    // Clear one lane only. writeIndex is shared across lanes, so it is left
+    // alone -- the other three lanes are still running against it.
+    void clearLane(int lane) {
+        if (lane < 0 || lane >= LANES) return;
+        std::fill(buf[lane].begin(), buf[lane].end(), 0.f);
     }
 };
 
@@ -821,6 +832,34 @@ struct TwangStringSIMD {
         twangBounce1.reset(); twangBounce2.reset();
         bowLift            = float_4(0.f);
         junctionPos        = bowPosition;
+    }
+
+    // Clear ONE lane, leaving the other three untouched. Used when the poly
+    // channel count shrinks: without this a dropped voice keeps its ring in
+    // the rails and it reappears the moment the channel count grows again.
+    void panicLane(int lane) {
+        if (lane < 0 || lane >= LANES) return;
+        nutToP.clearLane(lane);
+        pToNut.clearLane(lane);
+        pToBridge.clearLane(lane);
+        bridgeToP.clearLane(lane);
+        pluck[lane].reset();
+        auto zeroLane = [lane](float_4& v) {
+            float a[LANES];
+            v.store(a);
+            a[lane] = 0.f;
+            v = float_4::load(a);
+        };
+        zeroLane(safetyRMS);
+        zeroLane(safetyDecay);
+        zeroLane(energySmooth);
+        zeroLane(levelRef);
+        zeroLane(pluckKick);
+        zeroLane(prevKick);
+        zeroLane(twangRing);
+        zeroLane(bowLift);
+        float a[LANES];
+        drainGain.store(a); a[lane] = 1.f; drainGain = float_4::load(a);
     }
 
     // Pluck this lane: lift the bow, move the junction EXACTLY to the pluck

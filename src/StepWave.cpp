@@ -62,6 +62,10 @@ public:
         }
         return signal;
     }
+    void reset() {
+        interpolatingFilter.reset();
+        decimatingFilter.reset();
+    }
 private:
     virtual float processShape(float) = 0;
     Filter6PButter interpolatingFilter;
@@ -267,19 +271,21 @@ struct StepWave : Module {
         // Load the value of SyncInterval[1]
         json_t* SyncInterval1J = json_object_get(rootJ, "SyncInterval1");
         if (SyncInterval1J) {
-            SyncInterval[1] = (float)json_real_value(SyncInterval1J);
+            SyncInterval[1] = clamp((float)json_real_value(SyncInterval1J), 0.0001f, 60.f);
         }
 
         // Load the value of stageDuration[1]
         json_t* stageDuration1J = json_object_get(rootJ, "stageDuration1");
         if (stageDuration1J) {
-            stageDuration[1] = (float)json_real_value(stageDuration1J);
+            stageDuration[1] = clamp((float)json_real_value(stageDuration1J), 0.0001f, 60.f);
         }
 
         // Load the value of currentStage[1]
         json_t* currentStage1J = json_object_get(rootJ, "currentStage1");
         if (currentStage1J) {
-            currentStage[1] = (float)json_real_value(currentStage1J);
+            // Indexes params[STEP_1_VAL + currentStage] and stepValues[8]; the
+            // runtime wrap only catches > 7, and only after the first use.
+            currentStage[1] = clamp((int)json_real_value(currentStage1J), 0, 7);
         }
     }
 
@@ -956,9 +962,21 @@ struct StepWave : Module {
             }                
 
             if (j == 1) {
+                // Non-finite recovery. The slew limiter and the oversampling
+                // shaper are both recursive, so a bad value lodges in them and
+                // the CV output stays stuck. Rewind rather than pass it on.
+                if (!std::isfinite(slewedVoltage[j])) {
+                    slewedVoltage[j] = 0.f;
+                    lastTargetVoltage[j] = 0.f;
+                    shaper.reset();
+                    slewLimiterA.reset();   // rise/fall are re-set every sample
+                    slewLimiterB.reset();
+                }
+
                 if (isSupersamplingEnabled) {
                     // Use the oversampling shaper for the signal
                     float outputValue = shaper.process(slewedVoltage[j]);
+                    if (!std::isfinite(outputValue)) { outputValue = 0.f; shaper.reset(); }
 
                     // Output the processed value
                     outputs[CV_OUTPUT].setVoltage(outputValue);                   

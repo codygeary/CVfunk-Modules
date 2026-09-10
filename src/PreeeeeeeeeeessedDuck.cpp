@@ -10,6 +10,7 @@
 ////////////////////////////////////////////////////////////
 
 #include "plugin.hpp"
+#include <cmath>
 
 struct SecondOrderHPF {
     float x1 = 0, x2 = 0; // previous two inputs
@@ -63,6 +64,10 @@ public:
             signal = decimatingFilter.process(signal);
         }
         return signal;
+    }
+    void reset() {
+        interpolatingFilter.reset();
+        decimatingFilter.reset();
     }
 private:
     virtual float processShape(float) = 0;
@@ -294,7 +299,7 @@ struct PreeeeeeeeeeessedDuck : Module {
             for (size_t i = 0; i < json_array_size(fadeLevelJ) && i < 17; i++) {
                 json_t* fadeLevelValue = json_array_get(fadeLevelJ, i);
                 if (fadeLevelValue) {
-                    fadeLevel[i] = json_real_value(fadeLevelValue);  // Use json_real_value for float
+                    fadeLevel[i] = clamp((float)json_real_value(fadeLevelValue), 0.f, 1.f);
                 }
             }
         }
@@ -303,7 +308,9 @@ struct PreeeeeeeeeeessedDuck : Module {
             for (size_t i = 0; i < json_array_size(transitionCountJ) && i < 17; i++) {
                 json_t* transitionCountValue = json_array_get(transitionCountJ, i);
                 if (transitionCountValue) {
-                    transitionCount[i] = json_integer_value(transitionCountValue);  // Use json_integer_value for int
+                    // Counts down against transitionSamples; a huge value would
+                    // hold the channel mid-fade indefinitely.
+                    transitionCount[i] = clamp((int)json_integer_value(transitionCountValue), 0, 1000000);
                 }
             }
         }
@@ -1159,6 +1166,21 @@ struct PreeeeeeeeeeessedDuck : Module {
             // Use the oversampling shaper for the signal
             outputL = shaperL.process(outputL);
             outputR = shaperR.process(outputR);
+        }
+
+        // Non-finite recovery. The per-channel envelope followers, the ducking
+        // envelope, the volume meters and the oversampling shapers are all
+        // recursive, so a bad value lodges in them and the mixer stays dead.
+        // Rewind that state instead of writing it out.
+        if (!std::isfinite(outputL) || !std::isfinite(outputR)) {
+            outputL = outputR = 0.f;
+            shaperL.reset(); shaperR.reset();
+            volTotalL = volTotalR = 0.f;
+            for (int i = 0; i < 16; ++i) {
+                envelopeL[i] = envelopeR[i] = 0.f;
+                filteredEnvelopeL[i] = filteredEnvelopeR[i] = 0.f;
+                filteredEnvelope[i]  = 0.f;
+            }
         }
 
         outputs[AUDIO_OUTPUT_L].setVoltage(outputL);

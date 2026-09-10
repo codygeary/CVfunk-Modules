@@ -12,6 +12,7 @@
 
 #include "rack.hpp"
 #include "plugin.hpp"
+#include <cmath>
 #include "digital_display.hpp"
 
 using namespace rack;
@@ -205,7 +206,11 @@ struct Collatz : Module {
         
             // Update lastClockTime for rate calculation
             if (firstPulseReceived) {
-                clockRate = 1.0f / lastClockTime;
+                // lastClockTime is a measured interval; a zero or non-finite
+                // one would make clockRate infinite, and clockRate is the
+                // divisor for every step and accent duration below.
+                float interval = std::isfinite(lastClockTime) ? lastClockTime : 1.0f;
+                clockRate = 1.0f / clamp(interval, 1e-4f, 60.0f);
             }
             lastClockTime = 0.0f;
             firstPulseReceived = true;

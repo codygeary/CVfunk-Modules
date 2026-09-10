@@ -10,6 +10,7 @@
 ////////////////////////////////////////////////////////////
 
 #include "plugin.hpp"
+#include <cmath>
 
 // Define the maximum number of nodes
 static constexpr int MAX_NODES = 24;
@@ -308,8 +309,14 @@ struct ImpulseController : Module {
 
         //Interpolate outputs in realtime        
         for (int i=0; i<MAX_NODES; i++){
+            // This port is its own accumulator -- the previous voltage is read
+            // back and added to every sample. A non-finite value therefore never
+            // washes out: the threshold test below is false for NaN, so it would
+            // be written straight back and the output would stay stuck forever.
             float currentOutput = outputs[_01_OUTPUT+i].getVoltage();
+            if (!std::isfinite(currentOutput)) currentOutput = 0.f;
             currentOutput += nextChunk[i]* 1/ChunkLength;
+            if (!std::isfinite(currentOutput)) currentOutput = 0.f;
             currentOutput = (currentOutput < 0.0001f) ? 0.0f : currentOutput;   //round to 0.0 if below threshold.         
             outputs[_01_OUTPUT + i].setVoltage( currentOutput );     
         }

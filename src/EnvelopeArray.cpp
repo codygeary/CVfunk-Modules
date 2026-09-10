@@ -124,11 +124,13 @@ struct EnvelopeArray : Module {
     void dataFromJson(json_t* rootJ) override {
         // Load the state of time1Range
         json_t* time1RangeJ = json_object_get(rootJ, "time1Range");
-        if (time1RangeJ) time1Range = static_cast<SpeedRange>(json_integer_value(time1RangeJ));
+        // Casting an out-of-range integer to a 3-value enum is undefined.
+        if (time1RangeJ) time1Range = static_cast<SpeedRange>(clamp((int)json_integer_value(time1RangeJ), 0, 2));
     
         // Load the state of time6Range
         json_t* time6RangeJ = json_object_get(rootJ, "time6Range");
-        if (time6RangeJ) time6Range = static_cast<SpeedRange>(json_integer_value(time6RangeJ));
+        // Casting an out-of-range integer to a 3-value enum is undefined.
+        if (time6RangeJ) time6Range = static_cast<SpeedRange>(clamp((int)json_integer_value(time6RangeJ), 0, 2));
     
         // Load the state of retrigEnabled
         json_t* retrigEnabledJ = json_object_get(rootJ, "retrigEnabled");

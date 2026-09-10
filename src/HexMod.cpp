@@ -178,7 +178,8 @@ struct HexMod : Module {
         // Load the state of SyncInterval
         json_t* SyncIntervalJ = json_object_get(rootJ, "SyncInterval");
         if (SyncIntervalJ) {
-            SyncInterval = json_number_value(SyncIntervalJ);
+            // Divides into `rate` below; 0 would make the LFO rate infinite.
+            SyncInterval = clamp((float)json_number_value(SyncIntervalJ), 0.0001f, 60.f);
         }   
 
         // Load the state of slowMode
@@ -193,7 +194,7 @@ struct HexMod : Module {
             for (int i = 0; i < 6; i++) {
                 json_t* valueJ = json_array_get(lfoOutputJ, i);
                 if (valueJ) {
-                    lfoOutput[i] = json_number_value(valueJ);
+                    lfoOutput[i] = clamp((float)json_number_value(valueJ), -10.f, 10.f);
                 }
             }
         }                        
@@ -203,7 +204,10 @@ struct HexMod : Module {
             for (int i = 0; i < 6; i++) {
                 json_t* valueJ = json_array_get(placeJ, i);
                 if (valueJ) {
-                    place[i] = json_number_value(valueJ);
+                    // place is a normalised phase; it is added into targetPhase,
+                    // which is then wrapped into [0,1). Loaded unclamped, a large
+                    // value made that wrap take one iteration per unit.
+                    place[i] = clamp((float)json_number_value(valueJ), 0.f, 1.f);
                 }
             }
         } 
@@ -289,7 +293,9 @@ struct HexMod : Module {
     
             if (SyncTrigger.process(SyncInputVoltage)) {
                 if (!firstClockPulse) {
-                    SyncInterval = SyncTimer.time;
+                    // Two pulses in the same sample would leave this at 0, and
+                    // `rate = 1 / SyncInterval` below would then be infinite.
+                    SyncInterval = clamp(SyncTimer.time, 0.0001f, 60.f);
                     SyncTimer.reset();
                     if (synclinkEnabled) {
                         clockSyncPulse = true;
@@ -359,8 +365,10 @@ struct HexMod : Module {
             }
             targetPhase += place[i];
     
-            while (targetPhase >= 1.0f) targetPhase -= 1.0f;
-            while (targetPhase < 0.0f) targetPhase += 1.0f;
+            // Wrap in constant time. As `while` loops these ran one iteration
+            // per whole unit and never terminated at all on a non-finite value,
+            // which is an unrecoverable freeze of the audio thread.
+            targetPhase -= floorf(targetPhase);
     
             float phaseDiff = targetPhase - lfoPhase[i];
             if (phaseDiff > 0.5f) phaseDiff -= 1.0f;
@@ -376,8 +384,7 @@ struct HexMod : Module {
                 lfoPhase[i] += phaseDiff * ((0.2f - 0.1999f * (PhaseResetInput / 10.0f)) * (rate / 1000.f));
             }
     
-            while (lfoPhase[i] >= 1.0f) lfoPhase[i] -= 1.0f;
-            while (lfoPhase[i] < 0.0f) lfoPhase[i] += 1.0f;
+            lfoPhase[i] -= floorf(lfoPhase[i]);   // see targetPhase above
     
             lfoPhase[i] += rate * deltaTime;        
             if (lfoPhase[i] >= 1.0f) lfoPhase[i] -= 1.0f;
@@ -616,7 +623,9 @@ struct HexModWidget : ModuleWidget {
         ModuleWidget::appendContextMenu(menu);
 
         HexMod* hexMod = dynamic_cast<HexMod*>(module);
-        assert(hexMod);
+        // Not assert(): the Rack SDK builds without -DNDEBUG, so a failed cast
+        // would abort the host rather than just skipping the menu.
+        if (!hexMod) return;
 
         // Separator for visual grouping in the context menu
         menu->addChild(new MenuSeparator);

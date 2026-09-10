@@ -11,6 +11,9 @@
 
 #include "rack.hpp"
 #include "plugin.hpp"
+#include <cmath>
+#include <algorithm>
+#include <vector>
 using namespace rack;
 
 template<typename T, size_t Size>
@@ -160,7 +163,7 @@ struct TriDelay : Module {
         Module::fromJson(rootJ);
         json_t* delayLengthJ = json_object_get(rootJ, "delayLength");
         if (delayLengthJ)
-            delayLength = json_real_value(delayLengthJ);
+            delayLength = clamp((float)json_real_value(delayLengthJ), 1.f, 3600.f);
     }  
     
     //For the display
@@ -400,6 +403,20 @@ struct TriDelay : Module {
         waveBuffers[0][sampleIndex] = clamp( (filteredEnvelopeL + filteredEnvelopeR) * 0.40f, -10.f, 10.f) + 0.4f;
         waveBuffers[1][sampleIndex] = clamp( (filteredEnvelopeWetL + filteredEnvelopeWetR) * -0.20f, -10.f, 10.f) - 0.4f;
      
+        // Non-finite recovery. The delay buffer writes are clamped, but the tap
+        // ADAA memory, the envelope followers and the output shapers are not --
+        // once one of them holds a NaN the module stays stuck there for good.
+        // Rewind that state rather than letting it sit.
+        if (!std::isfinite(outputValueL) || !std::isfinite(outputValueR)) {
+            outputValueL = outputValueR = 0.f;
+            for (int t = 0; t < 3; ++t) { lastOutputL[t] = 0.f; lastOutputR[t] = 0.f; }
+            envPeakL = envPeakR = envPeakWetL = envPeakWetR = 0.f;
+            filteredEnvelopeL = filteredEnvelopeR = 0.f;
+            filteredEnvelopeWetL = filteredEnvelopeWetR = 0.f;
+            std::fill(buffer[0].begin(), buffer[0].end(), 0.f);
+            std::fill(buffer[1].begin(), buffer[1].end(), 0.f);
+        }
+
         // Output the mixed signal
         outputs[AUDIO_OUTPUT_L].setVoltage(outputValueL);
         outputs[AUDIO_OUTPUT_R].setVoltage(outputValueR);
@@ -656,7 +673,9 @@ struct TriDelayWidget : ModuleWidget {
         ModuleWidget::appendContextMenu(menu);
     
         TriDelay* module = dynamic_cast<TriDelay*>(this->module);
-        assert(module);
+        // Not assert(): the Rack SDK builds without -DNDEBUG, so a failed cast
+        // would abort the host rather than just skipping the menu.
+        if (!module) return;
     
         menu->addChild(new MenuSeparator());
         menu->addChild(createMenuLabel("Delay Time"));

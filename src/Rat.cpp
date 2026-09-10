@@ -333,7 +333,9 @@ struct RatWidget : ModuleWidget {
     void appendContextMenu(Menu* menu) override {
         ModuleWidget::appendContextMenu(menu);
         Rat* m = dynamic_cast<Rat*>(module);
-        assert(m);
+        // Not assert(): the Rack SDK builds without -DNDEBUG, so a failed cast
+        // would abort the host rather than just skipping the menu.
+        if (!m) return;
 
         menu->addChild(new MenuSeparator());
         menu->addChild(createMenuLabel("Ratio Non-Linearity"));

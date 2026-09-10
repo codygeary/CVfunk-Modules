@@ -27,6 +27,14 @@ static constexpr int TWANG_QUADS    = TWANG_MAX_POLY / 4;
 
 static constexpr float TWANG_BOW_DEAD_ZONE = 0.005f;
 
+// How long a pluck keeps the module awake no matter what the output reads.
+// Must cover the worst-case pluck-point-to-bridge travel plus the body's
+// response: the lowest playable note is ~23Hz (the vOct floor of -3.5), a
+// 43ms round trip, and the energy detectors settle over ~74ms. 250ms is
+// comfortably clear of both and costs nothing -- the module is about to be
+// making sound anyway.
+static constexpr float TWANG_PLUCK_WAKE_SEC = 0.25f;
+
 // Gain staging and Voicing constants
 static constexpr float TWANG_TONE_COMPENSATION = 2.0f;   // gain lift as TONE darkens
 static constexpr float TWANG_PLUCK_BRIGHTEN    = 0.35f;  // velocity -> HARDNESS
@@ -144,6 +152,12 @@ struct Twang : Module {
 
     float sampleRate = 48000.f;
     int   nVoices    = 1;
+    int   prevVoices = 1;
+    // Smoothed 1/sqrt(sounding voices); see the poly normalisation in process().
+    float a_polyNormalize = 1.f;
+    // Samples for which a pluck forces the voice awake regardless of output
+    // level. See the sleep re-arm in process() for why this is needed.
+    int   wakeHold = 0;
     int   nQuads     = 1;
 
     static constexpr int CTRL_SKIP = 32;
@@ -227,7 +241,7 @@ struct Twang : Module {
     void dataFromJson(json_t* rootJ) override {
         json_t* j;
         j = json_object_get(rootJ, "fmDepthSemitones");
-        if (j) fmDepthSemitones = (float)json_real_value(j);
+        if (j) fmDepthSemitones = clamp((float)json_real_value(j), 0.f, 24.f);
         j = json_object_get(rootJ, "pluckTilt");
         if (j) pluckTilt = clamp((float)json_real_value(j), 0.f, 1.f);
         j = json_object_get(rootJ, "pluckDrive");
@@ -239,7 +253,7 @@ struct Twang : Module {
         j = json_object_get(rootJ, "twangBounceHz");
         if (j) twangBounceHz = clamp((float)json_real_value(j), 0.5f, 30.f);
         j = json_object_get(rootJ, "stereoWidth");
-        if (j) stereoWidth = (float)json_real_value(j);
+        if (j) stereoWidth = clamp((float)json_real_value(j), 0.f, 1.f);
         j = json_object_get(rootJ, "polyOutput");
         if (j) polyOutput = json_is_true(j);
     }
@@ -339,8 +353,20 @@ struct Twang : Module {
         spaceR.setDelay((int)roundf(0.004f  * sampleRate));
         a_bowSpeed = 0.f;
         t_bowSpeed = 0.f;
+        wakeHold        = 0;
+        a_polyNormalize = 1.f;
         for (int v = 0; v < TWANG_MAX_POLY; ++v) { a_bowSpeedV[v] = 0.f; t_bowSpeedV[v] = 0.f; }
         asleep     = true;
+    }
+
+    // initVoice() reallocates every delay line. Doing that only from process()
+    // (as the sample-rate check below the audio block does) puts a heap
+    // allocation on the audio thread. Rack fires this on the engine thread, so
+    // the rate change is absorbed here; the in-process check stays as a net,
+    // matching Strands.
+    void onSampleRateChange() override {
+        sampleRate = APP->engine->getSampleRate();
+        initVoice();
     }
 
     void panic() {
@@ -358,6 +384,8 @@ struct Twang : Module {
         // must not re-strum the moment audio resumes.
         pluckButtonWasDown = params[PLUCK_BUTTON_PARAM].getValue() > 0.5f;
         a_bowSpeed      = 0.f;
+        wakeHold        = 0;
+        a_polyNormalize = 1.f;
         for (int v = 0; v < TWANG_MAX_POLY; ++v) { a_bowSpeedV[v] = 0.f; t_bowSpeedV[v] = 0.f; }
         asleep          = true;
     }
@@ -434,6 +462,14 @@ struct Twang : Module {
             if (inputs[BOW_SPEED_CV_INPUT].isConnected())
                 maxCh = std::max(maxCh, inputs[BOW_SPEED_CV_INPUT].getChannels());
             nVoices = clamp(maxCh, 1, TWANG_MAX_POLY);
+            // Clear strings that just dropped out of range. Without this a
+            // dropped voice keeps its ring in the rails and it comes straight
+            // back when the channel count grows again.
+            if (nVoices < prevVoices) {
+                for (int v = nVoices; v < prevVoices; ++v)
+                    voiceQuad[v / 4].panicLane(v % 4);
+            }
+            prevVoices = nVoices;
             // Only the quads holding active voices get processed. A partial
             // final quad has its spare lanes masked (see the audio block).
             nQuads  = (nVoices + 3) / 4;
@@ -715,7 +751,8 @@ struct Twang : Module {
                     pluckHardPoly ? pluckHardnessV[v] : cachedPluckHardness, 0.8f, sampleRate);
                 voiceQuad[q].triggerPluck(lane, 0.8f);
             }
-            asleep = false;
+            asleep   = false;
+            wakeHold = (int)(TWANG_PLUCK_WAKE_SEC * sampleRate);
         }
         pluckButtonWasDown = pluckButtonDown;
 
@@ -739,7 +776,8 @@ struct Twang : Module {
                     // Bow lifts, junction moves to the pluck point, twang
                     // kicks (see TwangStringSIMD).
                     voiceQuad[q].triggerPluck(lane, velocity);
-                    asleep = false;
+                    asleep   = false;
+                    wakeHold = (int)(TWANG_PLUCK_WAKE_SEC * sampleRate);
                 }
                 if (voiceQuad[q].pluck[lane].active) anyPluckActive = true;
             }
@@ -753,13 +791,28 @@ struct Twang : Module {
 
         if (loudestBow >= TWANG_BOW_DEAD_ZONE * 0.5f) asleep = false;
 
+        // A pluck holds the module awake for a fixed window regardless of what
+        // the output is doing. Nothing below can strand a non-zero wakeHold,
+        // because a non-zero one forces asleep false and so skips the early
+        // return.
+        if (wakeHold > 0) {
+            --wakeHold;
+            asleep = false;
+        }
+
         // Sleep only when nothing is bowing, nothing is plucking, and the
         // strings have rung out.
         if (asleep && !anyPluckActive) {
-            outputs[OUT_L].setVoltage(0.f);
-            outputs[OUT_R].setVoltage(0.f);
-            outputs[OUT_L].setChannels(1);
-            outputs[OUT_R].setChannels(1);
+            // Keep the declared width. Collapsing to 1 here and back to nVoices
+            // on the next note made the port flicker between mono and poly at
+            // every note-off, which downstream poly modules have to re-adapt to.
+            int sleepCh = polyOutput ? nVoices : 1;
+            outputs[OUT_L].setChannels(sleepCh);
+            outputs[OUT_R].setChannels(sleepCh);
+            for (int c = 0; c < sleepCh; ++c) {
+                outputs[OUT_L].setVoltage(0.f, c);
+                outputs[OUT_R].setVoltage(0.f, c);
+            }
             return;
         }
 
@@ -800,6 +853,16 @@ struct Twang : Module {
                 // Fold back down an octave at a time if played too high -- the
                 // bow junction can go unstable up there. Also floor the low end
                 // so the segment length stays inside the allocated rails.
+                //
+                // Bound the input before folding. Nothing stops an upstream
+                // module from putting Inf or a huge value on V/Oct or FM, and
+                // `while (x > 2) x -= 1` never terminates on Inf and runs ~1e30
+                // times on 1e30 -- an infinite loop on the audio thread, which
+                // freezes the whole host. +-20V is far outside any real V/Oct,
+                // so every musical input folds exactly as before; only the
+                // pathological ones are caught.
+                if (!std::isfinite(vOct)) vOct = 0.f;
+                vOct = clamp(vOct, -20.f, 20.f);
                 while (vOct > 2.0f) vOct -= 1.f;
                 vOct = fmaxf(vOct, -3.5f);
 
@@ -866,8 +929,26 @@ struct Twang : Module {
 
         // Keep the summed level roughly constant as voices are added, so a
         // 6-note chord isn't six times louder than a single note.
-        float polyNormalize = 1.f / sqrtf((float)nVoices);
-        float mixed = voiceSum * polyNormalize * cachedToneCompensationGain
+        //
+        // Counted from the strings that are actually SOUNDING, not from nVoices
+        // (the cable's channel count). nVoices comes from whatever width the
+        // upstream MIDI-CV module is set to, so normalising by it meant a single
+        // note through a 16-channel cable came out 1/sqrt(16) = 12 dB quieter
+        // than the identical note through a mono cable -- the level depended on
+        // a setting in a different module rather than on what was being played.
+        int soundingVoices = 0;
+        for (int v = 0; v < nVoices; ++v) {
+            const int q = v / 4, lane = v % 4;
+            if (fabsf(a_bowSpeedV[v]) >= TWANG_BOW_DEAD_ZONE * 0.5f
+                || voiceQuad[q].pluck[lane].active
+                || voiceQuad[q].energySmooth[lane] > 1e-4f)
+                ++soundingVoices;
+        }
+        if (soundingVoices < 1) soundingVoices = 1;
+        // Smoothed (~45ms) so the gain slides as notes come and go instead of
+        // stepping on every note-on.
+        a_polyNormalize += 0.0005f * (1.f / sqrtf((float)soundingVoices) - a_polyNormalize);
+        float mixed = voiceSum * a_polyNormalize * cachedToneCompensationGain
                     * TWANG_INPUT_GAIN;
 
         // -- Mono core -----------------------------------------------------
@@ -910,7 +991,23 @@ struct Twang : Module {
             panic();
         }
 
+        // The output level alone is NOT a valid "has it rung out?" test for a
+        // plucked string. The pluck is injected at the pluck point and the
+        // signal is tapped at the bridge, so there is a propagation delay of up
+        // to one rail length -- ~218 samples at A2 -- before a pluck reaches the
+        // output at all. The excitation lobe is far shorter than that (93
+        // samples at the default hardness, 12 at a hard pick), so the instant it
+        // ends, anyPluckActive goes false while the output is still zero simply
+        // because the wave has not arrived yet.
+        //
+        // Without wakeHold that put the module to sleep one sample later, the
+        // early return above froze the rails mid-flight, and the wave never
+        // arrived. Each further pluck added a little more to the frozen rails
+        // until the total happened to clear the threshold inside a pluck window
+        // -- which is why the first few plucks after a patch load or a Reset
+        // were silent and everything was fine from then on.
         if (loudestBow < TWANG_BOW_DEAD_ZONE * 0.5f && !anyPluckActive
+            && wakeHold == 0
             && fabsf(voiceOutL) < 1e-5f && fabsf(voiceOutR) < 1e-5f)
             asleep = true;
 

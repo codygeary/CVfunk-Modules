@@ -344,7 +344,13 @@ struct Syncro : Module {
             }
         }
 
-        fillGlobal = static_cast<int>(std::roundf(params[FILL_KNOB].getValue() + (inputs[FILL_INPUT].isConnected() ? inputs[FILL_INPUT].getVoltage() * params[FILL_ATT].getValue() : 0.0f)));
+        // Bound before the cast: (int) of a NaN or out-of-range float is undefined,
+        // and nothing constrains what an upstream module puts on FILL.
+        float fillRaw = params[FILL_KNOB].getValue()
+                      + (inputs[FILL_INPUT].isConnected()
+                         ? inputs[FILL_INPUT].getVoltage() * params[FILL_ATT].getValue() : 0.0f);
+        if (!std::isfinite(fillRaw)) fillRaw = 0.f;
+        fillGlobal = static_cast<int>(std::roundf(clamp(fillRaw, -100.f, 100.f)));
 
         // Calculate the LCM for each clock
         int lcmWithMaster[9];
