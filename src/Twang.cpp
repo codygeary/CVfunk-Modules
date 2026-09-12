@@ -28,11 +28,7 @@ static constexpr int TWANG_QUADS    = TWANG_MAX_POLY / 4;
 static constexpr float TWANG_BOW_DEAD_ZONE = 0.005f;
 
 // How long a pluck keeps the module awake no matter what the output reads.
-// Must cover the worst-case pluck-point-to-bridge travel plus the body's
-// response: the lowest playable note is ~23Hz (the vOct floor of -3.5), a
-// 43ms round trip, and the energy detectors settle over ~74ms. 250ms is
-// comfortably clear of both and costs nothing -- the module is about to be
-// making sound anyway.
+// Must cover the worst-case pluck-point-to-bridge travel plus the body's response.
 static constexpr float TWANG_PLUCK_WAKE_SEC = 0.25f;
 
 // Gain staging and Voicing constants
@@ -41,6 +37,19 @@ static constexpr float TWANG_PLUCK_BRIGHTEN    = 0.35f;  // velocity -> HARDNESS
 static constexpr float TWANG_BOW_POSITION_MIN  = 0.08f;  // contact range, off the
 static constexpr float TWANG_BOW_POSITION_MAX  = 0.92f;  // unstable ends of the string
 static constexpr float TWANG_BRIDGE_COUPLING   = 0.35f;  // body load in the reflection
+
+// Highest lowest-mode the BRIDGE ADMITTANCE bank is allowed to track, in Hz.
+//
+// The admittance is subtracted from the string's reflection, and its five
+// modes run to ratio 5.60. The stability sweep behind setCoupling()'s 0.7
+// ceiling was run over a body range topping out near here, where those modes
+// still sit inside the bridge low-pass's passband and the direct term
+// dominates the reflection. Push the body far above it and the top admittance
+// modes land where TONE has already rolled the direct term away, leaving the
+// subtraction to set |r| on its own -- which is how the string starts feeding
+// back. The body the listener hears may go higher; the string's termination
+// stops following it here.
+static constexpr float TWANG_BRIDGE_BODY_MAX_HZ = 700.f;
 
 static constexpr float TWANG_INPUT_GAIN    = 0.4f;
 static constexpr float TWANG_OUTPUT_MAKEUP = 8.5f;
@@ -76,7 +85,7 @@ struct Twang : Module {
         // Bow row sliders
         BOW_POSITION_PARAM,    BOW_POSITION_TRIM_PARAM,
         BOW_PRESSURE_PARAM,    BOW_PRESSURE_TRIM_PARAM,
-        STRING_IMPEDANCE_PARAM,  STRING_IMPEDANCE_TRIM_PARAM,
+        ATTACK_PARAM,            ATTACK_TRIM_PARAM,
         SLIP_PARAM,              SLIP_TRIM_PARAM,
         TONE_PARAM,            TONE_TRIM_PARAM,
         // Pluck row sliders
@@ -87,6 +96,9 @@ struct Twang : Module {
         RESONATOR_SIZE_PARAM,     RESONATOR_SIZE_TRIM_PARAM,
         RESONATOR_MATERIAL_PARAM, RESONATOR_MATERIAL_TRIM_PARAM,
         DRIVE_PARAM,              DRIVE_TRIM_PARAM,
+        // Appended rather than slotted in with the other rail B entries, so
+        // every existing param index keeps its number and saved patches load.
+        PLUCK_VELOCITY_PARAM,
         NUM_PARAMS
     };
 
@@ -100,7 +112,7 @@ struct Twang : Module {
         VOLUME_CV_INPUT,
         BOW_POSITION_CV_INPUT,
         BOW_PRESSURE_CV_INPUT,
-        STRING_IMPEDANCE_CV_INPUT,
+        ATTACK_CV_INPUT,
         SLIP_CV_INPUT,
         TONE_CV_INPUT,
         PLUCK_POSITION_CV_INPUT,
@@ -120,7 +132,8 @@ struct Twang : Module {
     };
 
     enum LightIds {
-        MUTE_LIGHT,
+        MUTE_LIGHT,          // green: mute DEPTH from the knob / CV
+        MUTE_BUTTON_LIGHT,   // red:   the latch is physically engaged
         PLUCK_LIGHT,
         NUM_LIGHTS
     };
@@ -175,13 +188,22 @@ struct Twang : Module {
     float stringDecaySeconds  = 5.f;
     float cachedDriveGain     = 1.f;
     float cachedVolume        = 0.8f;
-    float cachedLowestMode    = 123.f;   // lowest body mode, Hz (RESONATOR SIZE)
+    float cachedLowestMode    = 131.f;   // lowest body mode, Hz (RESONATOR SIZE)
     
     // Bridge admittance coupling: how hard the body loads the string termination. 
     float bowLevel            = 0.7f;
     float pluckTilt           = 0.6f;
     // Pluck level. 
-    float pluckDrive          = 12.0f;
+    float pluckDrive          = 12.0f;   // now driven by the PLUCK LEVEL slider
+    // Bow coupling. Moved off the panel to the context menu -- it is a voicing
+    // constant more than a performance control. Stored as the final value, not
+    // a 0..1 slider position; the old panel default (0.31) mapped to 0.641.
+    float stringImpedance     = 0.641f;
+    // How much MATERIAL tilts body mode amplitude toward the upper modes.
+    // 1.0 is the original behaviour; lower values hand brightness back to TONE.
+    float bodyTilt            = 0.7f;
+    // How hard the body loads the string's bridge termination. 
+    float bridgeCoupling      = TWANG_BRIDGE_COUPLING;
     // Per-voice bow speed. BOW SPEED CV is polyphonic so a MIDI-driven patch
     // can bow each note separately
     float t_bowSpeedV[TWANG_MAX_POLY] = {};
@@ -230,6 +252,9 @@ struct Twang : Module {
         json_object_set_new(rootJ, "fmDepthSemitones",       json_real(fmDepthSemitones));
         json_object_set_new(rootJ, "pluckTilt",              json_real(pluckTilt));
         json_object_set_new(rootJ, "pluckDrive",             json_real(pluckDrive));
+        json_object_set_new(rootJ, "stringImpedance",        json_real(stringImpedance));
+        json_object_set_new(rootJ, "bodyTilt",               json_real(bodyTilt));
+        json_object_set_new(rootJ, "bridgeCoupling",         json_real(bridgeCoupling));
         json_object_set_new(rootJ, "twangMaxBendSemitones",  json_real(twangMaxBendSemitones));
         json_object_set_new(rootJ, "twangBounceAmount",      json_real(twangBounceAmount));
         json_object_set_new(rootJ, "twangBounceHz",          json_real(twangBounceHz));
@@ -246,6 +271,12 @@ struct Twang : Module {
         if (j) pluckTilt = clamp((float)json_real_value(j), 0.f, 1.f);
         j = json_object_get(rootJ, "pluckDrive");
         if (j) pluckDrive = clamp((float)json_real_value(j), 1.f, 30.f);
+        j = json_object_get(rootJ, "stringImpedance");
+        if (j) stringImpedance = clamp((float)json_real_value(j), 0.30f, 1.40f);
+        j = json_object_get(rootJ, "bodyTilt");
+        if (j) bodyTilt = clamp((float)json_real_value(j), 0.f, 1.f);
+        j = json_object_get(rootJ, "bridgeCoupling");
+        if (j) bridgeCoupling = clamp((float)json_real_value(j), 0.f, 0.7f);
         j = json_object_get(rootJ, "twangMaxBendSemitones");
         if (j) twangMaxBendSemitones = clamp((float)json_real_value(j), 0.f, 24.f);
         j = json_object_get(rootJ, "twangBounceAmount");
@@ -273,14 +304,25 @@ struct Twang : Module {
         configParam(VOLUME_PARAM,       0.f, 1.f, 0.80f, "Volume");
         configSwitch(MUTE_BUTTON_PARAM,  0.f, 1.f, 0.f,  "Mute",  {"Open", "Muted"});
         configParam(PLUCK_BUTTON_PARAM,  0.f, 1.f, 0.f,  "Pluck");
+        // Full-scale pluck velocity, in volts of trigger. The PLUCK TRIG jack
+        // still reads its own voltage as velocity; this sets what a 10 V hit is
+        // worth, so a patch driven by plain gates (which are all 10 V and would
+        // otherwise every one of them be a maximum-force pluck) gets a usable
+        // dynamic level, and the panel button gets a level at all. Default 10 V
+        // leaves CV-driven velocity exactly as it was.
+        configParam(PLUCK_VELOCITY_PARAM, 0.f, 10.f, 10.f, "Max Pluck Velocity", " V");
         configParam(FM_TRIM_PARAM,      0.f, 1.f, 0.f,   "FM CV Trim");
 
         configParam(BOW_POSITION_PARAM,         0.f, 1.f, 0.75f, "Bow Position");
         configParam(BOW_POSITION_TRIM_PARAM,   -1.f, 1.f, 0.f,   "Bow Position CV Trim");
         configParam(BOW_PRESSURE_PARAM,         0.f, 1.f, 0.40f, "Bow Pressure");
         configParam(BOW_PRESSURE_TRIM_PARAM,   -1.f, 1.f, 0.f,   "Bow Pressure CV Trim");
-        configParam(STRING_IMPEDANCE_PARAM,     0.f, 1.f, 0.31f, "String Impedance (bow coupling)");
-        configParam(STRING_IMPEDANCE_TRIM_PARAM,-1.f, 1.f, 0.f,  "String Impedance CV Trim");
+        // Pluck Level drives the pluck exciter (was the "Pluck Drive" menu
+        // float). The enum ids are still ATTACK_*; only the user-facing name
+        // changed, so patches keep loading.
+        // 0.379 maps to the old default of 12.
+        configParam(ATTACK_PARAM,               0.f, 1.f, 0.379f, "Pluck Level");
+        configParam(ATTACK_TRIM_PARAM,         -1.f, 1.f, 0.f,    "Pluck Level CV Trim");
         configParam(SLIP_PARAM,                 0.f, 1.f, 0.27f, "Slip (bow bite)");
         configParam(SLIP_TRIM_PARAM,           -1.f, 1.f, 0.f,   "Slip CV Trim");
         configParam(TONE_PARAM,                 0.f, 1.f, 0.70f, "Tone");
@@ -292,11 +334,11 @@ struct Twang : Module {
         configParam(PLUCK_HARDNESS_TRIM_PARAM,    -1.f, 1.f, 0.f,   "Pluck Hardness CV Trim");
         configParam(BOW_LEVEL_PARAM,               0.f, 1.f, 0.43f, "Bow Level");
         configParam(BOW_LEVEL_TRIM_PARAM,         -1.f, 1.f, 0.f,   "Bow Level CV Trim");
-        configParam(DECAY_PARAM,                   0.f, 1.f, 0.62f, "Pluck Sustain");
-        configParam(DECAY_TRIM_PARAM,             -1.f, 1.f, 0.f,   "Pluck Sustain CV Trim");
-        configParam(RESONATOR_SIZE_PARAM,          0.f, 1.f, 0.45f, "Resonator Size");
+        configParam(DECAY_PARAM,                   0.f, 1.f, 0.62f, "Pluck Decay");
+        configParam(DECAY_TRIM_PARAM,             -1.f, 1.f, 0.f,   "Pluck Decay CV Trim");
+        configParam(RESONATOR_SIZE_PARAM,          0.f, 1.f, 0.60f, "Resonator Size");
         configParam(RESONATOR_SIZE_TRIM_PARAM,    -1.f, 1.f, 0.f,   "Resonator Size CV Trim");
-        configParam(RESONATOR_MATERIAL_PARAM,      0.f, 1.f, 0.20f, "Resonator Material (wood - metal - glass)");
+        configParam(RESONATOR_MATERIAL_PARAM,      0.f, 1.f, 0.20f, "Resonator Material (wood - metal)");
         configParam(RESONATOR_MATERIAL_TRIM_PARAM,-1.f, 1.f, 0.f,   "Resonator Material CV Trim");
         configParam(DRIVE_PARAM,                   0.f, 1.f, 0.f,   "Drive");
         configParam(DRIVE_TRIM_PARAM,             -1.f, 1.f, 0.f,   "Drive CV Trim");
@@ -310,13 +352,13 @@ struct Twang : Module {
         configInput(VOLUME_CV_INPUT,            "Volume CV");
         configInput(BOW_POSITION_CV_INPUT,      "Bow Position CV");
         configInput(BOW_PRESSURE_CV_INPUT,      "Bow Pressure CV");
-        configInput(STRING_IMPEDANCE_CV_INPUT,  "String Impedance CV");
+        configInput(ATTACK_CV_INPUT,            "Pluck Level CV");
         configInput(SLIP_CV_INPUT,              "Slip CV");
         configInput(TONE_CV_INPUT,              "Tone CV");
         configInput(PLUCK_POSITION_CV_INPUT,    "Pluck Position CV");
         configInput(PLUCK_HARDNESS_CV_INPUT,    "Pluck Hardness CV");
         configInput(BOW_LEVEL_CV_INPUT,         "Bow Level CV");
-        configInput(DECAY_CV_INPUT,             "Pluck Sustain CV");
+        configInput(DECAY_CV_INPUT,             "Pluck Decay CV");
         configInput(RESONATOR_SIZE_CV_INPUT,    "Resonator Size CV");
         configInput(RESONATOR_MATERIAL_CV_INPUT,"Resonator Material CV");
         configInput(DRIVE_CV_INPUT,             "Drive CV");
@@ -399,7 +441,10 @@ struct Twang : Module {
         stereoWidth            = 0.35f;
         polyOutput             = false;
         pluckDrive             = 12.0f;
+        stringImpedance        = 0.641f;
+        bodyTilt               = 0.7f;
         pluckTilt              = 0.6f;
+        bridgeCoupling         = TWANG_BRIDGE_COUPLING;
         panic();
     }
 
@@ -485,7 +530,9 @@ struct Twang : Module {
             // short in the first tenth of the slider.
             bowLevel = 0.1f + 1.4f * readSliderCV(BOW_LEVEL_PARAM, BOW_LEVEL_TRIM_PARAM,
                                                   BOW_LEVEL_CV_INPUT);
-            stringDecaySeconds = 0.5f * powf(40.f, readSliderCV(DECAY_PARAM, DECAY_TRIM_PARAM,
+            // 0.5s .. 60s. The top was 20s; extended so the slider reaches a
+            // ring-on-forever sustain and the whole upper half stays expressive.
+            stringDecaySeconds = 0.5f * powf(120.f, readSliderCV(DECAY_PARAM, DECAY_TRIM_PARAM,
                                                                 DECAY_CV_INPUT));
 
             // MUTE: palm mute. Continuous depth, not a switch -- palm pressure
@@ -502,6 +549,8 @@ struct Twang : Module {
             bool  muteCVConn = inputs[MUTE_CV_INPUT].isConnected();
             int   muteCVCh   = muteCVConn ? inputs[MUTE_CV_INPUT].getChannels() : 0;
             bool  muteButton = params[MUTE_BUTTON_PARAM].getValue() > 0.5f;
+            // Measured BEFORE the latch is applied, so the green lamp reports
+            // the knob and CV only. The latch gets its own red lamp below.
             float loudestMute = 0.f;
             for (int v = 0; v < nVoices; ++v) {
                 float d = muteBase;
@@ -509,13 +558,20 @@ struct Twang : Module {
                     d = clamp(muteBase + muteAtt * 0.1f
                               * inputs[MUTE_CV_INPUT].getVoltage(std::min(v, muteCVCh - 1)),
                               0.f, 1.f);
+                loudestMute = fmaxf(loudestMute, d);
                 if (muteButton) d = 1.f;
                 muteDepthV[v] = d;
-                loudestMute = fmaxf(loudestMute, d);
             }
-            // The panel lamp follows the most muted string; with a mono cable
-            // that is every string, which is the common case.
-            lights[MUTE_LIGHT].setBrightness(loudestMute);
+            // Two lamps in the same bezel, because one lamp could not say
+            // which of the two ways of muting was doing it. They are exclusive,
+            // not additive: the latch forces every string to full mute, so
+            // while it is down the knob and CV have no say at all and a green
+            // reading of them would be reporting a state the module is not in.
+            //   latch down -> red, and only red
+            //   latch up   -> green, following the most muted string (with a
+            //                 mono cable that is every string, the common case)
+            lights[MUTE_LIGHT].setBrightness(muteButton ? 0.f : loudestMute);
+            lights[MUTE_BUTTON_LIGHT].setBrightness(muteButton ? 1.f : 0.f);
 
             // A real palm mute kills sustain as well as brightness, so it acts
             // on both the bridge filter cutoff and the loop gain.
@@ -553,10 +609,9 @@ struct Twang : Module {
             // (light/gut-like) couples bow energy easily -- loud, easy to
             // excite, a bit of edge; high (heavy/steel-like) fights the bow,
             // wants pressure and speed, but rings back harder. 
-            float impedanceSlider = readSliderCV(STRING_IMPEDANCE_PARAM,
-                                                 STRING_IMPEDANCE_TRIM_PARAM,
-                                                 STRING_IMPEDANCE_CV_INPUT);
-            float stringImpedance = 0.30f + impedanceSlider * 1.10f;
+            // PLUCK LEVEL: pluck exciter drive, 1..30 (was the Pluck Drive menu float).
+            pluckDrive = 1.f + 29.f * readSliderCV(ATTACK_PARAM, ATTACK_TRIM_PARAM,
+                                                   ATTACK_CV_INPUT);
 
             // SLIP: how fast the bow friction collapses once the string
             // breaks free of the sticking region. Low = the bow keeps
@@ -586,11 +641,13 @@ struct Twang : Module {
                                                      PLUCK_POSITION_CV_INPUT);
             // Kept off the exact ends: a pluck at the nut or bridge has no
             // displacement to give.
-            cachedPluckPosition = 0.05f + 0.85f * pluckPositionSlider;
+            const float pluckPosLo   = 0.05f;
+            const float pluckPosSpan = 0.85f;
+            cachedPluckPosition = pluckPosLo + pluckPosSpan * pluckPositionSlider;
             pluckPosPoly = inputs[PLUCK_POSITION_CV_INPUT].getChannels() > 1;
             if (pluckPosPoly)
                 for (int v = 0; v < nVoices; ++v)
-                    pluckPositionV[v] = 0.05f + 0.85f
+                    pluckPositionV[v] = pluckPosLo + pluckPosSpan
                         * readSliderCVPoly(PLUCK_POSITION_PARAM, PLUCK_POSITION_TRIM_PARAM,
                                            PLUCK_POSITION_CV_INPUT, v);
 
@@ -640,14 +697,24 @@ struct Twang : Module {
             // measured ratio. Scaling the whole modal set in frequency is very
             // nearly what distinguishes a cello from a guitar from a violin,
             // so one knob covers the family:
-            //   0.0 -> 55 Hz  (cello / large bodied)
-            //   0.45 -> 123 Hz (guitar, the default)
-            //   1.0 -> 330 Hz (violin)
-            // Widened from 55-330 Hz. The old range only spanned cello to
-            // violin; this reaches a subwoofer-sized box at one end and a
-            // matchbox at the other, which is the "weird territory" end.
-            //   0.0  ->  35 Hz    0.5 -> 157 Hz    1.0 -> 700 Hz
-            cachedLowestMode = 35.f * powf(20.f, sizeSlider);
+            // The slider now runs the way its name reads: UP IS A BIGGER BODY.
+            // It was inverted -- a bigger number meant a higher lowest mode,
+            // which is a SMALLER box -- for as long as this control has existed.
+            // Nobody had caught it because the old 55-330 Hz range was narrow
+            // enough to hear as timbre rather than as size.
+            //   0.0 -> 1200 Hz (smaller than the string: a metallic, formant-
+            //                   like whistle sitting above the note)
+            //   0.6 ->  131 Hz (guitar, the default)
+            //   1.0 ->   30 Hz (a box so large its lowest mode is below pitch,
+            //                   and reads as pure thud and room)
+            //
+            // The top is 1200 Hz, not the 1800 Hz it briefly was. 1800 put the
+            // admittance's top mode at 10 kHz, well outside the range the
+            // coupling's stability sweep covers, and the string could feed back
+            // there; see TWANG_BRIDGE_BODY_MAX_HZ. 1200 keeps the whole 7-mode
+            // bank under 14 kHz, so nothing hits the Nyquist clamp in
+            // twangResonatorCoeffs at 44.1 kHz either.
+            cachedLowestMode = 30.f * powf(40.f, 1.f - sizeSlider);
 
             // RESONATOR MATERIAL: wood -> metal -> glass. Wood is warm with
             // moderate decay, metal is bright and ringy, glass is thin and
@@ -660,16 +727,24 @@ struct Twang : Module {
             // of it is "wooden thud", so MATERIAL only changed decay length.
             // 0.3-5.3 puts Q between about 7 and 115 -- broad enough at the
             // bottom to read as a formant, narrow enough at the top to sing.
+            // MATERIAL owns body RING TIME (mode Q, ~7..115): wood is lossy and
+            // thuds, glass is near-lossless and sings. 
             float bodyQScale = 0.3f + bodyMaterial * 5.0f;
-            body.setBody(cachedLowestMode, bodyQScale, bodyMaterial, sampleRate);
+            float bodyTiltAmt = bodyMaterial * bodyTilt;
+            body.setBody(cachedLowestMode, bodyQScale, bodyTiltAmt, sampleRate);
             if (polyOutput)
                 for (int q = 0; q < TWANG_QUADS; ++q)
-                    polyBody[q].setBody(cachedLowestMode, bodyQScale, bodyMaterial, sampleRate);
+                    polyBody[q].setBody(cachedLowestMode, bodyQScale, bodyTiltAmt, sampleRate);
             // The string's termination must track the body the user is
-            // hearing, or the two stop belonging to the same instrument.
+            // hearing, or the two stop belonging to the same instrument -- but
+            // only up to the point where the coupled reflection is still known
+            // to be stable. Past that the body keeps rising and the termination
+            // holds, which costs a little realism at one end of one slider and
+            // buys not feeding back.
+            const float bridgeBodyHz = fminf(cachedLowestMode, TWANG_BRIDGE_BODY_MAX_HZ);
             for (int q = 0; q < TWANG_QUADS; ++q) {
-                voiceQuad[q].bridgeAdmittance.setBody(cachedLowestMode, bodyQScale, sampleRate);
-                voiceQuad[q].bridgeAdmittance.setCoupling(TWANG_BRIDGE_COUPLING);
+                voiceQuad[q].bridgeAdmittance.setBody(bridgeBodyHz, bodyQScale, sampleRate);
+                voiceQuad[q].bridgeAdmittance.setCoupling(bridgeCoupling);
             }
             // FDN per-line loop gain, in the musical ring-down range. With
             // per-line feedback the decay is once per line period, so wood
@@ -739,8 +814,9 @@ struct Twang : Module {
         // Pluck button: strums every active voice on the rising edge. It
         // shares the exact excitation path of the CV trigger -- impulse at
         // the pluck point with the bow lifted -- so the two can't stack.
-        // Velocity is fixed just below the loudest CV hit so a strum doesn't
-        // out-ring a hard key.
+        // Velocity comes from the MAX PLUCK VELOCITY trimmer, which is the
+        // only velocity source the button has -- it was a hardcoded 0.8.
+        const float pluckVelMax = clamp(params[PLUCK_VELOCITY_PARAM].getValue(), 0.f, 10.f) * 0.1f;
         bool pluckButtonDown = params[PLUCK_BUTTON_PARAM].getValue() > 0.5f;
         lights[PLUCK_LIGHT].setBrightness(pluckButtonDown ? 1.f : 0.f);
         if (pluckButtonDown && !pluckButtonWasDown) {
@@ -748,16 +824,21 @@ struct Twang : Module {
                 int q    = v / 4;
                 int lane = v % 4;
                 voiceQuad[q].pluck[lane].trigger(
-                    pluckHardPoly ? pluckHardnessV[v] : cachedPluckHardness, 0.8f, sampleRate);
-                voiceQuad[q].triggerPluck(lane, 0.8f);
+                    pluckHardPoly ? pluckHardnessV[v] : cachedPluckHardness,
+                    pluckVelMax, sampleRate);
+                voiceQuad[q].triggerPluck(lane, pluckVelMax);
             }
             asleep   = false;
             wakeHold = (int)(TWANG_PLUCK_WAKE_SEC * sampleRate);
         }
         pluckButtonWasDown = pluckButtonDown;
 
-        // Pluck triggers, per voice. Trigger voltage doubles as velocity, so
-        // dynamics need no separate control.
+        // Pluck triggers, per voice. Trigger voltage doubles as velocity, and
+        // MAX PLUCK VELOCITY scales what full scale means. At the default 10 V
+        // this is a multiply by 1 and the mapping is unchanged; below that it
+        // compresses the whole velocity range toward the bottom, which is what
+        // makes a gate sequencer usable -- every gate is 10 V, so without it
+        // every hit is a maximum-force pluck.
         bool anyPluckActive = false;
         if (inputs[PLUCK_TRIG_INPUT].isConnected()) {
             for (int v = 0; v < nVoices; ++v) {
@@ -765,7 +846,7 @@ struct Twang : Module {
                 int lane = v % 4;
                 float trigVolts = inputs[PLUCK_TRIG_INPUT].getPolyVoltage(v);
                 if (pluckTrigger[v].process(trigVolts, 0.1f, 1.f)) {
-                    float velocity = clamp(trigVolts * 0.1f, 0.05f, 1.f);
+                    float velocity = clamp(trigVolts * 0.1f, 0.05f, 1.f) * pluckVelMax;
                     // A harder pluck engages more string stiffness and so comes
                     // out brighter, not just louder -- velocity nudges the
                     // effective hardness upward rather than needing its own knob.
@@ -1119,28 +1200,102 @@ struct TwangWidget : ModuleWidget {
             nvgStrokeWidth(args.vg, 1.5f);
             nvgStroke(args.vg);
  
-            // Bow contact marker.
+            // Contact markers.
+            //
+            // The old pair was a warm sand line and a pale green line, both at
+            // 35-40% alpha: nearly the same colour as each other, and the sand
+            // one sat right on top of the string trace once DRIVE pushed it
+            // toward (1.00, 0.75, 0.20), so under the exact conditions where you
+            // most want to see the bow, the bow marker vanished.
+            //
+            // Each marker takes its own row's colour -- bow blue, pluck white,
+            // the same code as the sliders -- and both are solid lines. What
+            // tells them apart is a small glyph at one end: a violin bow lying
+            // across the top of the bow marker, a plectrum standing on the
+            // bottom of the pluck marker. Each line STOPS where its glyph
+            // starts, so the two never overlap.
+            //
+            // The display is 40 x 17 mm, so at ~121 x 51 px there is room for a
+            // ~9 px icon that stays readable without a font dependency. The
+            // glyphs are wider than the line, and with EXTENDED CONTACT RANGE a
+            // marker can sit at 0.01, so the whole block is scissored to the
+            // display rather than trusting the glyph to stay inside.
+            const float markTop = pad;
+            const float markBot = h - pad;
+
+            nvgSave(args.vg);
+            nvgScissor(args.vg, 0.f, 0.f, w, h);
+
+            // Bow: glyph across the top, line hanging below it.
+            //
+            // A violin bow is a long stick with a SLIGHT camber and hair
+            // stretched nearly straight across it -- 13 px long against 2.5 px
+            // of arc. An arc any deeper than this stops reading as a violin bow
+            // and starts reading as an archer's bow. The small block at the
+            // left end is the frog, which is what fixes the direction.
             {
                 float markX = pad + module->cachedBowPosition * (w - 2.f * pad);
+                NVGcolor c  = nvgRGBAf(0.16f, 0.70f, 0.94f, 0.90f);   // SCHEME_BLUE
+
+                const float halfW = 6.5f;
+                const float hairY = markTop + 5.f;
+
                 nvgBeginPath(args.vg);
-                nvgMoveTo(args.vg, markX, pad);
-                nvgLineTo(args.vg, markX, h - pad);
-                nvgStrokeColor(args.vg, nvgRGBAf(0.90f, 0.80f, 0.45f, 0.40f));
-                nvgStrokeWidth(args.vg, 1.5f);
-                nvgStroke(args.vg);
-            }
- 
-            // Pluck contact marker.
-            {
-                float markX = pad + module->cachedPluckPosition * (w - 2.f * pad);
-                nvgBeginPath(args.vg);
-                nvgMoveTo(args.vg, markX, pad);
-                nvgLineTo(args.vg, markX, h - pad);
-                nvgStrokeColor(args.vg, nvgRGBAf(0.55f, 0.85f, 0.70f, 0.35f));
+                // hair: straight, the edge that meets the string
+                nvgMoveTo(args.vg, markX - halfW, hairY);
+                nvgLineTo(args.vg, markX + halfW, hairY);
+                // stick: quadratic control 5 px up puts the apex 2.5 px up
+                nvgMoveTo(args.vg, markX - halfW, hairY);
+                nvgQuadTo(args.vg, markX, hairY - 5.f, markX + halfW, hairY);
+                nvgStrokeColor(args.vg, c);
                 nvgStrokeWidth(args.vg, 1.f);
                 nvgStroke(args.vg);
+
+                // frog
+                nvgBeginPath(args.vg);
+                nvgRect(args.vg, markX - halfW - 1.6f, hairY - 3.2f, 2.2f, 3.6f);
+                nvgFillColor(args.vg, c);
+                nvgFill(args.vg);
+
+                nvgBeginPath(args.vg);
+                nvgMoveTo(args.vg, markX, hairY + 1.5f);
+                nvgLineTo(args.vg, markX, markBot);
+                nvgStrokeColor(args.vg, c);
+                nvgStrokeWidth(args.vg, 1.4f);
+                nvgStroke(args.vg);
             }
- 
+
+            // Pluck: line from the top, plectrum standing on the bottom with
+            // its tip pointing up at the string. A filled rounded triangle is
+            // the one silhouette nobody mistakes for anything else.
+            {
+                float markX = pad + module->cachedPluckPosition * (w - 2.f * pad);
+                NVGcolor c  = nvgRGBAf(0.94f, 0.94f, 0.94f, 0.90f);   // SCHEME_WHITE
+
+                const float tipY = markBot - 8.5f;
+
+                nvgBeginPath(args.vg);
+                nvgMoveTo(args.vg, markX, markTop);
+                nvgLineTo(args.vg, markX, tipY - 1.5f);
+                nvgStrokeColor(args.vg, c);
+                nvgStrokeWidth(args.vg, 1.4f);
+                nvgStroke(args.vg);
+
+                nvgBeginPath(args.vg);
+                nvgMoveTo(args.vg, markX,        tipY);                  // tip
+                nvgQuadTo(args.vg, markX + 3.9f, markBot - 4.0f,
+                                   markX + 3.2f, markBot - 1.8f);        // right edge
+                nvgQuadTo(args.vg, markX,        markBot,
+                                   markX - 3.2f, markBot - 1.8f);        // rounded base
+                nvgQuadTo(args.vg, markX - 3.9f, markBot - 4.0f,
+                                   markX,        tipY);                  // left edge
+                nvgClosePath(args.vg);
+                nvgFillColor(args.vg, c);
+                nvgFill(args.vg);
+            }
+
+            nvgRestore(args.vg);
+
             TransparentWidget::drawLayer(args, layer);
         }
     };
@@ -1170,7 +1325,15 @@ struct TwangWidget : ModuleWidget {
  
         // MUTE
         addParam(createLightParamCentered<VCVLightBezelLatch<GreenLight>>(
-            mm2px(Vec(railA, 52.f)), module, Twang::MUTE_BUTTON_PARAM, Twang::MUTE_LIGHT));        
+            mm2px(Vec(railA, 52.f)), module, Twang::MUTE_BUTTON_PARAM, Twang::MUTE_LIGHT));
+        // Red latch lamp, overlaid on the same bezel. VCVBezelLight is exactly
+        // the light the bezel builds for itself (same 17.545 px box, transparent
+        // border and background), so it lands in register and adds no backing
+        // of its own. It is a LightWidget, hence a TransparentWidget, whose
+        // onButton does nothing and consumes nothing -- the click falls through
+        // to the latch underneath.
+        addChild(createLightCentered<VCVBezelLight<RedLight>>(
+            mm2px(Vec(railA, 52.f)), module, Twang::MUTE_BUTTON_LIGHT));
         addParam(createParamCentered<RoundSmallBlackKnob>(mm2px(Vec(railA, 62.f)), module, Twang::MUTE_PARAM));
         addParam(createParamCentered<Trimpot>            (mm2px(Vec(railA, 72.f)), module, Twang::MUTE_TRIM_PARAM));
         addInput(createInputCentered<ThemedPJ301MPort>   (mm2px(Vec(railA, 81.f)), module, Twang::MUTE_CV_INPUT));
@@ -1184,16 +1347,27 @@ struct TwangWidget : ModuleWidget {
         addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(railB, 19.f)), module, Twang::FREQ_PARAM));
         addInput(createInputCentered<ThemedPJ301MPort>   (mm2px(Vec(railB, 32.f)), module, Twang::VOCT_INPUT));
  
-        addParam(createParamCentered<RoundSmallBlackKnob>(mm2px(Vec(railB, 52.f)), module, Twang::VOLUME_PARAM));
-        addInput(createInputCentered<ThemedPJ301MPort>   (mm2px(Vec(railB, 63.f)), module, Twang::VOLUME_CV_INPUT));
+        // VOLUME and FM move up, which frees 15mm above the pluck button for the
+        // velocity trimmer. FM and the pluck group sit on rail A's own rows --
+        // 72/81 against the MUTE trim and jack, 96/106/115 against the TWANG
+        // trio -- so those read as one grid across both columns rather than two
+        // independent stacks. The rails are 12.5mm apart, so a shared row is
+        // alignment, not a collision.
+        //
+        // VOLUME is the one group deliberately off that grid, sitting 5mm above
+        // rail A's MUTE rows: its jack needs a label underneath, and on rail A's
+        // rows the FM trimmer came up too close to leave room. At 47/57 it gets
+        // the same 15mm of clear space below it that FM has below its own jack.
+        addParam(createParamCentered<RoundSmallBlackKnob>(mm2px(Vec(railB, 47.f)), module, Twang::VOLUME_PARAM));
+        addInput(createInputCentered<ThemedPJ301MPort>   (mm2px(Vec(railB, 57.f)), module, Twang::VOLUME_CV_INPUT));
  
+        addParam(createParamCentered<Trimpot>         (mm2px(Vec(railB, 72.f)), module, Twang::FM_TRIM_PARAM));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(railB, 81.f)), module, Twang::FM_CV_INPUT));
  
-        addParam(createParamCentered<Trimpot>         (mm2px(Vec(railB, 80.f)), module, Twang::FM_TRIM_PARAM));
-        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(railB, 89.f)), module, Twang::FM_CV_INPUT));
- 
+        addParam(createParamCentered<Trimpot>              (mm2px(Vec(railB,  96.f)), module, Twang::PLUCK_VELOCITY_PARAM));
         addParam(createParamCentered<LEDButton>            (mm2px(Vec(railB, 106.f)), module, Twang::PLUCK_BUTTON_PARAM));
         addChild(createLightCentered<SmallLight<BlueLight>>(mm2px(Vec(railB, 106.f)), module, Twang::PLUCK_LIGHT));
-        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(railB,115.f)), module, Twang::PLUCK_TRIG_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>     (mm2px(Vec(railB, 115.f)), module, Twang::PLUCK_TRIG_INPUT));
  
  
         // -- Display -------------------------------------------------------
@@ -1231,7 +1405,14 @@ struct TwangWidget : ModuleWidget {
             addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(x, yj)), module, s.cv));
         };
  
-        // Bow row (top): level, position, pressure, string impedance, slip, tone
+        // Bow row (top): level, position, pressure, slip, material, tone.
+        // Column 3 was String Impedance, now a context-menu voicing constant;
+        // RESONATOR SIZE moved up into it so PLUCK LEVEL could take bottom-left,
+        // then traded places with SLIP. SLIP is a property of the bow's
+        // stick-slip friction and belongs with the other three bow controls, so
+        // the row is now four blue excitation controls, one yellow resonator
+        // control, and the red terminal -- the exact shape of the pluck row
+        // below it, category by category, column by column.
         const float bowSliderY = 52.f;
         const float bowTrimY   = bowSliderY + 11.f;
         const float bowJackY   = bowSliderY + 19.f;
@@ -1240,26 +1421,29 @@ struct TwangWidget : ModuleWidget {
             { Twang::BOW_LEVEL_PARAM,        Twang::BOW_LEVEL_TRIM_PARAM,        Twang::BOW_LEVEL_CV_INPUT,        1 },  
             { Twang::BOW_POSITION_PARAM,     Twang::BOW_POSITION_TRIM_PARAM,     Twang::BOW_POSITION_CV_INPUT,     1 },  
             { Twang::BOW_PRESSURE_PARAM,     Twang::BOW_PRESSURE_TRIM_PARAM,     Twang::BOW_PRESSURE_CV_INPUT,     1 },  
-            { Twang::STRING_IMPEDANCE_PARAM, Twang::STRING_IMPEDANCE_TRIM_PARAM, Twang::STRING_IMPEDANCE_CV_INPUT, 3 },  
-            { Twang::SLIP_PARAM,             Twang::SLIP_TRIM_PARAM,             Twang::SLIP_CV_INPUT,             3 },  
+            { Twang::SLIP_PARAM,             Twang::SLIP_TRIM_PARAM,             Twang::SLIP_CV_INPUT,             1 },  
+            { Twang::RESONATOR_MATERIAL_PARAM, Twang::RESONATOR_MATERIAL_TRIM_PARAM, Twang::RESONATOR_MATERIAL_CV_INPUT, 3 },  
             { Twang::TONE_PARAM,             Twang::TONE_TRIM_PARAM,             Twang::TONE_CV_INPUT,             4 },  
         };
         for (int i = 0; i < 6; ++i)
             addSliderColumn(bowRow[i], col[i], bowSliderY, bowTrimY, bowJackY);
  
-        // Pluck row (bottom): decay, position, hardness, resonator size,
-        // resonator material, drive. LEVEL/DECAY and TONE/DRIVE stay
-        // column-aligned, so each row runs amount -> character -> output.
+        // Pluck row (bottom): pluck level, position, decay, hardness, size, drive.
+        // PLUCK LEVEL leads the row as the pluck's input stage. POSITION sits in
+        // column 1 so it lands directly under BOW POSITION -- the two contact
+        // points are the same physical quantity and now read as a column, which
+        // is also what the two display markers show. DRIVE/TONE stay
+        // column-aligned as the terminal control of each row.
         const float pluckSliderY = 96.f;
         const float pluckTrimY   = pluckSliderY + 11.f;
         const float pluckJackY   = pluckSliderY + 19.f;
  
         const SlSpec pluckRow[6] = {
-            { Twang::DECAY_PARAM,               Twang::DECAY_TRIM_PARAM,               Twang::DECAY_CV_INPUT,               2 },  
+            { Twang::ATTACK_PARAM,              Twang::ATTACK_TRIM_PARAM,              Twang::ATTACK_CV_INPUT,              2 },  
             { Twang::PLUCK_POSITION_PARAM,      Twang::PLUCK_POSITION_TRIM_PARAM,      Twang::PLUCK_POSITION_CV_INPUT,      2 },  
+            { Twang::DECAY_PARAM,               Twang::DECAY_TRIM_PARAM,               Twang::DECAY_CV_INPUT,               2 },  
             { Twang::PLUCK_HARDNESS_PARAM,      Twang::PLUCK_HARDNESS_TRIM_PARAM,      Twang::PLUCK_HARDNESS_CV_INPUT,      2 },  
             { Twang::RESONATOR_SIZE_PARAM,      Twang::RESONATOR_SIZE_TRIM_PARAM,      Twang::RESONATOR_SIZE_CV_INPUT,      3 },  
-            { Twang::RESONATOR_MATERIAL_PARAM,  Twang::RESONATOR_MATERIAL_TRIM_PARAM,  Twang::RESONATOR_MATERIAL_CV_INPUT,  3 },  
             { Twang::DRIVE_PARAM,               Twang::DRIVE_TRIM_PARAM,               Twang::DRIVE_CV_INPUT,               4 },  
         };
         for (int i = 0; i < 6; ++i)
@@ -1322,8 +1506,17 @@ struct TwangWidget : ModuleWidget {
         // saved patch that moved one of them still loads and sounds the same.
  
         menu->addChild(createMenuLabel("Pluck"));
-        addFSlider(menu, &m->pluckDrive, 1.f, 30.f, 12.f, "Pluck Drive");
+        addFSlider(menu, &m->stringImpedance, 0.30f, 1.40f, 0.641f, "String Impedance (bow coupling)");
+        addFSlider(menu, &m->bodyTilt,        0.f,   1.f,   0.7f,   "Material Brightness Tilt");
         addFSlider(menu, &m->pluckTilt,  0.f, 1.f,  0.6f, "Pluck Tilt");
+
+        menu->addChild(new MenuSeparator());
+        menu->addChild(createMenuLabel("Body"));
+        // Was the fixed constant TWANG_BRIDGE_COUPLING. 0.35 is the tuned
+        // instrument; 0 is a dead bridge and a pure synthetic string, and the
+        // top of the range is as far as the reflection stays under unity.
+        addFSlider(menu, &m->bridgeCoupling, 0.f, 0.7f, TWANG_BRIDGE_COUPLING,
+                   "Bridge Coupling");
  
         menu->addChild(new MenuSeparator());
         menu->addChild(createMenuLabel("Twang"));
