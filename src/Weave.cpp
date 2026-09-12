@@ -197,11 +197,13 @@ struct Weave : Module {
         0.58333f,    // Maj7 - 5th can work
         0.58333f,    // Min7 - 5th can work
         0.58333f,    // 6 - 5th can work
-        0.41666f,    // Min6 - 3rd can work
+        0.25f,       // Min6 - 3rd can work. Was 0.41666 (5 semitones, a P4),
+                     // which is not in a min6 chord at all: D#m6 plus a G# is
+                     // literally a G#9, and that is what a chord reader saw.
         0.3333f, // 9 - 3rd can also provide a unique flavor
         0.58333f,    // Maj9 - 5th provides stability
         0.58333f,    // Min9 - 5th provides stability
-        0.41666f, // Add9 - 5TH
+        0.58333f, // Add9 - 5TH. Was 0.41666 (5 semitones, a P4); the 5th is 7.
         0.58333f, // Sus2 - 5TH
         0.41666f, // Sus4 - 4TH
         0.58333f,    // 5 - 5th
@@ -487,13 +489,48 @@ struct Weave : Module {
                 // Convert the fingering to semitone shifts
                 std::array<int, 6> semitoneShifts = fingeringToSemitoneShifts(fingering);
 
+                // Which pitch classes do the FRETTED strings already supply?
+                // Needed before any substitute is chosen -- see below.
+                bool frettedPc[12] = {};
+                for (size_t i = 0; i < 6; i++) {
+                    if (semitoneShifts[i] == -1) continue;
+                    int pc = static_cast<int>(roundf(
+                                 (baseFrequencies[i] + semitoneShifts[i] / 12.0f) * 12.0f));
+                    frettedPc[((pc % 12) + 12) % 12] = true;
+                }
+
                 // Calculate final voltages for each string
+                bool rootPlaced = false;
                 for (size_t i = 0; i < 6; i++) {
                     if (semitoneShifts[i] == -1) {
-                        // String is muted, determine root offset based on chord type
-                        float rootOffset = Root_Offset1[chordIndex];
-                        if (i == 1) { // If more than one string is muted, use Root_Offset2
-                            rootOffset = Root_Offset2[chordIndex];
+                        // Muted string: substitute a note down in the bass register.
+                        //
+                        // Every substitute sits at (root - 2V + offset) no matter
+                        // WHICH string was muted, so the one with the smallest
+                        // offset is the lowest note in the whole chord. Unless the
+                        // first substitute is the root, the chord comes out
+                        // inverted -- and that is where all 26 of the chart's
+                        // accidental inversions came from, every one of them.
+                        //
+                        // But a substitute is sometimes the ONLY place a chord
+                        // tone appears: four of the 9 voicings get their fifth
+                        // from here and nowhere else. Taking the root there would
+                        // trade an inversion for a missing note, which is the
+                        // worse bargain, so those keep their offset and stay
+                        // inverted. The display names them honestly now.
+                        //
+                        // (The second slot keys on the A string specifically, not
+                        // on "more than one string muted" as the old comment here
+                        // claimed.)
+                        float rootOffset = (i == 1) ? Root_Offset2[chordIndex]
+                                                    : Root_Offset1[chordIndex];
+                        if (!rootPlaced) {
+                            int offPc = noteValue + static_cast<int>(roundf(rootOffset * 12.0f));
+                            offPc = ((offPc % 12) + 12) % 12;
+                            if (frettedPc[offPc]) {      // safe to drop -- it is covered
+                                rootOffset = 0.f;
+                                rootPlaced = true;
+                            }
                         }
                         float finalVoltage = (noteValue / 12.0f) - 2 + (octaveState * 1.0f); // Add octave offset based on octave state
                         currentNotes[5-i] = finalVoltage + rootOffset; //reverse the string order, add appropriate rootOffset for muted strings
@@ -636,6 +673,24 @@ struct Weave : Module {
         return semitoneShifts;
     }
 };
+
+// Note spelling depends on the chord's quality. G# minor is five sharps and
+// ordinary; Ab minor is seven flats and essentially unwritten -- and for major
+// it reverses, Ab being four flats where G# would be eight. Same one step up
+// with C# minor against Db major. Only those two pitch classes care; Eb, F# and
+// Bb are standard whatever the chord is doing.
+static const char* weaveNoteName(int pc, bool minorish) {
+    static const char* nmMaj[12] = {"C","Db","D","Eb","E","F","F#","G","Ab","A","Bb","B"};
+    static const char* nmMin[12] = {"C","C#","D","Eb","E","F","F#","G","G#","A","Bb","B"};
+    pc = ((pc % 12) + 12) % 12;
+    return minorish ? nmMin[pc] : nmMaj[pc];
+}
+// Chord_Chart column order: Maj Min 7 Maj7 Min7 6 Min6 9 Maj9 Min9 Add9 Sus2
+// Sus4 5 Aug Dim -- the ones carrying a minor third are Min, Min7, Min6, Min9
+// and Dim.
+static bool weaveChordIsMinorish(int ci) {
+    return ci == 1 || ci == 4 || ci == 6 || ci == 9 || ci == 15;
+}
 
 struct WeaveWidget : ModuleWidget {
     DigitalDisplay* noteDisplays[6] = {nullptr};
@@ -957,23 +1012,63 @@ struct WeaveWidget : ModuleWidget {
         // playingNotes at audio rate. No layer invalidation is needed.
 
         int rootNoteVal = 0;
-        std::string rootNoteNames[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
         if (chordDisplay) {
             for (int i=0; i<17; i++){ //blank all chord lights
                 module->lights[Weave::CHORD_1_LIGHT + i].setBrightness(0.0f);
             }
             if (module->chordIndex >= 0 && module->noteValue >= 0) {
-                // Display the current root note and chord type
-                std::string chordTypeNames[16] = {"Maj", "Min", "7", "Maj7", "Min7", "6", "Min6", "9", "Maj9", "Min9", "Add9", "Sus2", "Sus4", "5", "Aug", "Dim"};
+                // Chord type suffixes, spelled the way MIRAGE spells them so the
+                // two modules never disagree about what a chord is called. Fake
+                // book conventions: 7 not "dom7", m7 not "Min7", maj7 not "M7".
+                //
+                // Two tables because notation forces one difference: a major
+                // triad is "C maj" on its own and "C/E" over a bass, never
+                // "Cmaj/E".
+                static const char* chordSuffix[16] = {
+                    "maj","m","7","maj7","m7","6","m6","9",
+                    "maj9","m9","add9","sus2","sus4","5","aug","dim"
+                };
+                static const char* chordSuffixSlash[16] = {
+                    "","m","7","maj7","m7","6","m6","9",
+                    "maj9","m9","add9","sus2","sus4","5","aug","dim"
+                };
                 rootNoteVal = static_cast<int>(roundf(module->noteValue + 12*module->extOffset));
                 rootNoteVal = (rootNoteVal % 12 + 12) % 12;
-                std::string rootNote = rootNoteNames[rootNoteVal % 12];
-                std::string chordType = chordTypeNames[module->chordIndex % 16];
-                chordDisplay->text = rootNote + " " + chordType;
+                const int ci = module->chordIndex % 16;
+                const bool minorish = weaveChordIsMinorish(ci);
+                std::string rootNote = weaveNoteName(rootNoteVal, minorish);
+
+                // The BASS is the lowest note actually leaving the module, so it
+                // is read from finalNotes (which carry the per-string shifts),
+                // not from the tab. 24 of the 192 chart voicings deliberately put
+                // a chord tone other than the root down there -- see
+                // Root_Offset1/2 -- and the display has never said so.
+                float lo = module->finalNotes[0] + module->extOffset;
+                for (int i = 1; i < 6; i++)
+                    lo = std::min(lo, module->finalNotes[i] + module->extOffset);
+                int bassVal = static_cast<int>(roundf(lo * 12.f));
+                bassVal = (bassVal % 12 + 12) % 12;
+
+                if (bassVal != rootNoteVal)
+                    chordDisplay->text = rootNote + chordSuffixSlash[ci]
+                                       + "/" + weaveNoteName(bassVal, minorish);
+                else
+                    chordDisplay->text = rootNote + " " + chordSuffix[ci];
+
+                // The panel sizes comfortably for 7 characters at 14px; a slash
+                // form can reach 9, so shrink to fit rather than run off the
+                // rounded rect. Same calibration as Mirage's root display.
+                {
+                    const float kInnerPx = 60.f, kMono = 0.602f, kBase = 14.f;
+                    int n = (int)chordDisplay->text.size();
+                    if (n < 1) n = 1;
+                    chordDisplay->setFontSize(clamp(kInnerPx / ((float)n * kMono), 8.f, kBase));
+                }
                 module->lights[Weave::CHORD_2_LIGHT + module->chordIndex].setBrightness(1.0f);
             } else {
                 // Default display if no chord or note is active
                 chordDisplay->text = "Oct";
+                chordDisplay->setFontSize(14.f);   // undo any shrink from a slash form
                 module->lights[Weave::CHORD_1_LIGHT].setBrightness(1.0f);
             }
         }
@@ -989,9 +1084,12 @@ struct WeaveWidget : ModuleWidget {
                 int semitone = std::roundf(fractionalPart * 12);
                 semitone = (semitone % 12 + 12) % 12;
 
-                // Note names
-                const char* noteNames[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
-                const char* noteName = noteNames[semitone];
+                // Spelled for the chord these notes belong to, so the string
+                // displays and the chord display never disagree -- a G# minor
+                // voicing should not read "Ab" on one and "G#" on the other.
+                const char* noteName = weaveNoteName(
+                    semitone,
+                    module->chordIndex >= 0 && weaveChordIsMinorish(module->chordIndex % 16));
 
                 // Format full note display
                 char fullNote[7];

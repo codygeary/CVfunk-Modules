@@ -23,12 +23,102 @@ const int MAX_CHORDS_PER_ROW = 7;
 const int MAX_ROWS = 4;
 
 // Base frequencies for each guitar string
+// Note spelling depends on the chord's quality. G# minor is five sharps and
+// ordinary; Ab minor is seven flats and essentially unwritten -- and for major
+// it reverses, Ab being four flats where G# would be eight. Same one step up,
+// C# minor against Db major. Only those two pitch classes care: Eb, F# and Bb
+// are standard either way (D# minor and Eb minor are both six accidentals, and
+// Eb is what gets written).
+static const char* stringsNoteName(int pc, bool minorish) {
+    static const char* nmMaj[12] = {"C","Db","D","Eb","E","F","F#","G","Ab","A","Bb","B"};
+    static const char* nmMin[12] = {"C","C#","D","Eb","E","F","F#","G","G#","A","Bb","B"};
+    pc = ((pc % 12) + 12) % 12;
+    return minorish ? nmMin[pc] : nmMaj[pc];
+}
+
+// Quality read off the hand-written chord name, since that is where this module
+// keeps it. Strip the root -- a letter plus an optional accidental -- and look
+// at what follows: "m", "m6", "m7", "m9", "m-Bar", "dim" and "dim7" carry a
+// minor third. "maj7" starts with an m and does not, hence the explicit test,
+// and "M6" is capital-M major so the lowercase compare already excludes it.
+static bool stringsChordIsMinorish(const std::string& name) {
+    size_t i = (name.size() > 1 && (name[1] == '#' || name[1] == 'b')) ? 2 : 1;
+    if (i >= name.size()) return false;
+    if (name.compare(i, 3, "maj") == 0) return false;
+    return name[i] == 'm' || name.compare(i, 3, "dim") == 0;
+}
+
 const float baseFrequencies[6] =  { -1.666f, // E2
                                     -1.25f, // A2
                                     -0.833f, // D3
                                     -0.417f,  // G3
                                     -0.084f, // B3
                                      0.3333f};// E4
+
+// Open strings in semitones relative to C4, low to high: E2 A2 D3 G3 B3 E4.
+static const int kOpenStringSemi[6] = { -20, -15, -10, -5, -1, 4 };
+
+// Slash chords placed on only lower two strings, with preference to the lower string.
+struct SlashBass {
+    bool valid   = false;
+    int  string  = 0;
+    int  fret    = 0;      // MAY BE NEGATIVE -- see dropped
+    bool dropped = false;  // string retuned rather than fretted
+    bool mute[6] = { false, false, false, false, false, false };
+};
+
+static SlashBass placeSlashBass(const std::array<int, 6>& shifts, int bassPc) {
+    int lo = 99, hi = -99;
+    for (int i = 0; i < 6; ++i)
+        if (shifts[i] > 0) { lo = std::min(lo, shifts[i]); hi = std::max(hi, shifts[i]); }
+    const bool freeHand = (lo > hi);
+
+    SlashBass best;
+    int bestKills = 99, bestSemi = 9999, bestString = 9;
+    // Capped at fret 9 so the fret always has a single-digit spelling
+    for (int st = 0; st < 2; ++st) {
+        const int openPc = ((kOpenStringSemi[st] % 12) + 12) % 12;
+        const int f = (((bassPc - openPc) % 12) + 12) % 12;
+        if (f > 9) continue;
+        const bool reachable = (f == 0)
+                             || (freeHand ? (f <= 4) : (f >= lo - 1 && f <= hi + 2));
+        if (!reachable) continue;
+
+        const int semi = kOpenStringSemi[st] + f;
+        int  kills = 0;
+        bool mute[6] = { false, false, false, false, false, false };
+        for (int i = 0; i < 6; ++i) {
+            if (i == st || shifts[i] < 0) continue;
+            if (kOpenStringSemi[i] + shifts[i] < semi) { mute[i] = true; ++kills; }
+        }
+        if (kills < bestKills
+            || (kills == bestKills && semi < bestSemi)
+            || (kills == bestKills && semi == bestSemi && st < bestString)) {
+            bestKills = kills; bestSemi = semi; bestString = st;
+            best.valid = true; best.string = st; best.fret = f;
+            for (int i = 0; i < 6; ++i) best.mute[i] = mute[i];
+        }
+    }
+    if (best.valid) return best;
+
+    // Pick the octave of the target NEAREST standard tuning that still sits
+    // under the rest of the chord, so the retune stays as small as it can. 
+    int ceiling = kOpenStringSemi[0] + 1;
+    for (int i = 1; i < 6; ++i)
+        if (shifts[i] >= 0) ceiling = std::min(ceiling, kOpenStringSemi[i] + shifts[i]);
+
+    bool found = false; int bestOff = 0;
+    for (int k = -44; k < 12; ++k) {
+        if ((((k % 12) + 12) % 12) != bassPc || k >= ceiling) continue;
+        const int off = k - kOpenStringSemi[0];
+        if (!found || std::abs(off) < std::abs(bestOff)) { bestOff = off; found = true; }
+    }
+    if (found) {
+        best.valid = true; best.dropped = true;
+        best.string = 0; best.fret = bestOff;
+    }
+    return best;
+}
 
 // Helper function to convert a fingering (e.g., "X21202") to semitone shifts
 std::array<int, 6> fingeringToSemitoneShifts(const std::string& fingering) {
@@ -68,6 +158,7 @@ struct Strings : Module {
         ENVELOPE_IN_5,
         ENVELOPE_IN_6,
         WHAMMY_BAR_CV,
+        SLASH_BASS_CV,
         NUM_INPUTS
     };
     enum OutputIds {
@@ -312,6 +403,13 @@ struct Strings : Module {
 
     // Keep track of the last CapoAmount for comparison
     float lastCapoAmount = -1.0f; // Initialize with an unlikely value
+    // Identity of the current slash placement, so the display refreshes when the
+    // bass moves even though chord, row, fingering and capo have not.
+    int lastSlashKey = -999;
+    // What the CHORD CHANGE trigger last fired for. Separate from the display's
+    // tracker because the two answer different questions and run at different
+    // rates -- see where the pulse is fired.
+    int lastVoicingKey = -1;
 
 
     // Serialization method to save module state
@@ -385,6 +483,7 @@ struct Strings : Module {
             configInput(i, "Pitch Bend " + std::to_string(i - ENVELOPE_IN_1 + 1));
         }
         configInput(WHAMMY_BAR_CV, "Whammy Bar");
+        configInput(SLASH_BASS_CV, "Slash Bass V/oct");
 
         // Initialize outputs
 #ifdef METAMODULE
@@ -666,19 +765,64 @@ struct Strings : Module {
                 outputs[MUTE_OUT_1].setChannels(1);
             }
             
+            // Hoisted: this was being rebuilt six times, once per string, from
+            // the same string literal.
+            const std::array<int, 6> semitoneShifts =
+                fingeringToSemitoneShifts(currentChords[currentChordIndex][fingeringVersion]);
+
+            // Slash bass. The jack names the note you want to HEAR, so the capo
+            // is taken back out before the fret is worked out and put in again by
+            // the usual +CapoAmount below. Unpatched leaves the chord in root
+            // position exactly as before.
+            SlashBass slash;
+            if (inputs[SLASH_BASS_CV].isConnected()) {
+                const int capoSemi =
+                    static_cast<int>(std::roundf(CapoAmount * 12.f));
+                int pc = static_cast<int>(
+                             std::roundf(inputs[SLASH_BASS_CV].getVoltage() * 12.f)) - capoSemi;
+                pc = ((pc % 12) + 12) % 12;
+                slash = placeSlashBass(semitoneShifts, pc);
+            }
+
+            // CHORD CHANGE TRIGGER. Fired in the audio path, on the exact sample the voicing changes 
+            {
+                int voicingKey = static_cast<int>(std::roundf(CapoAmount * 12.f));
+                for (int i = 0; i < 6; ++i) {
+                    int eff;
+                    if (slash.valid && i == slash.string)      eff = slash.fret;
+                    else if (slash.valid && slash.mute[i])     eff = -1;
+                    else                                       eff = semitoneShifts[i];
+                    voicingKey = voicingKey * 41 + (eff + 16);
+                }
+                if (voicingKey != lastVoicingKey) {
+                    if (lastVoicingKey != -1)      // never on the very first block
+                        triggerPulse.trigger(0.001f);
+                    lastVoicingKey = voicingKey;
+                }
+            }
+
             // Iterate over strings to set voltages
             for (int stringIdx = 0; stringIdx < 6; ++stringIdx) {
-                // Convert fingering string to semitone shifts
-                auto semitoneShifts = fingeringToSemitoneShifts(currentChords[currentChordIndex][fingeringVersion]);
             
                 PitchBend[stringIdx] = (0.1f / 12.f) * (inputs[ENVELOPE_IN_1 + stringIdx].isConnected() ? inputs[ENVELOPE_IN_1 + stringIdx].getVoltage() : 0);
                 PitchBend[stringIdx] = abs(PitchBend[stringIdx]);
             
+                // The slash bass re-frets one bass string and silences anything
+                // still sounding below it; every other string is untouched.
+                //
+                // The slash string always sounds, and its offset may be NEGATIVE
+                // -- that is the string retuned below its open pitch rather than
+                // fretted, so it cannot be tested with the usual >= 0.
+                const bool isSlashString = slash.valid && stringIdx == slash.string;
+                const bool forcedMute    = slash.valid && slash.mute[stringIdx];
+                const int  shift         = isSlashString ? slash.fret
+                                                         : semitoneShifts[stringIdx];
+
                 // Calculate pitch voltage
                 float pitchVoltage;
                 float muteVoltage;
-                if (semitoneShifts[stringIdx] >= 0) {
-                    pitchVoltage = baseFrequencies[stringIdx] + (semitoneShifts[stringIdx] * (1.0f / 12.0f)) + whammyBarEffect + CapoAmount + PitchBend[stringIdx];
+                if (isSlashString || (shift >= 0 && !forcedMute)) {
+                    pitchVoltage = baseFrequencies[stringIdx] + (shift * (1.0f / 12.0f)) + whammyBarEffect + CapoAmount + PitchBend[stringIdx];
                     if (!InvertMutes){muteVoltage = 0.0f;} else {muteVoltage = 10.0f;} // Not muted
                 } else {
                     // Mute this string
@@ -751,8 +895,11 @@ struct Strings : Module {
                     bool capoAmountChanged = std::abs(CapoAmount - lastCapoAmount) > capoTolerance;
 
                     // Proceed with checking if an update is needed
+                    const int slashKey = slash.valid ? (slash.string * 100 + slash.fret) : -1;
+
                     if (currentChordIndex != lastDisplayedChordIndex || currentRowIndex != lastDisplayedRowIndex || 
-                        fingeringVersion != lastFingering || capoAmountChanged) {
+                        fingeringVersion != lastFingering || capoAmountChanged || slashKey != lastSlashKey) {
+                        lastSlashKey = slashKey;
                         // Update the last displayed indices to the current selection
                         lastDisplayedChordIndex = currentChordIndex;
                         lastDisplayedRowIndex = currentRowIndex;
@@ -764,11 +911,48 @@ struct Strings : Module {
                         }
                         // Retrieve the current chord name based on the selection for the digital display
                         std::string currentChordName = currentNames[currentChordIndex][fingeringVersion];
+                        std::string currentFingeringPattern = currentChords[currentChordIndex][fingeringVersion];
+                        // Read once, from the bare name, before anything is
+                        // appended to it. The parser only looks at the head so a
+                        // later read would still work -- but by luck, not design.
+                        const bool chordMinorish = stringsChordIsMinorish(currentChordName);
+
+                        if (slash.valid) {
+
+                            // SHAPE-relative, exactly like the chord name beside
+                            // it. This display names the shape you are holding --
+                            // a C shape reads "C" whatever the capo is doing --
+                            // and the capo readout translates the whole thing in
+                            // one go below. Adding the capo here and not to the
+                            // chord name would print a shape name over a sounding
+                            // bass, in two different keys.
+                            const int bassPc =
+                                (((kOpenStringSemi[slash.string] + slash.fret) % 12) + 12) % 12;
+                            // "G7/G" is not a chord symbol anybody writes. When
+                            // the requested bass IS the root the chord is simply
+                            // in root position, so the name says so by staying
+                            // as it is. The audio does the same thing either
+                            // way -- this only stops the display claiming an
+                            // inversion that is not happening.
+                            const int rootPc =
+                                (((static_cast<int>(std::roundf(
+                                      currentRoots[currentChordIndex] * 12.f)) % 12) + 12) % 12);
+                            if (bassPc != rootPc) {
+                                currentChordName += "/";
+                                currentChordName += stringsNoteName(bassPc, chordMinorish);
+                            }
+
+                            // The tab has to show what is actually fretted or it
+                            // contradicts the chord diagram sitting next to it.
+                            for (int i = 0; i < 6; ++i)
+                                if (slash.mute[i]) currentFingeringPattern[i] = 'X';
+                            // A retuned string is played open.
+                            const int shownFret = slash.dropped ? 0 : slash.fret;
+                            currentFingeringPattern[slash.string] =
+                                static_cast<char>('0' + shownFret);
+                        }
                         // Update the digital display text with the current chord name
                         digitalDisplay->text = currentChordName;
-
-                        // Retrieve the current fingering pattern for the fingering display
-                        std::string currentFingeringPattern = currentChords[currentChordIndex][fingeringVersion];
                         // Update the fingering display text with the current fingering pattern
 
                         int capoAmountInt = static_cast<int>(std::roundf(CapoAmount*12)); // Round to the nearest whole number if necessary
@@ -779,8 +963,9 @@ struct Strings : Module {
                         double fractionalPart = fmod(pitchVoltage, 1.0);
                         int semitone = round(fractionalPart * 12);
                         semitone = (semitone % 12 + 12) % 12;
-                        const char* noteNames[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
-                        const char* noteName = noteNames[semitone];
+                        // Spelled to match the chord the capo is transposing, so
+                        // capoing Am up eleven reads "G#" rather than "Ab".
+                        const char* noteName = stringsNoteName(semitone, chordMinorish);
 
                         if (CapoAmount ==0){
                             fingeringDisplay->text = currentFingeringPattern;
@@ -794,8 +979,20 @@ struct Strings : Module {
                         }
                 
                         if (chordDiagram) {
-                            auto semitoneShifts = fingeringToSemitoneShifts(currentChords[currentChordIndex][fingeringVersion]);
-                            chordDiagram->setFingering(semitoneShifts);
+                            // The diagram shows what is actually being fretted,
+                            // slash bass included -- that is the whole point of a
+                            // chord diagram.
+                            std::array<int, 6> diagramShifts = semitoneShifts;
+                            if (slash.valid) {
+                                for (int i = 0; i < 6; ++i)
+                                    if (slash.mute[i]) diagramShifts[i] = -1;
+                                // A retuned string is played open, so that is
+                                // what the diagram shows -- a negative fret
+                                // would read as muted.
+                                diagramShifts[slash.string] =
+                                    slash.dropped ? 0 : slash.fret;
+                            }
+                            chordDiagram->setFingering(diagramShifts);
                         }  
  
                         if (!ChordBank){   
@@ -896,8 +1093,6 @@ struct Strings : Module {
                                 CVModeDisplay->text = CVdisplaytext;
                             } 
                         }
-                 
-                        triggerPulse.trigger(0.001f); // 1ms pulse
                     }
                 }
             }
@@ -949,6 +1144,7 @@ struct StringsWidget : ModuleWidget {
 
         addParam(createParamCentered<RoundBlackKnob>(Vec(270, 30), module, Strings::CAPO_PARAM));
         addInput(createInputCentered<ThemedPJ301MPort>(Vec(270,  65), module, Strings::CAPO_CV));
+        addInput(createInputCentered<ThemedPJ301MPort>(Vec(270, 110), module, Strings::SLASH_BASS_CV));
 
         // CV Mode Indicator
         DigitalDisplay* CVModeDisplay = new DigitalDisplay();
