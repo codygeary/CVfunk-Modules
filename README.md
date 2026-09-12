@@ -1,18 +1,16 @@
 # CV funk — Modules for VCV Rack
 
-CV funk is a growing collection of VCV Rack modules focused on expressive modulation, sequencing, and patch-programmable control systems.
+CV funk synthesizer modules for VCV Rack are focused on expressive modulation, sequencing, and patch-programmable control. 
 
-The collection spans envelope generators, sequencers, clocking tools, macro controllers, oscillators, effects, and experimental CV processors. Many modules are intentionally open-ended: they reward patching, feedback, and cross-modulation rather than fixed signal paths.
-
-With over 40 modules and ongoing development, CV funk emphasizes macro-driven modulation, nonlinear sequencing concepts, compact information-dense interfaces, and patch-first experimentation. Whether you are building generative systems, structured sequences, or evolving control networks, CV funk is designed to bring a new twist to your VCV patches.
+The collection spans everything you might need for a synthesizer signal chain: envelope generators, sequencers, clocking tools, macro controllers, oscillators, effects, and experimental CV processors. My modules are designed to reward patching, feedback, and cross-modulation with other CV funk modules. The designs emphasizes macro-driven modulation, nonlinear sequencing concepts, compact information-dense interfaces, and patch-first experimentation. 
 
 ---
 
 ## Documentation
 
-> **[CV funk User Manual Website](https://codygeary.github.io/CV-Funk-Manual/)**
+> **[CV funk User Manual Website](https://cvfunk.com/manual)** 
 > 
-> **[CV funk User Manual (PDF)](https://codygeary.github.io/CV-Funk-Manual/CV_funk_Manual.pdf)**
+> **[Extended CV funk User Manual (PDF-format)](/img/CV_funk_Manual.pdf)**
 
 The manual covers all modules in the collection: panel controls and I/O, operating modes and signal ranges, and patch ideas and example workflows. If you are new to CV funk, start here.
 
@@ -20,9 +18,11 @@ The manual covers all modules in the collection: panel controls and I/O, operati
 
 ## Video Tutorials & Demos
 
-Many CV funk modules are covered in depth by **[Omri Cohen](https://www.patreon.com/omricohen)**. These videos are especially useful for understanding how the modules behave in real patches.
 
 ### Walkthroughs
+
+**Sands Collection** — add non-linear dimension to your patches  
+[![Explporing CV funk Sands](https://img.youtube.com/vi/x1XtCPUz2BU/0.jpg)](https://www.youtube.com/watch?v=x1XtCPUz2BU)
 
 **Chord Caster** — chord generation and voicing system  
 [![Chord Caster walkthrough](https://img.youtube.com/vi/x65hqgAlfEA/0.jpg)](https://www.youtube.com/watch?v=x65hqgAlfEA)
@@ -34,8 +34,16 @@ Many CV funk modules are covered in depth by **[Omri Cohen](https://www.patreon.
 
 ### Individual Module Demos
 
+**Sirocco** — Ecosystem simulation (Sands Collection)  
+[![Siroco ambient patch from Saturata Modular](https://img.youtube.com/vi/71VM0LNKil4/0.jpg)](https://youtube.com/watch?v=71VM0LNKil4)
+
+**Droplet** — Resonator/Plate Reverb (Sands Collection)  
+[![Droplet with external audio](https://img.youtube.com/vi/Rb3OGfsvwug/0.jpg)](https://youtube.com/watch?v=Rb3OGfsvwug)
+
 **Cartesia** — 4×4×4 sequencer  
 [![Cartesia demo](https://img.youtube.com/vi/hlZukBHdDws/0.jpg)](https://youtube.com/watch?v=hlZukBHdDws)
+
+[![Cartesia ambient patch from Saturata Modular](https://img.youtube.com/vi/WDYUZTbBZ9I/0.jpg)](https://youtube.com/watch?v=WDYUZTbBZ9I)
 
 **Step Wave** — wave-based step sequencer  
 [![Step Wave walkthrough](https://img.youtube.com/vi/LT-7bXAbz20/0.jpg)](https://www.youtube.com/watch?v=LT-7bXAbz20)
@@ -64,10 +72,11 @@ Many CV funk modules are covered in depth by **[Omri Cohen](https://www.patreon.
 
 ## Supporting Development
 
-CV funk includes two paid module collections available through the VCV Rack library. Purchasing these directly supports maintenance, new modules, and documentation.
+CV funk includes three paid module collections available through the VCV Rack library. Purchasing these directly supports maintenance, new modules, and documentation.
 
-- [Chord Caster](https://library.vcvrack.com/CVfunkChordCaster)
+- [Sands](https://library.vcvrack.com/CVfunkSands)
 - [CV funk Modulations](https://library.vcvrack.com/CVfunkModulations)
+- [Chord Caster](https://library.vcvrack.com/CVfunkChordCaster)
 
 ---
 
