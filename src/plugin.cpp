@@ -52,6 +52,8 @@ void init(Plugin* p) {
     p->addModel(modelGlass);
     p->addModel(modelHaze);
     p->addModel(modelTwang);
+    p->addModel(modelHotPot);
+    p->addModel(modelMala);
     
     
 

@@ -52,6 +52,7 @@ extern Model* modelAulos;
 extern Model* modelGlass;
 extern Model* modelHaze;
 extern Model* modelTwang;
-
+extern Model* modelHotPot;
+extern Model* modelMala;
 
 

@@ -1,7 +1,7 @@
 {
   "slug": "CVfunk",
   "name": "CV funk Modules",
-  "version": "2.0.51",
+  "version": "2.0.52",
   "license": "MIT",
   "brand": "CV funk",
   "author": "Cody Geary",
@@ -424,6 +424,27 @@
       "description": "A polyphonic physical string simulation using bidirectional waveguides.",
       "tags": [
         "Physical modeling",
+        "Polyphonic"
+      ]
+    },
+    {
+      "slug": "HotPot",
+      "name": "HotPot",
+      "description": "A polyphonic spatial mixer that places sounds around the listener, with a shared diffuse room and saturating stereo bus.",
+      "tags": [
+        "Mixer",
+        "Reverb",
+        "Panning",
+        "Distortion",
+        "Polyphonic"
+      ]
+    },
+    {
+      "slug": "Mala",
+      "name": "Mala",
+      "description": "A spicy stereo complex oscillator that grafts an additive voice and noise onto the crests of a shaped sine.",
+      "tags": [
+        "Oscillator",
         "Polyphonic"
       ]
     }    

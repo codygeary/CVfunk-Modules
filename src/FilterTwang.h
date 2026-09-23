@@ -241,8 +241,13 @@ struct TwangRailSIMD {
         writeIndex = 0;
     }
 
+    // Delay floor of 2: the 4-point Lagrange reads one sample NEWER than the
+    // integer position (y3 at base + 2). Below a delay of 2 that tap lands on
+    // writeIndex, which has not been written this sample and still holds the
+    // oldest value in the buffer -- a hidden bufSize-long feedback path. At
+    // exactly 2 the fractional part is 0 and y3's weight is 0, so 2 is safe.
     inline float_4 read(float_4 delaySamples) const {
-        float_4 ds      = rack::simd::clamp(delaySamples, float_4(1.f), float_4((float)bufSize - 4.f));
+        float_4 ds      = rack::simd::clamp(delaySamples, float_4(2.f), float_4((float)bufSize - 4.f));
         float_4 rp      = float_4((float)writeIndex) - ds;
         float_4 rpFloor = rack::simd::floor(rp);
         float_4 frac    = rp - rpFloor;
@@ -261,7 +266,7 @@ struct TwangRailSIMD {
 
     // Single-lane scalar read, for the display only. Not used in the audio path.
     inline float readLane(int lane, float delaySamples) const {
-        delaySamples = rack::clamp(delaySamples, 1.f, (float)bufSize - 4.f);
+        delaySamples = rack::clamp(delaySamples, 2.f, (float)bufSize - 4.f);
         float rp   = (float)writeIndex - delaySamples;
         int   base = ((int)floorf(rp)) & bufMask;
         float frac = rp - floorf(rp);
@@ -684,8 +689,24 @@ struct TwangStringSIMD {
     // while bowing, exactly at the pluck point the instant a pluck
     // triggers, then gliding back to the bow position as the lift decays.
     float_4 junctionPos   = float_4(0.8f);
+    // Where the string is ACTUALLY split this sample: junctionPos after the
+    // nut/bridge guard below. junctionPos is left unclamped so the glide
+    // state is not disturbed when the guard moves with pitch; this is the
+    // value the display must stitch at.
+    float_4 splitPos      = float_4(0.8f);
 
-    // Span lengths (one-way, in samples), per lane.
+    // Neither span may be shorter than this, in samples, at either end of
+    // the string. The rail's Lagrange read needs a delay above 2, and a
+    // P-to-bridge (or nut-to-P) span of only a couple of samples forms a
+    // tiny sub-loop that rings far above the note. 4 leaves margin over the
+    // interpolator and still lets a long string be bowed almost at the ends.
+    // The guard is a FRACTION of the string, so it grows as the string
+    // shortens: 4 / total, i.e. about 1% of a low string, 18% of C6 at 48k.
+    static constexpr float MIN_SPAN_SAMPLES = 4.f;
+
+    // Span lengths (one-way, in samples), per lane. segALen + segCLen is
+    // always exactly totalSegmentSamples, so pitch never depends on where
+    // the junction sits.
     float_4 segALen = float_4(100.f);
     float_4 segCLen = float_4(100.f);
     float_4 totalSegmentSamples = float_4(200.f);
@@ -809,7 +830,11 @@ struct TwangStringSIMD {
         // The lifted bow re-engages over BOW_LIFT_TIME after a pluck, and
         // the junction glides back to the bow position at a similar pace.
         bowLiftDecay        = expf(-1.f / fmaxf(BOW_LIFT_TIME * sr, 1.f));
-        junctionReturnCoeff = expf(-1.f / fmaxf(0.03f * sr, 1.f));
+        // Step size of a one-pole glide, so 1 - exp(...). The bare exp(...)
+        // is ~0.9993, which as a step moved the junction 99.9% of the way
+        // every sample: Bow Position CV spliced the rails in 32-sample jumps
+        // instead of gliding. The 0.03 s time constant can be tuned.
+        junctionReturnCoeff = 1.f - expf(-1.f / fmaxf(0.03f * sr, 1.f));
     }
 
     void panic() {
@@ -860,14 +885,19 @@ struct TwangStringSIMD {
         zeroLane(bowLift);
         float a[LANES];
         drainGain.store(a); a[lane] = 1.f; drainGain = float_4::load(a);
+        float b[LANES];
+        junctionPos.store(a); bowPosition.store(b);
+        a[lane] = b[lane];
+        junctionPos = float_4::load(a);
     }
 
     // Pluck this lane: lift the bow, move the junction EXACTLY to the pluck
     // point (so the impulse is injected there, not at the bow), and start
     // the twang kick at the pluck's velocity. The junction glides back to
     // the bow position on its own as the lift decays (see process).
-    // Positions are broadcast across the quad, so lane 0's value is the
-    // lane's value.
+    // pluckPosition is per lane when the Pluck Position CV is polyphonic, so
+    // the lane's own value is used -- lane 0's would drop every string's
+    // pluck at voice 0's point.
     inline void triggerPluck(int lane, float velocity) {
         float liftArr[LANES];
         bowLift.store(liftArr);
@@ -876,7 +906,7 @@ struct TwangStringSIMD {
 
         float posArr[LANES];
         junctionPos.store(posArr);
-        posArr[lane] = pluckPosition[0];
+        posArr[lane] = pluckPosition[lane];
         junctionPos  = float_4::load(posArr);
 
         float kickArr[LANES];
@@ -931,11 +961,26 @@ struct TwangStringSIMD {
         // 1. Split the string at the junction point, per lane. The one-way
         //    transit nut->bridge is always `total`, so pitch is independent
         //    of where the junction sits.
-        total                 = rack::simd::fmax(total, float_4(4.f));
-        totalSegmentSamples   = total;
-        float_4 P             = rack::simd::clamp(junctionPos, float_4(0.01f), float_4(0.99f));
+        //
+        //    Nut/bridge guard, identical at both ends and for both bowing
+        //    and plucking (a pluck moves the junction too, so it passes
+        //    through here like the bow does). Each span keeps at least
+        //    MIN_SPAN_SAMPLES; as the string shortens that is a larger
+        //    fraction of it, so the usable contact range narrows with pitch.
+        //    The 0.01 floor keeps a margin on long strings too; the 0.5
+        //    ceiling pins P to the centre if a string were ever shorter
+        //    than two minimum spans. The caller floors total at 16, and it
+        //    is floored again here so the header stands on its own.
+        total = rack::simd::fmax(total, float_4(2.f * MIN_SPAN_SAMPLES));
+        float_4 padFrac = rack::simd::clamp(float_4(MIN_SPAN_SAMPLES) / total,
+                                            float_4(0.01f), float_4(0.5f));
+        float_4 P = rack::simd::clamp(junctionPos, padFrac, float_4(1.f) - padFrac);
+        splitPos            = P;
+        totalSegmentSamples = total;
         segALen = total * P;
-        segCLen = total * (float_4(1.f) - P);
+        // The remainder, not total * (1 - padFrac): the two spans must sum to
+        // exactly total or the loop length -- and so the pitch -- follows P.
+        segCLen = total - segALen;
 
         // 2. Read all four spans before writing anything -- no rail may be
         //    touched by a write until all four reads are done.
@@ -996,7 +1041,18 @@ struct TwangStringSIMD {
 
         float_4 reflectedAtBridge = -(toned * loopGain - admittanceLoad);
 
-        // 5. All writes last.
+        // 5. All writes last, each bounded. The loudest legitimate wave
+        //    (full Pluck Level, hard pick, at the bridge) peaks near 42;
+        //    100 is well clear of that, so nothing that should sound is ever
+        //    touched. What it does do is make overflow impossible: a lane
+        //    that diverges saturates here instead of reaching Inf, so the
+        //    safety limiter below gets to drain that one string rather than
+        //    a NaN reaching the output and panicking every voice.
+        const float_4 railLimit = float_4(100.f);
+        reflectedAtNut    = rack::simd::clamp(reflectedAtNut,    -railLimit, railLimit);
+        outToLeft         = rack::simd::clamp(outToLeft,         -railLimit, railLimit);
+        outToRight        = rack::simd::clamp(outToRight,        -railLimit, railLimit);
+        reflectedAtBridge = rack::simd::clamp(reflectedAtBridge, -railLimit, railLimit);
         nutToP.write(reflectedAtNut);       // nut -> P
         pToNut.write(outToLeft);            // P -> nut
         pToBridge.write(outToRight);        // P -> bridge
@@ -1030,15 +1086,25 @@ struct TwangStringSIMD {
 
         // 7. Safety limiter -- branchless per-lane translation of the scalar
         //    version's two nested ifs.
-        safetyRMS = rack::simd::fmax(loopEnergy, safetyRMS * 0.9999f);
+        //
+        //    The detector is a smoothed MEAN of the energy (same ~75 ms time
+        //    constant as energySmooth), not a peak-hold. A runaway is
+        //    sustained growth; a pluck is one brief impulse. The old
+        //    peak-hold could not tell them apart: a full-level pluck peaks at
+        //    30-42, over the old amplitude-30 trip point, and every trip
+        //    drained the string for half a second mid-note -- the string
+        //    choked and came back, which read as a lock-up. Averaged, the same
+        //    pluck sits far below the ceiling while a real runaway (already
+        //    bounded by railLimit above) crosses it within milliseconds.
+        //
+        //    It also watches the NUT end. The bridge tap alone cannot see
+        //    energy trapped between the nut and the junction, which can
+        //    build up with the bow engaged without ever reaching the bridge.
+        safetyRMS += float_4(0.00028f) * (loopEnergy + atNut * atNut - safetyRMS);
 
         // Ceiling in STRING units, not volts, and it only exists to catch a
-        // genuine runaway (which grows without bound). A driven pluck is not
-        // that: at pluckDrive 6 the injected impulse is amplitude 6, which
-        // tripped the old ceilings of 3 and 5 and made turning the pluck up
-        // make it quieter. 100 (amplitude 10) still catches divergence long
-        // before anything reaches the output clamp, and a bowed note runs an
-        // order of magnitude below it.
+        // genuine runaway. 900 is a sustained mean of amplitude 30 at both
+        // ends; every control at its hottest bowing extreme peaks near 20.
         float_4 tripped = safetyRMS > float_4(900.f);
         safetyDecay = rack::simd::ifelse(tripped, float_4(0.9998f), safetyDecay);
         safetyRMS   = rack::simd::ifelse(tripped, float_4(0.f), safetyRMS);
@@ -1062,7 +1128,9 @@ struct TwangStringSIMD {
     // spans together at the junction's current split point.
     float sampleStringAt(int lane, float positionFraction) const {
         positionFraction = rack::clamp(positionFraction, 0.f, 1.f);
-        float P = junctionPos[lane];
+        // splitPos, not junctionPos: segALen/segCLen were cut at the guarded
+        // point, and stitching anywhere else draws a kink at the junction.
+        float P = splitPos[lane];
         if (positionFraction <= P) {
             // segA: nut -> P
             float x = (P > 1e-6f) ? (positionFraction / P) : 0.f;

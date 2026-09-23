@@ -31,6 +31,12 @@ static constexpr float TWANG_BOW_DEAD_ZONE = 0.005f;
 // Must cover the worst-case pluck-point-to-bridge travel plus the body's response.
 static constexpr float TWANG_PLUCK_WAKE_SEC = 0.25f;
 
+// How long the output must stay continuously silent before the module
+// sleeps. One quiet sample is not enough: a ringing tail crosses zero every
+// half cycle, and sleeping on a crossing freezes the rails with the note
+// still in them.
+static constexpr float TWANG_SLEEP_QUIET_SEC = 0.05f;
+
 // Gain staging and Voicing constants
 static constexpr float TWANG_TONE_COMPENSATION = 2.0f;   // gain lift as TONE darkens
 static constexpr float TWANG_PLUCK_BRIGHTEN    = 0.35f;  // velocity -> HARDNESS
@@ -171,6 +177,9 @@ struct Twang : Module {
     // Samples for which a pluck forces the voice awake regardless of output
     // level. See the sleep re-arm in process() for why this is needed.
     int   wakeHold = 0;
+    // Consecutive samples that have met every sleep condition. See
+    // TWANG_SLEEP_QUIET_SEC.
+    int   quietSamples = 0;
     int   nQuads     = 1;
 
     static constexpr int CTRL_SKIP = 32;
@@ -396,6 +405,7 @@ struct Twang : Module {
         a_bowSpeed = 0.f;
         t_bowSpeed = 0.f;
         wakeHold        = 0;
+        quietSamples    = 0;
         a_polyNormalize = 1.f;
         for (int v = 0; v < TWANG_MAX_POLY; ++v) { a_bowSpeedV[v] = 0.f; t_bowSpeedV[v] = 0.f; }
         asleep     = true;
@@ -427,6 +437,7 @@ struct Twang : Module {
         pluckButtonWasDown = params[PLUCK_BUTTON_PARAM].getValue() > 0.5f;
         a_bowSpeed      = 0.f;
         wakeHold        = 0;
+        quietSamples    = 0;
         a_polyNormalize = 1.f;
         for (int v = 0; v < TWANG_MAX_POLY; ++v) { a_bowSpeedV[v] = 0.f; t_bowSpeedV[v] = 0.f; }
         asleep          = true;
@@ -986,6 +997,10 @@ struct Twang : Module {
                 float target = clamp(vOctToSegmentSamples(vOct)
                                      - cachedLoopExtra[q][lane] * 0.5f,
                                      16.f, (float)voiceQuad[q].nutToP.bufSize - 4.f);
+                // Short spans near the nut and bridge are guarded inside the
+                // string itself (TwangStringSIMD::MIN_SPAN_SAMPLES), where the
+                // split actually happens, so both contact points get the same
+                // protection at every pitch.
                 a_segmentSamples[v] += 0.05f * (target - a_segmentSamples[v]);
 
                 segArr[lane]  = a_segmentSamples[v];
@@ -1087,9 +1102,16 @@ struct Twang : Module {
         // until the total happened to clear the threshold inside a pluck window
         // -- which is why the first few plucks after a patch load or a Reset
         // were silent and everything was fine from then on.
+        //
+        // The quiet test must also hold for a sustained window, not a single
+        // sample: a ringing tail passes through zero every half cycle.
         if (loudestBow < TWANG_BOW_DEAD_ZONE * 0.5f && !anyPluckActive
             && wakeHold == 0
             && fabsf(voiceOutL) < 1e-5f && fabsf(voiceOutR) < 1e-5f)
+            ++quietSamples;
+        else
+            quietSamples = 0;
+        if (quietSamples >= (int)(TWANG_SLEEP_QUIET_SEC * sampleRate))
             asleep = true;
 
         if (polyOutput) {
@@ -1223,6 +1245,18 @@ struct TwangWidget : ModuleWidget {
             const float markTop = pad;
             const float markBot = h - pad;
 
+            // Show where the string can actually be touched: the same nut and
+            // bridge guard TwangStringSIMD applies to the split, from voice 0's
+            // current length. On a high note the markers stop short of the
+            // ends exactly where the string does.
+            const float stringLength = module->voiceQuad[0].totalSegmentSamples[0];
+            const float guardFrac = clamp(TwangStringSIMD::MIN_SPAN_SAMPLES
+                                          / fmaxf(stringLength, 1.f), 0.01f, 0.5f);
+            const float shownBowPos   = clamp(module->cachedBowPosition,
+                                              guardFrac, 1.f - guardFrac);
+            const float shownPluckPos = clamp(module->cachedPluckPosition,
+                                              guardFrac, 1.f - guardFrac);
+
             nvgSave(args.vg);
             nvgScissor(args.vg, 0.f, 0.f, w, h);
 
@@ -1234,7 +1268,7 @@ struct TwangWidget : ModuleWidget {
             // and starts reading as an archer's bow. The small block at the
             // left end is the frog, which is what fixes the direction.
             {
-                float markX = pad + module->cachedBowPosition * (w - 2.f * pad);
+                float markX = pad + shownBowPos * (w - 2.f * pad);
                 NVGcolor c  = nvgRGBAf(0.16f, 0.70f, 0.94f, 0.90f);   // SCHEME_BLUE
 
                 const float halfW = 6.5f;
@@ -1269,7 +1303,7 @@ struct TwangWidget : ModuleWidget {
             // its tip pointing up at the string. A filled rounded triangle is
             // the one silhouette nobody mistakes for anything else.
             {
-                float markX = pad + module->cachedPluckPosition * (w - 2.f * pad);
+                float markX = pad + shownPluckPos * (w - 2.f * pad);
                 NVGcolor c  = nvgRGBAf(0.94f, 0.94f, 0.94f, 0.90f);   // SCHEME_WHITE
 
                 const float tipY = markBot - 8.5f;
