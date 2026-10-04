@@ -72,6 +72,9 @@ inline float glassMorphShapeCoeff(float t, const GlassMorphCoeff& c) {
 // Wraps input to (-pi, pi] before evaluating the polynomial.
 inline float glassDspWrapToPi(float x) {
     const float twoPi = 2.0f * float(M_PI);
+    // Fast path: callers pass phase * 2pi with phase in [0, 1).
+    if (x > float(M_PI)) x -= twoPi;
+    if (x >= -float(M_PI) && x <= float(M_PI)) return x;
     x = fmodf(x + float(M_PI), twoPi);
     if (x < 0.f) x += twoPi;
     return x - float(M_PI);
@@ -139,22 +142,21 @@ struct GlassADAADrive {
     float lastInput = 0.f;
 
     // Polynomial tanh approximation -- valid for |x| <= 1.
-    // Matched to the antiderivative below (same Taylor series).
     static float polyTanh(float x) {
         float x2 = x * x;
         return x - x * x2 * (1.f/3.f - x2 * (2.f/15.f - 17.f/315.f * x2));
     }
-    // Antiderivative of polyTanh -- valid for |x| <= 1.
-    static float antiderivative(float x) {
-        float x2 = x * x;
-        return 0.5f*x2 - (1.f/12.f)*x2*x2 + (1.f/45.f)*x2*x2*x2
-               - (17.f/2520.f)*x2*x2*x2*x2;
-    }
+    // (F(input) - F(last)) / (input - last) for F = antiderivative of polyTanh,
+    // F = x^2/2 - x^4/12 + x^6/45 - 17x^8/2520, with the division done term
+    // by term: exact for any step, no cancellation noise near the peaks, no
+    // small-step fallback and no divide.
     static float applyADAA(float input, float last) {
-        float d = input - last;
-        return fabsf(d) > 1e-6f
-             ? (antiderivative(input) - antiderivative(last)) / d
-             : polyTanh(input);
+        float sum  = input + last;
+        float prod = input * last;
+        float sq   = input * input + last * last;
+        return sum * (0.5f - sq * (1.f/12.f)
+                    + (sq * sq - prod * prod) * (1.f/45.f)
+                    - sq * (sq * sq - 2.f * prod * prod) * (17.f/2520.f));
     }
     // Clamp norm to [-1,1] before the polynomial so it stays in its valid range.
     // tanh(x) for |x|>1 is already deep into saturation so clamping is correct.

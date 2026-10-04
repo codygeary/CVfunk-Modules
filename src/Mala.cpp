@@ -83,8 +83,9 @@ static const float kDriveMax    = 5.00f;
 // increment, until the gap closes exactly.  0.006 is about 10 cents.
 static const double kRealignBend = 0.006;
 
-// B phase offset range per side, in B cycles.  A full cycle, so it wraps
-// seamlessly (a faint seam only with SPREAD up).
+// B phase offset range per side, in B cycles.  Modulation carries on past
+// either end of the slider instead of wrapping, so SPREAD's inharmonic
+// partials never jump.
 static const float kPhaseRange  = 1.00f;
 
 // Full-scale modulation ranges, before the per-destination trim.
@@ -110,24 +111,29 @@ struct MalaADAADrive {
         float x2 = x * x;
         return x - x * x2 * (1.f/3.f - x2 * (2.f/15.f - 17.f/315.f * x2));
     }
-    static float antiderivative(float x) {
-        float x2 = x * x;
-        return 0.5f*x2 - (1.f/12.f)*x2*x2 + (1.f/45.f)*x2*x2*x2
-             - (17.f/2520.f)*x2*x2*x2*x2;
-    }
     // Static transfer, used by the normalizer and by the display.
     static float curve(float x) { return polyTanh(clamp(x, -1.f, 1.f)); }
 
-    float process(float x) {
+    // lastInput is the undriven signal, so both points of the difference
+    // quotient see the same drive and the state stays valid while bypassed.
+    // ADAA averages the linear part over half a sample; linearRestore adds
+    // that back (1 = none of the averaging, matching the unshaped signal).
+    float process(float in, float drive, float linearRestore) {
         // Clamp before the difference quotient so both the current and the
         // previous value sit where the series and its antiderivative agree.
-        x = clamp(x, -1.f, 1.f);
-        float d   = x - lastInput;
-        float out = (fabsf(d) > 1e-6f)
-                  ? (antiderivative(x) - antiderivative(lastInput)) / d
-                  : polyTanh(x);
-        lastInput = x;
-        return out;
+        float x  = clamp(drive * in, -1.f, 1.f);
+        float x0 = clamp(drive * lastInput, -1.f, 1.f);
+        lastInput = in;
+        // (F(x) - F(x0)) / (x - x0) for F = antiderivative of polyTanh,
+        // F = x^2/2 - x^4/12 + x^6/45 - 17x^8/2520, with the division done
+        // term by term: no cancellation, no small-step fallback.
+        float sum  = x + x0;
+        float prod = x * x0;
+        float sq   = x * x + x0 * x0;
+        float out  = sum * (0.5f - sq * (1.f/12.f)
+                          + (sq * sq - prod * prod) * (1.f/45.f)
+                          - sq * (sq * sq - 2.f * prod * prod) * (17.f/2520.f));
+        return out + linearRestore * 0.5f * (x - x0);
     }
     void reset() { lastInput = 0.f; }
 };
@@ -309,6 +315,7 @@ struct MalaShapeSetup {
     float thinK    = 0.f;
     float satDrive = 1e-4f;
     float satNorm  = 1.f;
+    float linearRestore = 1.f;
 
     void set(float shape) {
         // Identity at centre; skip the divide.
@@ -318,6 +325,9 @@ struct MalaShapeSetup {
             // Normalized by the curve at the same gain, so the crest stays at unity.
             satDrive = fmaxf(shape * kSatMax, 1e-4f);
             satNorm  = 1.f / MalaADAADrive::curve(satDrive);
+            // Fades out the ADAA half-sample average near zero, so the
+            // saturator meets the bypass with no step.
+            linearRestore = 1.f - shape;
             thinK    = 0.f;
         }
         else {
@@ -377,6 +387,7 @@ struct Mala : Module {
         MODRATE_CV_INPUT,
         HEAT_CV_INPUT,
         MODDEPTH_CV_INPUT,
+        VOLUME_CV_INPUT,
         NUM_INPUTS
     };
 
@@ -428,11 +439,16 @@ struct Mala : Module {
     dsp::SchmittTrigger mapTriggers[7];
     // Per destination gate, ramped so map buttons fade the bus in and out.
     float modGate[7] = {};
-    // B phase rotation coefficients, refreshed every 32 samples.  Seeded to the
-    // identity so an unrefreshed voice is unrotated, not silent.
+    // B phase rotation coefficients.  Every 32 samples a new target angle is
+    // set and the rotation glides to it by a fixed per-sample step.  Seeded to
+    // the identity so an unrefreshed voice is unrotated, not silent.
     float phaseCosD[kMaxPoly][kPartials];
     float phaseSinD[kMaxPoly][kPartials] = {};
+    float phaseStepCos[kMaxPoly][kPartials];
+    float phaseStepSin[kMaxPoly][kPartials] = {};
+    float phaseAngle[kMaxPoly][kPartials] = {};   // where the current glide ends
     bool  phaseWasOn[kMaxPoly] = {};
+    int   phaseHold[kMaxPoly] = {};   // samples left before an idle rotation disengages
     int   phaseDivCounter = 0;
     dsp::SchmittTrigger quantTrigger, syncTrigger;
     float lfoPhase = 0.f;
@@ -450,9 +466,16 @@ struct Mala : Module {
     // ---- Options -------------------------------------------------------------
     bool quantOn      = false;
     bool syncOn       = true;
-    bool polyOutputs  = false;
+    bool polyOutputs  = true;
     bool detuneWide   = false;  // context menu, multiplies the detune range
     int  lfoPhaseMode = 0;      // 0 spread, 1 unison
+    int  lfoShape     = 0;      // 0 sine, 1 triangle, 2 slow random
+    bool extOverride  = false;  // a patched Ma CV replaces the Mala wave
+
+    // Slow random: four most recent targets per voice, Catmull-Rom between the
+    // middle two, one new target per Mala cycle.
+    float rndPoints[kMaxPoly][4] = {};
+    float rndLastPhase[kMaxPoly] = {};
 
     // ---- Dead zone latching --------------------------------------------------
     // w is exactly zero around A's zero crossing, so B-only changes made there are
@@ -515,7 +538,7 @@ struct Mala : Module {
         configParam(SPREAD_TRIM_PARAM,  -1.f,  1.f,  0.f,  "Spread Mod Depth");
         configParam(DETUNE_PARAM,        0.f,  1.f,  0.f,  "Detune");
         configParam(DETUNE_TRIM_PARAM,  -1.f,  1.f,  0.f,  "Detune Mod Depth");
-        configParam(PHASE_PARAM,         0.f,  1.f,  0.f,  "B Phase (wraps)");
+        configParam(PHASE_PARAM,         0.f,  1.f,  0.f,  "B Phase");
         configParam(PHASE_TRIM_PARAM,   -1.f,  1.f,  0.f,  "B Phase Mod Depth");
         configParam(MODRATE_PARAM,            0.f,  1.f,  0.25f, "Ma (rate)");
         configParam(MODRATE_TRIM_PARAM,      -1.f,  1.f,  0.f,  "Ma CV Trim");
@@ -524,7 +547,7 @@ struct Mala : Module {
         configParam(MODDEPTH_PARAM,          0.f,  1.f,  0.f,  "La (mod index)");
         configParam(MODDEPTH_TRIM_PARAM,    -1.f,  1.f,  0.f,  "La CV Trim");
         configParam(FREQ_PARAM,         -5.f,  5.f,  0.f,  "Frequency", " V");
-        configParam(FM_AMT_PARAM,       -1.f,  1.f,  0.f,  "Linear FM Amount");
+        configParam(FM_AMT_PARAM,       -1.f,  1.f,  0.f,  "Through-zero FM index");
         configParam(VOLUME_PARAM,        0.f,  1.f,  1.f,  "Volume");
 
         configParam(MAP_SHAPE_PARAM,   0.f, 1.f, 0.f, "Map Mala to Shape");
@@ -539,16 +562,17 @@ struct Mala : Module {
         configParam(SYM_PARAM,         0.f, 1.f, 0.f, "Symmetry: graft follows A's sign");
 
         configInput(VOCT_INPUT,       "V/Oct (poly)");
-        configInput(FM_INPUT,         "Linear FM");
-        configInput(SHAPE_CV_INPUT,   "Shape CV (replaces Mala)");
-        configInput(RATIO_CV_INPUT,   "Ratio CV (replaces Mala)");
-        configInput(MORPH_CV_INPUT,   "Morph CV (replaces Mala)");
-        configInput(SPREAD_CV_INPUT,  "Spread CV (replaces Mala)");
-        configInput(DETUNE_CV_INPUT,  "Detune CV (replaces Mala)");
-        configInput(PHASE_CV_INPUT,   "B Phase CV (replaces Mala)");
-        configInput(MODRATE_CV_INPUT,      "Ma rate CV");
-        configInput(HEAT_CV_INPUT,      "Heat CV (replaces Mala)");
-        configInput(MODDEPTH_CV_INPUT,    "La index CV");
+        configInput(FM_INPUT,         "Through-zero linear FM (poly)");
+        configInput(SHAPE_CV_INPUT,   "Shape CV");
+        configInput(RATIO_CV_INPUT,   "Ratio CV");
+        configInput(MORPH_CV_INPUT,   "Morph CV");
+        configInput(SPREAD_CV_INPUT,  "Spread CV");
+        configInput(DETUNE_CV_INPUT,  "Detune CV");
+        configInput(PHASE_CV_INPUT,   "B Phase CV");
+        configInput(MODRATE_CV_INPUT, "Ma rate CV");
+        configInput(HEAT_CV_INPUT,    "Heat CV");
+        configInput(MODDEPTH_CV_INPUT,"La index CV");
+        configInput(VOLUME_CV_INPUT,  "Volume CV (VCA, 0-10 V, knob sets max)");
 
         configOutput(OUT_L_OUTPUT, "Left");
         configOutput(OUT_R_OUTPUT, "Right");
@@ -557,7 +581,7 @@ struct Mala : Module {
         configOutput(MOD_OUTPUT,  "Mala LFO");
 
         for (int i = 0; i < kMaxPoly; i++)
-            for (int n = 0; n < kPartials; n++) phaseCosD[i][n] = 1.f;
+            for (int n = 0; n < kPartials; n++) phaseCosD[i][n] = phaseStepCos[i][n] = 1.f;
 
         for (int b = 0; b < 3; b++) buildLut(b, 0);
         retuneDecimators();
@@ -628,6 +652,13 @@ struct Mala : Module {
         lutActive.store(idle, std::memory_order_release);
     }
 
+    // Override turns the Ma CV jack into the Mala source while it is patched.
+    void setExtOverride(bool on) {
+        extOverride = on;
+        inputInfos[MODRATE_CV_INPUT]->name = on
+            ? "Mala override (+-5 V, depth by La; Mala wave when unpatched)" : "Ma rate CV";
+    }
+
     void retuneDecimators() {
         float cutoff = kDecimCutoff / (float)osActive;
         for (int i = 0; i < kMaxPoly; i++) decim[i].setCutoffFreq(cutoff);
@@ -646,6 +677,8 @@ struct Mala : Module {
         json_object_set_new(rootJ, "brightHz",     json_real(brightHz));
         json_object_set_new(rootJ, "symOn",        json_boolean(symOn));
         json_object_set_new(rootJ, "lfoPhaseMode", json_integer(lfoPhaseMode));
+        json_object_set_new(rootJ, "lfoShape",     json_integer(lfoShape));
+        json_object_set_new(rootJ, "extOverride",  json_boolean(extOverride));
         return rootJ;
     }
 
@@ -667,6 +700,10 @@ struct Mala : Module {
         // Clamped: older patches may carry a 2 from the removed Random mode.
         j = json_object_get(rootJ, "lfoPhaseMode");
         if (j) lfoPhaseMode = clamp((int)json_integer_value(j), 0, 1);
+        j = json_object_get(rootJ, "lfoShape");
+        lfoShape = j ? clamp((int)json_integer_value(j), 0, 2) : 0;
+        j = json_object_get(rootJ, "extOverride");
+        setExtOverride(j && json_is_true(j));
 
         // A patch load adopts SYM immediately.
         for (int i = 0; i < kMaxPoly; i++) symAct[i] = symOn;
@@ -701,7 +738,9 @@ struct Mala : Module {
         osActive     = 2;
         quantOn      = false;
         syncOn       = true;
-        polyOutputs  = false;
+        polyOutputs  = true;
+        lfoShape     = 0;
+        setExtOverride(false);
         detuneWide   = false;
         if (lutSeed != 0) { for (int b = 0; b < 3; b++) buildLut(b, 0); lutSeed = 0; }
         brightHz     = kBrightDef;
@@ -788,12 +827,14 @@ struct Mala : Module {
         float freqKnob   = params[FREQ_PARAM].getValue();
         float fmAmount   = params[FM_AMT_PARAM].getValue();
 
-        float fmVolts = inputs[FM_INPUT].isConnected()
-                      ? inputs[FM_INPUT].getVoltage() * fmAmount : 0.f;
+        bool fmOn = inputs[FM_INPUT].isConnected() && fmAmount != 0.f;
 
         // ---- Ma: the rate of the Mala LFO ------------------------------------
-        // Exponential, 0.02 Hz to 50 Hz: log2(2500) = 11.2877.
-        float modRateNorm = clamp(modRateKnob + (inputs[MODRATE_CV_INPUT].isConnected()
+        // Exponential, 0.02 Hz to 50 Hz: log2(2500) = 11.2877.  With the override
+        // on and the jack patched, the Ma CV is the source and stops steering the rate.
+        bool extSource = extOverride && inputs[MODRATE_CV_INPUT].isConnected();
+        bool rateCvOn  = inputs[MODRATE_CV_INPUT].isConnected() && !extSource;
+        float modRateNorm = clamp(modRateKnob + (rateCvOn
                      ? inputs[MODRATE_CV_INPUT].getVoltage() * modRateTrim : 0.f), 0.f, 1.f);
         float lfoHz  = 0.02f * dsp::exp2_taylor5(modRateNorm * 11.2877f);
         lfoPhase = malaWrap01(lfoPhase + lfoHz * args.sampleTime);
@@ -801,10 +842,37 @@ struct Mala : Module {
         // ---- Mala LFO value per voice ----------------------------------------
         float modLfo[kMaxPoly];
         for (int vi = 0; vi < nVoices; vi++) {
+            if (extSource) {
+                // +-5 V spans the same swing as the internal LFO.
+                modLfo[vi] = clamp(inputs[MODRATE_CV_INPUT].getPolyVoltage(vi) * 0.2f, -1.f, 1.f);
+                continue;
+            }
             float p = (lfoPhaseMode == 1)
                     ? lfoPhase
                     : malaWrap01(lfoPhase + (float)vi / (float)nVoices);
-            modLfo[vi] = malaSin2pi(kTwoPi * p);
+            if (lfoShape == 1) {
+                // Triangle, phase aligned with the sine.
+                modLfo[vi] = 1.f - 4.f * fabsf(malaWrap01(p + 0.25f) - 0.5f);
+            }
+            else if (lfoShape == 2) {
+                // Unison voices share voice 0's sequence.
+                if (lfoPhaseMode == 1 && vi > 0) { modLfo[vi] = modLfo[0]; continue; }
+                float* pts = rndPoints[vi];
+                if (p < rndLastPhase[vi]) {
+                    pts[0] = pts[1]; pts[1] = pts[2]; pts[2] = pts[3];
+                    pts[3] = 2.f * random::uniform() - 1.f;
+                }
+                rndLastPhase[vi] = p;
+                // Catmull-Rom from pts[1] to pts[2]; clamped for its small overshoot.
+                float c = 0.5f * ((-pts[0] + 3.f * pts[1] - 3.f * pts[2] + pts[3]) * p * p * p
+                                + (2.f * pts[0] - 5.f * pts[1] + 4.f * pts[2] - pts[3]) * p * p
+                                + (pts[2] - pts[0]) * p
+                                + 2.f * pts[1]);
+                modLfo[vi] = clamp(c, -1.f, 1.f);
+            }
+            else {
+                modLfo[vi] = malaSin2pi(kTwoPi * p);
+            }
         }
 
         phaseDivCounter++;
@@ -883,6 +951,7 @@ struct Mala : Module {
         bool cvOnHeat   = inputs[HEAT_CV_INPUT  ].isConnected() && heatTrim   != 0.f;
         bool cvOnDepth  = inputs[MODDEPTH_CV_INPUT].isConnected() && depthTrimAmt != 0.f;
         bool voctOn     = inputs[VOCT_INPUT].isConnected();
+        bool vcaOn      = inputs[VOLUME_CV_INPUT].isConnected();
 
         // Voice invariant scalars, likewise.
         const float morphTop   = (float)(kMorphStops - 1);
@@ -898,11 +967,13 @@ struct Mala : Module {
 
             // --- Pitch ---
             float voct = voctOn ? inputs[VOCT_INPUT].getPolyVoltage(vi) : 0.f;
-            // Clamped below Nyquist: A's phasor wraps with one subtract, so full FM
-            // could otherwise run it away.
             float f0 = dsp::FREQ_C4 * dsp::exp2_taylor5(voct + freqKnob);
             f0 = clamp(f0, 0.001f, fMax);
-            float f0Fm = clamp(f0 + fmVolts * f0, 0.001f, fMax);
+            // Through-zero linear FM: 1 V at full index deviates by f0, and a negative
+            // frequency runs every phasor backwards.  Clamped to +-Nyquist because the
+            // phasors wrap with one add or subtract.
+            float fmVolts = fmOn ? inputs[FM_INPUT].getPolyVoltage(vi) * fmAmount : 0.f;
+            float f0Fm = clamp(f0 + fmVolts * f0, -fMax, fMax);
 
             // --- Modulation ---
             // CV + trim + slider set the centre point, common to both channels.  The bus
@@ -938,9 +1009,10 @@ struct Mala : Module {
 
             // Detune and B phase are already stereo, so the bus scales their amount.
             // Detune is bipolar internally so the bus swings it both ways.
-            float detuneAmt = clamp(detuneBase + cvDetune + busDetune, -1.f, 1.f);
-            // Wrapped, not clamped -- see kPhaseRange.
-            float phaseAmt  = malaWrap01(phaseBase + cvPhase + busPhase);
+            // Only slider and CV glide; the Mala bus is already smooth and goes straight through.
+            float detuneAmt = clamp(detuneBase + cvDetune, -1.f, 1.f);
+            // Neither wrapped nor clamped -- see kPhaseRange.
+            float phaseAmt  = phaseBase + cvPhase + busPhase;
 
             float ratioVL = clamp(ratioBase + cvRatio + busRatio, -3.f, 4.f);
             float ratioVR = clamp(ratioBase + cvRatio - busRatio, -3.f, 4.f);
@@ -978,7 +1050,7 @@ struct Mala : Module {
             else if (dGap < -dStep) detuneSlew[vi] -= dStep;
             else detuneSlew[vi] = detuneAmt;
 
-            float halfDetune = detuneSlew[vi] * detuneSpan * 0.5f;
+            float halfDetune = clamp(detuneSlew[vi] + busDetune, -1.f, 1.f) * detuneSpan * 0.5f;
             bool  stereoPitch = (halfDetune != 0.f);
             float f0L = stereoPitch ? (f0Fm * dsp::exp2_taylor5( halfDetune)) : f0Fm;
             float f0R = stereoPitch ? (f0Fm * dsp::exp2_taylor5(-halfDetune)) : f0Fm;
@@ -1016,7 +1088,11 @@ struct Mala : Module {
             bool stereoOsc  = splitPitch
                            || fabsf(busRatio) > 1e-6f || fabsf(busSpread) > 1e-6f;
             bool stereoWgt  = fabsf(busMorph) > 1e-6f || fabsf(busSpread) > 1e-6f;
-            bool usePhase   = (phaseAmt > 1e-5f);
+            // Held on for two refresh periods after the offset reaches zero,
+            // so the rotation glides home before it is dropped.
+            if (fabsf(phaseAmt) > 1e-5f) phaseHold[vi] = 64;
+            else if (phaseHold[vi] > 0) phaseHold[vi]--;
+            bool usePhase   = (phaseHold[vi] > 0);
             const bool symMode = symAct[vi];
 
             // The right channel is computed separately only when something differs.
@@ -1028,7 +1104,7 @@ struct Mala : Module {
 
             // --- Partial multipliers and weights, cached on their inputs ---
             // The Nyquist fade is sized by the higher channel.
-            float fFade = fmaxf(fBL, fBR);
+            float fFade = fmaxf(fabsf(fBL), fabsf(fBR));
             float* ratioMulL = ccMul[vi][0];
             float* ratioMulR = ccMul[vi][1];
             float* weightL   = ccWeight[vi][0];
@@ -1131,16 +1207,23 @@ struct Mala : Module {
 
             // Rotation coefficients: every 32 samples, staggered by voice, and at once
             // when B PHASE first engages.
+            const bool wasOn = phaseWasOn[vi];
             bool phaseRefresh = usePhase
-                              && (!phaseWasOn[vi] || ((phaseDivCounter + vi) & 31) == 0);
+                              && (!wasOn || ((phaseDivCounter + vi) & 31) == 0);
             phaseWasOn[vi] = usePhase;
             if (phaseRefresh) {
                 float offset = phaseAmt * kPhaseRange;
                 for (int n = 0; n < kPartials; n++) {
-                    // libm on purpose: the pair must stay a true rotation (s^2 + c^2 = 1).
-                    float d = kTwoPi * ratioMulL[n] * offset;
-                    phaseCosD[vi][n] = cosf(d);
-                    phaseSinD[vi][n] = sinf(d);
+                    // libm on purpose: the pairs must stay true rotations (s^2 + c^2 = 1).
+                    float target = kTwoPi * ratioMulL[n] * offset;
+                    if (!wasOn) phaseAngle[vi][n] = target;
+                    // Restart exactly from where the last glide ended, then step to the target.
+                    phaseCosD[vi][n] = cosf(phaseAngle[vi][n]);
+                    phaseSinD[vi][n] = sinf(phaseAngle[vi][n]);
+                    float step = (target - phaseAngle[vi][n]) * (1.f / 32.f);
+                    phaseStepCos[vi][n] = cosf(step);
+                    phaseStepSin[vi][n] = sinf(step);
+                    phaseAngle[vi][n] = target;
                 }
             }
 
@@ -1171,13 +1254,16 @@ struct Mala : Module {
             for (int sub = 0; sub < os; sub++) {
 
                 // --- Advance A, one phasor per side when detuned ---
+                // Wraps either way, since TZFM can run the phasors backwards.
                 phaseA[vi] += incAL;
                 bool wrappedL = false;
-                if (phaseA[vi] >= 1.0) { phaseA[vi] -= 1.0; wrappedL = true; voiceWrapped = true; }
+                if (phaseA[vi] >= 1.0)     { phaseA[vi] -= 1.0; wrappedL = true; voiceWrapped = true; }
+                else if (phaseA[vi] < 0.0) { phaseA[vi] += 1.0; wrappedL = true; voiceWrapped = true; }
 
                 bool wrappedR = wrappedL;
+                double stepR = incAL;
                 if (splitPitch) {
-                    double stepR = incAR;
+                    stepR = incAR;
                     if (realigning) {
                         // Constant bend; the last step takes exactly the remaining gap, recomputed
                         // here because the per-sample gap is a block stale.
@@ -1185,7 +1271,7 @@ struct Mala : Module {
                         if (g >  0.5) g -= 1.0;
                         if (g < -0.5) g += 1.0;
                         double e = g - incAL;
-                        double move = incAL * kRealignBend;
+                        double move = fabs(incAL) * kRealignBend;
                         if (e >  move) e =  move;
                         if (e < -move) e = -move;
                         stepR = incAL + e;
@@ -1215,8 +1301,10 @@ struct Mala : Module {
 
                 // --- Sync: each side resets on its own A wrap, inside its dead zone ---
                 if (syncOn) {
+                    // frac: substeps since the crossing, counted from 0 going forward or
+                    // from 1 going backward.
                     if (wrappedL) {
-                        float frac = (float)(phaseA[vi] / incAL);
+                        float frac = (float)((incAL > 0.0 ? phaseA[vi] : phaseA[vi] - 1.0) / incAL);
                         float reset[kPartials];
                         for (int n = 0; n < kPartials; n++)
                             reset[n] = malaWrap01(partIncL[n] * frac);
@@ -1225,8 +1313,7 @@ struct Mala : Module {
                         if (!stereoOsc) { ph0R = ph0; ph1R = ph1; }
                     }
                     if (stereoOsc && wrappedR) {
-                        float fracR = (float)((splitPitch ? phaseAR[vi] : phaseA[vi])
-                                            / (splitPitch ? fmax(incAR, 1e-12) : incAL));
+                        float fracR = (float)((stepR > 0.0 ? phaseAR[vi] : phaseAR[vi] - 1.0) / stepR);
                         float resetR[kPartials];
                         for (int n = 0; n < kPartials; n++)
                             resetR[n] = malaWrap01(partIncR[n] * fracR);
@@ -1239,16 +1326,25 @@ struct Mala : Module {
                 float s  = malaSin2pi(kTwoPi * (float)phaseA[vi]);
                 float sR = splitPitch ? malaSin2pi(kTwoPi * (float)phaseAR[vi]) : s;
 
-                float shapedL = setupL.bypass ? s
-                              : setupL.saturate
-                              ? (satL[vi].process(setupL.satDrive * s) * setupL.satNorm)
-                              : (s * (1.f + setupL.thinK) / (1.f + setupL.thinK * fabsf(s)));
+                // The saturator tracks its input even when unused, so it
+                // picks up mid-cycle without a step.
+                float shapedL;
+                if (setupL.saturate)
+                    shapedL = satL[vi].process(s, setupL.satDrive, setupL.linearRestore) * setupL.satNorm;
+                else {
+                    satL[vi].lastInput = s;
+                    shapedL = setupL.bypass ? s
+                            : (s * (1.f + setupL.thinK) / (1.f + setupL.thinK * fabsf(s)));
+                }
                 float shapedR = shapedL;
                 if (stereoCore) {
-                    shapedR = setupR.bypass ? sR
-                            : setupR.saturate
-                            ? (satR[vi].process(setupR.satDrive * sR) * setupR.satNorm)
-                            : (sR * (1.f + setupR.thinK) / (1.f + setupR.thinK * fabsf(sR)));
+                    if (setupR.saturate)
+                        shapedR = satR[vi].process(sR, setupR.satDrive, setupR.linearRestore) * setupR.satNorm;
+                    else {
+                        satR[vi].lastInput = sR;
+                        shapedR = setupR.bypass ? sR
+                                : (sR * (1.f + setupR.thinK) / (1.f + setupR.thinK * fabsf(sR)));
+                    }
                 }
 
                 // --- Window, zero around A's crossings ---
@@ -1340,6 +1436,18 @@ struct Mala : Module {
             ph0R.store(&partialPhaseR[vi][0]);
             ph1R.store(&partialPhaseR[vi][4]);
 
+            // B phase glide: advance the rotation one step toward its target.
+            if (usePhase) {
+                simd::float_4 stepCos0 = simd::float_4::load(&phaseStepCos[vi][0]);
+                simd::float_4 stepCos1 = simd::float_4::load(&phaseStepCos[vi][4]);
+                simd::float_4 stepSin0 = simd::float_4::load(&phaseStepSin[vi][0]);
+                simd::float_4 stepSin1 = simd::float_4::load(&phaseStepSin[vi][4]);
+                (cosD0 * stepCos0 - sinD0 * stepSin0).store(&phaseCosD[vi][0]);
+                (cosD1 * stepCos1 - sinD1 * stepSin1).store(&phaseCosD[vi][4]);
+                (sinD0 * stepCos0 + cosD0 * stepSin0).store(&phaseSinD[vi][0]);
+                (sinD1 * stepCos1 + cosD1 * stepSin1).store(&phaseSinD[vi][4]);
+            }
+
             // Kept for the dead zone latch.
             lastWL[vi] = wLast;
             lastWR[vi] = wLastR;
@@ -1355,9 +1463,13 @@ struct Mala : Module {
                 outRv = y[1];
             }
 
-            // VOLUME only here, so the scope shows the signal before it.
-            float vL = clamp(outLv * volume * 5.f * kOutGain, -10.f, 10.f);
-            float vR = clamp(outRv * volume * 5.f * kOutGain, -10.f, 10.f);
+            // VOLUME only here, so the scope shows the signal before it.  A patched
+            // CV is a 0-10 V VCA under the knob.
+            float gain = vcaOn
+                       ? volume * clamp(inputs[VOLUME_CV_INPUT].getPolyVoltage(vi) * 0.1f, 0.f, 1.f)
+                       : volume;
+            float vL = clamp(outLv * gain * 5.f * kOutGain, -10.f, 10.f);
+            float vR = clamp(outRv * gain * 5.f * kOutGain, -10.f, 10.f);
 
             if (polyOutputs) {
                 outputs[OUT_L_OUTPUT].setVoltage(vL, vi);
@@ -1390,7 +1502,7 @@ struct Mala : Module {
                         capRead  = capWrite;
                         capWrite ^= 1;
                     }
-                    int per = (int)(args.sampleRate / fmaxf(f0Fm, 0.001f));
+                    int per = (int)(args.sampleRate / fmaxf(fabsf(f0Fm), 0.001f));
                     // Ceiling division, so one whole cycle always fits.
                     capStride = 1 + (per > 1 ? (per - 1) / kCaptureN : 0);
                     capIndex  = 0;
@@ -1805,16 +1917,25 @@ struct MalaWidget : ModuleWidget {
         addInput (createInputCentered<ThemedPJ301MPort>(mm2px(Vec(xLaCV,   yBusCV)),   module, Mala::MODDEPTH_CV_INPUT));
 
         // ---- Bottom row ------------------------------------------------------
-        // V/Oct under FREQ, then one per slider column.
+        // V/Oct under FREQ; MALA/A/B packed from the first slider column; VCA CV
+        // then VOLUME; L stacked over R on the last slider column.
+        const float outPitch = 10.5f;               // MALA/A/B spacing
+        const float xVolCV   = 67.f;
+        const float xVolume  = xVolCV + 11.5f;      // jack edge to knob edge ~2.2 mm
+        const float yOutR    = 117.f;
+        const float yOutL    = yOutR - 9.5f;        // stacked jack pitch
+
         addInput (createInputCentered<ThemedPJ301MPort> (mm2px(Vec(xHeat,   yOut)), module, Mala::VOCT_INPUT));
 
-        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(colX[0], yOut)), module, Mala::MOD_OUTPUT));
-        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(colX[1], yOut)), module, Mala::A_OUTPUT));
-        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(colX[2], yOut)), module, Mala::B_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(colX[0],                 yOut)), module, Mala::MOD_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(colX[0] +     outPitch, yOut)), module, Mala::A_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(colX[0] + 2 * outPitch, yOut)), module, Mala::B_OUTPUT));
 
-        addParam (createParamCentered<RoundBlackKnob>   (mm2px(Vec(colX[3], yOut)), module, Mala::VOLUME_PARAM));
-        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(colX[4], yOut)), module, Mala::OUT_L_OUTPUT));
-        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(colX[5], yOut)), module, Mala::OUT_R_OUTPUT));
+        addInput (createInputCentered<ThemedPJ301MPort> (mm2px(Vec(xVolCV,  yOut)), module, Mala::VOLUME_CV_INPUT));
+        addParam (createParamCentered<RoundBlackKnob>   (mm2px(Vec(xVolume, yOut)), module, Mala::VOLUME_PARAM));
+
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(colX[5], yOutL)), module, Mala::OUT_L_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(colX[5], yOutR)), module, Mala::OUT_R_OUTPUT));
     }
 
     // =========================================================================
@@ -1867,7 +1988,7 @@ struct MalaWidget : ModuleWidget {
 
         menu->addChild(new MenuSeparator());
 
-        menu->addChild(createMenuItem("Polyphonic outputs", CHECKMARK(m->polyOutputs),
+        menu->addChild(createMenuItem("Polyphonic outputs (default)", CHECKMARK(m->polyOutputs),
             [m]() { m->polyOutputs = !m->polyOutputs; }));
 
         menu->addChild(createMenuItem("Wide detune (240 cents)", CHECKMARK(m->detuneWide),
@@ -1929,6 +2050,26 @@ struct MalaWidget : ModuleWidget {
         menu->addChild(seedSlider);
 
         menu->addChild(new MenuSeparator());
+
+        menu->addChild(createSubmenuItem("Mala wave", "", [m](Menu* sub) {
+            struct LfoShapeItem : MenuItem {
+                Mala* module; int shape;
+                void onAction(const event::Action&) override { module->lfoShape = shape; }
+                void step() override {
+                    rightText = (module->lfoShape == shape) ? CHECKMARK_STRING : "";
+                    MenuItem::step();
+                }
+            };
+            const char* labels[3] = { "Sine (default)", "Triangle", "Slow random" };
+            for (int i = 0; i < 3; i++) {
+                auto* it = new LfoShapeItem();
+                it->text = labels[i]; it->module = m; it->shape = i;
+                sub->addChild(it);
+            }
+        }));
+
+        menu->addChild(createMenuItem("Ma CV overrides Mala (depth by La)", CHECKMARK(m->extOverride),
+            [m]() { m->setExtOverride(!m->extOverride); }));
 
         menu->addChild(createSubmenuItem("Mala voice phase", "", [m](Menu* sub) {
             struct LfoModeItem : MenuItem {

@@ -682,6 +682,9 @@ struct Twang : Module {
                     voiceQuad[q].pluck[lane].tilt = pluckTilt;
                 voiceQuad[q].bowJunction.stringImpedance  = float_4(stringImpedance);
                 voiceQuad[q].bowPosition                  = float_4(cachedBowPosition);
+                // While asleep every string is silent, so the junction can sit
+                // straight on the bow instead of gliding there under the first note.
+                if (asleep) voiceQuad[q].junctionPos      = voiceQuad[q].bowPosition;
                 if (pluckPosPoly) {
                     float pp[4];
                     for (int lane = 0; lane < 4; ++lane) {
@@ -1001,7 +1004,11 @@ struct Twang : Module {
                 // string itself (TwangStringSIMD::MIN_SPAN_SAMPLES), where the
                 // split actually happens, so both contact points get the same
                 // protection at every pitch.
-                a_segmentSamples[v] += 0.05f * (target - a_segmentSamples[v]);
+                // A silent string takes its length at once: after sleep, or on a
+                // voice that has not played yet, the stored length is stale and
+                // gliding from it put a short pitch swoop on the first note.
+                if (voiceQuad[q].energySmooth[lane] < 1e-9f) a_segmentSamples[v] = target;
+                else a_segmentSamples[v] += 0.05f * (target - a_segmentSamples[v]);
 
                 segArr[lane]  = a_segmentSamples[v];
                 bowArr[lane]  = a_bowSpeedV[v];

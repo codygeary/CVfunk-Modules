@@ -19,6 +19,13 @@
 
 static constexpr int GLASS_BOWLS    = 37;
 static constexpr int GLASS_MAX_POLY = 16;
+// Poly out by note: one channel per note name.  MetaModule caps poly cables
+// at 4 channels, so there the mode is compiled out and the buffers shrink to one.
+#ifdef METAMODULE
+static constexpr int GLASS_PITCH_CLASSES = 1;
+#else
+static constexpr int GLASS_PITCH_CLASSES = 12;
+#endif
 
 static float BOWL_VOCT[GLASS_BOWLS];
 
@@ -169,6 +176,20 @@ struct Glass : Module {
     bool  anyBowlActive = false;
     GlassADAADrive   mixSaturatorL;
     GlassADAADrive   mixSaturatorR;
+
+    // Poly out by note (context menu): 12 stereo channels, one per note name
+    // (C, C#, ...), every octave of a note sharing its channel. The L cable
+    // carries each bowl at its left pan amount and the R cable at its right,
+    // so Spread still applies; each channel has its own saturator and ENV
+    // follower like the mix.
+#ifdef METAMODULE
+    static constexpr bool polyNotes = false;   // every poly branch folds away
+#else
+    bool  polyNotes = false;
+#endif
+    float polyMixL[GLASS_PITCH_CLASSES] = {}, polyMixR[GLASS_PITCH_CLASSES] = {};
+    GlassADAADrive polySaturatorL[GLASS_PITCH_CLASSES], polySaturatorR[GLASS_PITCH_CLASSES];
+    GlassEnvFollower polyEnvFollower[GLASS_PITCH_CLASSES];
     GlassEnvFollower envFollower;
     float vuEnv[10] = {};         // VU meter segments for ENV light strip
     float cachedAudioIn = 0.f;    // cached audio input sample
@@ -185,7 +206,17 @@ struct Glass : Module {
 
     // Written by DSP, read by draw().
     float bowlEnergy[GLASS_BOWLS] = {};
-    float bowlRawAbs[GLASS_BOWLS] = {};  // scratch for SIMD energy pass, module-level to avoid stack zeroing
+    float bowlRawAbs[GLASS_BOWLS] = {};  // scratch for the energy pass, module-level to avoid stack zeroing
+
+    // Bowls that are gated or still ringing. A bowl joins on its gate and
+    // leaves once it goes dormant, so idle bowls cost nothing per sample.
+    int   activeBowlList[GLASS_BOWLS] = {};
+    int   activeBowlCount = 0;
+    bool  bowlListed[GLASS_BOWLS] = {};
+
+    // Box-Muller makes two normals per draw; the second is kept for the next sample.
+    float spareNoise     = 0.f;
+    bool  haveSpareNoise = false;
 
     // Precomputed per-bowl pan gains -- recomputed when Spread changes.
     // Avoids per-sample division in the bowl loop.
@@ -273,7 +304,9 @@ struct Glass : Module {
             bowls[b].clear();
             bowlRawAbs[b] = 0.f;
             bowlEnergy[b] = 0.f;
+            bowlListed[b] = false;
         }
+        activeBowlCount = 0;
         anyBowlActive = false;
     }
 
@@ -324,19 +357,28 @@ struct Glass : Module {
         initBowlVoct();
         initBowls(48000.f);
         envFollower.setCoeff(sqrtf(150.f * 5000.f) / 48000.f, 0.4f, 48000.f);
+        for (int ch = 0; ch < GLASS_PITCH_CLASSES; ++ch)
+            polyEnvFollower[ch].setCoeff(sqrtf(150.f * 5000.f) / 48000.f, 0.4f, 48000.f);
     }
 
     void onSampleRateChange() override {
         sampleRate = APP->engine->getSampleRate();
         initBowls(sampleRate);
         envFollower.setCoeff(sqrtf(150.f * 5000.f) / sampleRate, 0.4f, sampleRate);
+        for (int ch = 0; ch < GLASS_PITCH_CLASSES; ++ch)
+            polyEnvFollower[ch].setCoeff(sqrtf(150.f * 5000.f) / sampleRate, 0.4f, sampleRate);
     }
 
     void onReset() override {
         panic();
         mixSaturatorL.reset();
         mixSaturatorR.reset();
+        for (int ch = 0; ch < GLASS_PITCH_CLASSES; ++ch) { polySaturatorL[ch].reset(); polySaturatorR[ch].reset(); }
+#ifndef METAMODULE
+        polyNotes = false;
+#endif
         envFollower.reset();
+        for (int ch = 0; ch < GLASS_PITCH_CLASSES; ++ch) polyEnvFollower[ch].reset();
         attackValue  = 0.15f;
         releaseValue = 0.35f;
         attackCurve  = 0.3f;
@@ -351,6 +393,7 @@ struct Glass : Module {
         json_object_set_new(root, "releaseCurve",  json_real(releaseCurve));
         json_object_set_new(root, "noiseCutoffMax",     json_real(noiseCutoffMax));
         json_object_set_new(root, "dampGateIntensity",  json_real(dampGateIntensity));
+        json_object_set_new(root, "polyNotes",          json_boolean(polyNotes));
         return root;
     }
 
@@ -370,6 +413,10 @@ struct Glass : Module {
         releaseCurve = clamp(gr("releaseCurve", -0.3f), -1.f,  1.f);
         noiseCutoffMax      = clamp(gr("noiseCutoffMax",    1000.f), 100.f, 4000.f);
         dampGateIntensity   = clamp(gr("dampGateIntensity", 0.8f),     0.f,    1.f);
+#ifndef METAMODULE
+        json_t* polyJ = json_object_get(root, "polyNotes");
+        polyNotes = polyJ && json_is_true(polyJ);
+#endif
     }
 
     void process(const ProcessArgs& args) override {
@@ -564,6 +611,10 @@ struct Glass : Module {
                     // Use the damper to stop notes.
                     gateHigh[bowl] = true; anyGateEvent = true;
                 }
+                if (gateHigh[bowl] && !bowlListed[bowl]) {
+                    bowlListed[bowl] = true;
+                    activeBowlList[activeBowlCount++] = bowl;
+                }
             }
         }
 
@@ -582,24 +633,27 @@ struct Glass : Module {
         // If no bowl has energy and no gate events arrived, we have nothing to do.
         // Noise, tremolo, bowl loop, SIMD pass, and output writes all skipped.
         // This costs only the sub-rate block (1/16 samples) and the gate checks above.
+        const int polyChannels = polyNotes ? GLASS_PITCH_CLASSES : 1;
+
         if (!anyGateEvent && !anyBowlActive) {
-            outputs[AUDIO_L_OUTPUT].setVoltage(0.f);
-            outputs[AUDIO_R_OUTPUT].setVoltage(0.f);
+            outputs[AUDIO_L_OUTPUT].setChannels(polyChannels);
+            outputs[AUDIO_R_OUTPUT].setChannels(polyChannels);
+            outputs[ENV_OUTPUT].setChannels(polyChannels);
+            for (int ch = 0; ch < polyChannels; ++ch) {
+                outputs[AUDIO_L_OUTPUT].setVoltage(0.f, ch);
+                outputs[AUDIO_R_OUTPUT].setVoltage(0.f, ch);
+                outputs[ENV_OUTPUT].setVoltage(0.f, ch);
+            }
             return;
         }
+        if (polyNotes)
+            for (int ch = 0; ch < GLASS_PITCH_CLASSES; ++ch) polyMixL[ch] = polyMixR[ch] = 0.f;
 
         // ── Audio computation (only when something is active) ─────────────────
-        float filteredNoise = 0.f;
-        if (cachedNoiseWeight > 0.001f) {
-            float rawNoise = rack::random::normal();
-            cachedNoiseLpfZ = (1.f - cachedNoiseLpfA) * rawNoise
-                            + cachedNoiseLpfA * cachedNoiseLpfZ;
-            filteredNoise = cachedNoiseLpfZ;
-        }
-
-        // Dry contact excitation: n*|n| shaping creates a heavy-tailed sparse
-        // signal -- occasional sharp stick-slip peaks with near-silence between.
-        float sparseNoise = filteredNoise * fabsf(filteredNoise) * 0.6f;
+        // Excitation noise is drawn on demand by the first excited bowl, so
+        // ring-outs with no finger on any bowl skip it.
+        float sparseNoise = 0.f;
+        bool  noiseReady  = false;
 
         tremoloPhase += cachedSpeedHz / sr;
         if (tremoloPhase >= 1.f) tremoloPhase -= 1.f;
@@ -614,15 +668,21 @@ struct Glass : Module {
 
         float mixL = 0.f, mixR = 0.f;
 
-        for (int b = 0; b < GLASS_BOWLS; ++b) {
+        for (int i = 0; i < activeBowlCount; ) {
+            const int b = activeBowlList[i];
             GlassBowlState& state = bowls[b];
 
-            // Dormancy check: skip entirely when no gate and no ringing energy.
+            // Dormancy check: no gate and no ringing energy -> off the list
+            // until its next gate.
             bool bowlDormant = !gateHigh[b] && (bowlEnergy[b] < idleThreshold);
             if (bowlDormant) {
                 bowlRawAbs[b] = 0.f;
+                bowlEnergy[b] = 0.f;
+                bowlListed[b] = false;
+                activeBowlList[i] = activeBowlList[--activeBowlCount];
                 continue;
             }
+            ++i;
 
             state.envOut = state.pressureEnv.process(
                 gateHigh[b], sustainLevel[b],
@@ -642,6 +702,28 @@ struct Glass : Module {
             float excitation = 0.f;
 
             if (state.envOut > 0.0001f) {
+                if (!noiseReady) {
+                    noiseReady = true;
+                    if (cachedNoiseWeight > 0.001f) {
+                        float rawNoise;
+                        if (haveSpareNoise) {
+                            rawNoise = spareNoise;
+                            haveSpareNoise = false;
+                        } else {
+                            float radius = sqrtf(-2.f * logf(1.f - rack::random::uniform()));
+                            float theta  = 2.f * float(M_PI) * rack::random::uniform();
+                            rawNoise   = radius * sinf(theta);
+                            spareNoise = radius * cosf(theta);
+                            haveSpareNoise = true;
+                        }
+                        cachedNoiseLpfZ = (1.f - cachedNoiseLpfA) * rawNoise
+                                        + cachedNoiseLpfA * cachedNoiseLpfZ;
+                        // Dry contact excitation: n*|n| shaping creates a heavy-tailed sparse
+                        // signal -- occasional sharp stick-slip peaks with near-silence between.
+                        sparseNoise = cachedNoiseLpfZ * fabsf(cachedNoiseLpfZ) * 0.6f;
+                    }
+                }
+
                 state.sinePhase += state.sinePhaseInc;
                 if (state.sinePhase >= 1.f) state.sinePhase -= 1.f;
                 float sineVal = glassDspSin(state.sinePhase * 2.f * float(M_PI));
@@ -694,17 +776,25 @@ struct Glass : Module {
             mixL += bowlRaw * panGainL[b];
             mixR += bowlRaw * panGainR[b];
 
+            if (polyNotes) {
+                // Bowl 0 is C3, so b % 12 is the note name (0 = C).
+                const int note = b % GLASS_PITCH_CLASSES;
+                polyMixL[note] += bowlRaw * panGainL[b];
+                polyMixR[note] += bowlRaw * panGainR[b];
+            }
+
             bowlRawAbs[b] = fabsf(bowlRaw);
         }
 
         // ── Energy envelope update + dormancy check ──────────────────────────
-        // Single pass over all bowls. bowlRawAbs[b] = 0 for skipped bowls
+        // Single pass over the listed bowls. bowlRawAbs[b] = 0 for skipped bowls
         // so they always take the slow release path and decay to dormant.
         {
             anyBowlActive = false;
             const float vAttack  = 0.3f;
             const float vRelease = 0.001f;
-            for (int b = 0; b < GLASS_BOWLS; ++b) {
+            for (int i = 0; i < activeBowlCount; ++i) {
+                const int b = activeBowlList[i];
                 float energy = bowlRawAbs[b];
                 float& e     = bowlEnergy[b];
                 float coeff  = (energy > e) ? vAttack : vRelease;
@@ -719,14 +809,36 @@ struct Glass : Module {
         float inR = mixR * baseScale * cachedVolume;
         float satL = mixSaturatorL.process(inL)*1.9f;
         float satR = mixSaturatorR.process(inR)*1.9f;
-        outputs[AUDIO_L_OUTPUT].setVoltage(clamp(satL, -12.f, 12.f));
-        outputs[AUDIO_R_OUTPUT].setVoltage(clamp(satR, -12.f, 12.f));
+        outputs[AUDIO_L_OUTPUT].setChannels(polyChannels);
+        outputs[AUDIO_R_OUTPUT].setChannels(polyChannels);
+        if (!polyNotes) {
+            outputs[AUDIO_L_OUTPUT].setVoltage(clamp(satL, -12.f, 12.f));
+            outputs[AUDIO_R_OUTPUT].setVoltage(clamp(satR, -12.f, 12.f));
+        } else {
+            // Same gain staging and saturation as the mix, per channel, and
+            // the same RMS follower on each channel for ENV. The mix above
+            // still runs: it drives the lights.
+            const float polyScale = baseScale * cachedVolume;
+            const bool  envPatched = outputs[ENV_OUTPUT].isConnected();
+            for (int ch = 0; ch < polyChannels; ++ch) {
+                const float channelL = clamp(polySaturatorL[ch].process(polyMixL[ch] * polyScale) * 1.9f, -12.f, 12.f);
+                const float channelR = clamp(polySaturatorR[ch].process(polyMixR[ch] * polyScale) * 1.9f, -12.f, 12.f);
+                outputs[AUDIO_L_OUTPUT].setVoltage(channelL, ch);
+                outputs[AUDIO_R_OUTPUT].setVoltage(channelR, ch);
+                if (envPatched) {
+                    const float channelEnv = polyEnvFollower[ch].process((fabsf(channelL) + fabsf(channelR)) * 0.5f);
+                    outputs[ENV_OUTPUT].setVoltage(clamp(channelEnv * 13.f, 0.f, 10.f), ch);
+                }
+            }
+        }
 
         // ── ENV output and VU lights ──────────────────────────────────────────
         // RMS follower on the mixed output, matching Aulos ENV/RMS pattern.
+        // With poly out on, ENV follows each channel instead (above).
         float rmsIn = (fabsf(satL) + fabsf(satR)) * 0.5f;
         float envOut = envFollower.process(rmsIn);
-        if (outputs[ENV_OUTPUT].isConnected())
+        outputs[ENV_OUTPUT].setChannels(polyChannels);
+        if (!polyNotes && outputs[ENV_OUTPUT].isConnected())
             outputs[ENV_OUTPUT].setVoltage(clamp(envOut * 13.f, 0.f, 10.f));
 
         // VU bar: 10 segments, same bar-graph encoding as Aulos.
@@ -1070,6 +1182,11 @@ struct GlassWidget : ModuleWidget {
         menu->addChild(new MenuSeparator());
         menu->addChild(createMenuLabel("Water (Grip) Noise Color"));
         addFSlider(&m->noiseCutoffMax, 100.f, 4000.f, 1000.f, "Max Noise Cutoff Hz (dry setting)");
+
+#ifndef METAMODULE
+        menu->addChild(new MenuSeparator());
+        menu->addChild(createBoolPtrMenuItem("Poly out: one channel per note (C to B)", "", &m->polyNotes));
+#endif
 
         menu->addChild(new MenuSeparator());
         menu->addChild(createMenuLabel("Damper Gate"));
