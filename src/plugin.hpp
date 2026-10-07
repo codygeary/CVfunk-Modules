@@ -54,5 +54,6 @@ extern Model* modelHaze;
 extern Model* modelTwang;
 extern Model* modelHotPot;
 extern Model* modelMala;
+extern Model* modelFuzzy;
 
 

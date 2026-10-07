@@ -447,6 +447,16 @@
         "Oscillator",
         "Polyphonic"
       ]
-    }    
+    },
+    {
+      "slug": "Fuzzy",
+      "name": "Fuzzy",
+      "description": "Eight classic fuzz and overdrive pedals simulated from their schematics, with a guitar volume knob for clean-up and a battery knob that drains the circuit until it sputters out.",
+      "tags": [
+        "Distortion",
+        "Effect",
+        "Hardware clone"
+      ]
+    }
   ]
 }
