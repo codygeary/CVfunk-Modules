@@ -261,6 +261,35 @@ struct TwangRailSIMD {
                                  float_4::load(y2), float_4::load(y3), frac);
     }
 
+    // Two-point linear read, for taps outside the loop (the PICKUP output).
+    // Half the loads of read() and no Lagrange. Its gentle top-end loss is
+    // far smaller than a real pickup's own aperture, which spans several
+    // samples of string. Delay floor 1: the newest written sample.
+    inline float_4 readLinear(float_4 delaySamples) const {
+        float_4 ds      = rack::simd::clamp(delaySamples, float_4(1.f), float_4((float)bufSize - 4.f));
+        float_4 rp      = float_4((float)writeIndex) - ds;
+        float_4 rpFloor = rack::simd::floor(rp);
+        float_4 frac    = rp - rpFloor;
+
+        // Indices wrapped in SIMD and stored once, rather than pulled out of
+        // the float vector lane by lane.
+        const rack::simd::int32_4 mask = rack::simd::int32_4(bufMask);
+        rack::simd::int32_4 olderIndex = rack::simd::int32_4(rpFloor) & mask;
+        rack::simd::int32_4 newerIndex = (olderIndex + rack::simd::int32_4(1)) & mask;
+        int32_t olderAt[LANES], newerAt[LANES];
+        olderIndex.store(olderAt);
+        newerIndex.store(newerAt);
+
+        float older[LANES], newer[LANES];
+        for (int lane = 0; lane < LANES; ++lane) {
+            const float* laneBuf = buf[lane].data();
+            older[lane] = laneBuf[olderAt[lane]];
+            newer[lane] = laneBuf[newerAt[lane]];
+        }
+        float_4 olderV = float_4::load(older);
+        return olderV + frac * (float_4::load(newer) - olderV);
+    }
+
     // Single-lane scalar read, for the display only. Not used in the audio path.
     inline float readLane(int lane, float delaySamples) const {
         delaySamples = rack::clamp(delaySamples, 2.f, (float)bufSize - 4.f);
@@ -1016,7 +1045,7 @@ struct TwangStringSIMD {
         // body actually resonates. Swept over every tone/size/coupling
         // setting, |r| never exceeds its uncoupled maximum of 0.995 for
         // coupling <= 0.7 (the value is clamped there in setCoupling).
-        float_4 admittanceLoad = bridgeAdmittance.process(atBridge);
+        float_4 admittanceLoad = bridgeAdmittance.process(toned); //switched from atBridge to avoid freezing
 
         float_4 reflectedAtBridge = -(toned * loopGain - admittanceLoad);
 
@@ -1144,6 +1173,35 @@ struct TwangStringSIMD {
             return pToBridge.readLane(lane, z * segCLen[lane])
                  + bridgeToP.readLane(lane, (1.f - z) * segCLen[lane]);
         }
+    }
+
+    // The PICKUP output's reading, all four lanes at once: the sum of the two
+    // travelling waves at one point, which is the string's velocity there.
+    // The same taps as sampleStringAt, with segALen = total * P worked out of
+    // the delays so no divide is needed. Each lane takes the span its own
+    // split point puts the pickup in; a span's rails are only read when some
+    // lane needs them, so with the pickup on the bridge side of every junction
+    // (the usual case) this is two linear rail reads.
+    inline float_4 pickupAt(float positionFraction) const {
+        const float_4 position  = float_4(rack::clamp(positionFraction, 0.f, 1.f));
+        const float_4 fromNut   = position * totalSegmentSamples;   // samples from the nut
+        const float_4 onNutSide = position <= splitPos;
+        const int     nutLanes  = rack::simd::movemask(onNutSide);
+        float_4 reading = float_4(0.f);
+        if (nutLanes != 0) {
+            // segA: nut -> P. Lanes on the other side read junk here and are
+            // dropped by the select.
+            float_4 nutSide = nutToP.readLinear(fromNut)
+                            + pToNut.readLinear(segALen - fromNut);
+            reading = rack::simd::ifelse(onNutSide, nutSide, reading);
+        }
+        if (nutLanes != 0xF) {
+            // segC: P -> bridge
+            float_4 bridgeSide = pToBridge.readLinear(fromNut - segALen)
+                               + bridgeToP.readLinear(totalSegmentSamples - fromNut);
+            reading = rack::simd::ifelse(onNutSide, reading, bridgeSide);
+        }
+        return reading;
     }
 };
 

@@ -60,6 +60,25 @@ static constexpr float TWANG_BRIDGE_BODY_MAX_HZ = 700.f;
 static constexpr float TWANG_INPUT_GAIN    = 0.4f;
 static constexpr float TWANG_OUTPUT_MAKEUP = 8.5f;
 
+// PICKUP OUTPUT (context menu): L and R both carry one pickup reading the
+// string's own motion, with no body, drive or widener -- a dry mono feed for a
+// fuzz or amp. One pickup, not two: the body runs once on the voice sum, but a
+// pickup reads every voice's own string, so its cost grows with the voice
+// count, and a second pickup would double that.
+//
+// Positions run from the nut (0) to the bridge (1), placed like the pickups
+// of a 25.5" scale guitar: neck about 6.3" from the bridge, middle about 3.9",
+// bridge about 1.6". Hand-tunable.
+static constexpr int   TWANG_PICKUP_COUNT = 3;
+static const float     TWANG_PICKUP_POSITION[TWANG_PICKUP_COUNT] = { 0.75f, 0.85f, 0.94f };
+static const char*     TWANG_PICKUP_NAME[TWANG_PICKUP_COUNT]     = { "Neck", "Middle", "Bridge" };
+// Output level in string units -> volts, before VOLUME. 0.45 puts a default
+// low pluck near 6 V peak at the default TONE and VOLUME. Hand-tunable.
+static constexpr float TWANG_PICKUP_GAIN = 0.45f;
+// The bridge position reads about 2 dB lower than the other two, so it is
+// wound hotter, as real bridge pickups are. Hand-tunable.
+static const float     TWANG_PICKUP_TRIM[TWANG_PICKUP_COUNT] = { 1.f, 1.f, 1.25f };
+
 // Baseline string damping. Expressed as a decay TIME 
 static constexpr float TWANG_STRING_STIFFNESS = 0.06f;
 
@@ -168,6 +187,10 @@ struct Twang : Module {
     TwangADAADriveSIMD  polyDrive[TWANG_QUADS];
     TwangBodyModalSIMD  polyBody[TWANG_QUADS];
     float_4             polyVoice[TWANG_QUADS];
+    // Pickup Output: a DC blocker per quad, and this sample's
+    // per-voice readings.
+    TwangDCBlockerSIMD  pickupDC[TWANG_QUADS];
+    float_4             pickupVoice[TWANG_QUADS];
 
     float sampleRate = 48000.f;
     int   nVoices    = 1;
@@ -180,6 +203,8 @@ struct Twang : Module {
     // Consecutive samples that have met every sleep condition. See
     // TWANG_SLEEP_QUIET_SEC.
     int   quietSamples = 0;
+    // Whether the body chain ran last sample; see bodyOn in process().
+    bool  bodyWasOn    = true;
     int   nQuads     = 1;
 
     static constexpr int CTRL_SKIP = 32;
@@ -255,6 +280,23 @@ struct Twang : Module {
     // quad of bodies costs about what one scalar body did. Only allocated
     // work when this is on; the mono path is untouched.
     bool  polyOutput             = false;
+    // Pickup Output: L and R both carry one pickup instead of the body mix.
+    // An index into TWANG_PICKUP_POSITION. Poly Out still decides per-voice
+    // channels versus the normalised sum.
+    bool  pickupMode             = false;
+    int   pickupPosition         = 2;   // bridge
+
+    // Port tooltips follow the mode and the chosen pickup.
+    void updateOutputNames() {
+        if (pickupMode) {
+            std::string pickupName = std::string(TWANG_PICKUP_NAME[pickupPosition]) + " pickup";
+            outputInfos[OUT_L]->name = "Left: "  + pickupName;
+            outputInfos[OUT_R]->name = "Right: " + pickupName;
+        } else {
+            outputInfos[OUT_L]->name = "Left";
+            outputInfos[OUT_R]->name = "Right";
+        }
+    }
 
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
@@ -269,6 +311,8 @@ struct Twang : Module {
         json_object_set_new(rootJ, "twangBounceHz",          json_real(twangBounceHz));
         json_object_set_new(rootJ, "stereoWidth",            json_real(stereoWidth));
         json_object_set_new(rootJ, "polyOutput",             json_boolean(polyOutput));
+        json_object_set_new(rootJ, "pickupMode",             json_boolean(pickupMode));
+        json_object_set_new(rootJ, "pickupPosition",         json_integer(pickupPosition));
         return rootJ;
     }
 
@@ -296,6 +340,12 @@ struct Twang : Module {
         if (j) stereoWidth = clamp((float)json_real_value(j), 0.f, 1.f);
         j = json_object_get(rootJ, "polyOutput");
         if (j) polyOutput = json_is_true(j);
+        // Older patches have none of these keys and keep the body outputs.
+        j = json_object_get(rootJ, "pickupMode");
+        pickupMode = j && json_is_true(j);
+        j = json_object_get(rootJ, "pickupPosition");
+        pickupPosition = j ? clamp((int)json_integer_value(j), 0, TWANG_PICKUP_COUNT - 1) : 2;
+        updateOutputNames();
     }
 
     Twang() {
@@ -395,6 +445,9 @@ struct Twang : Module {
             // UI tick after switching it on would run an all-zero filter bank.
             polyBody[q].setBody(cachedLowestMode, 0.3f + 0.5f * 5.0f, 0.5f, sampleRate);
             polyVoice[q] = float_4(0.f);
+            pickupDC[q].setSampleRate(sampleRate);
+            pickupDC[q].reset();
+            pickupVoice[q] = float_4(0.f);
         }
         spaceL.init(sampleRate, 0.006f);
         spaceR.init(sampleRate, 0.006f);
@@ -429,6 +482,8 @@ struct Twang : Module {
         for (int q = 0; q < TWANG_QUADS; ++q) {
             polyDC[q].reset(); polyDrive[q].reset(); polyBody[q].clear();
             polyVoice[q] = float_4(0.f);
+            pickupDC[q].reset();
+            pickupVoice[q] = float_4(0.f);
         }
         spaceL.clear();
         spaceR.clear();
@@ -451,6 +506,9 @@ struct Twang : Module {
         twangBounceHz          = 7.0f;
         stereoWidth            = 0.35f;
         polyOutput             = false;
+        pickupMode             = false;
+        pickupPosition         = 2;
+        updateOutputNames();
         pluckDrive             = 12.0f;
         stringImpedance        = 0.641f;
         bodyTilt               = 0.7f;
@@ -915,6 +973,14 @@ struct Twang : Module {
         bool  voctConnected   = inputs[VOCT_INPUT].isConnected();
         bool  fmConnected     = inputs[FM_CV_INPUT].isConnected();
 
+        // What L and R carry. The body chain runs only for the body outputs and
+        // only while one of them is patched; the pickups replace it entirely.
+        const bool anyOutPatched = outputs[OUT_L].isConnected() || outputs[OUT_R].isConnected();
+        const bool bodyOn   = !pickupMode && anyOutPatched;
+        const bool pickupOn =  pickupMode && anyOutPatched;
+        const int   pickupIndex = clamp(pickupPosition, 0, TWANG_PICKUP_COUNT - 1);
+        const float pickupPoint = TWANG_PICKUP_POSITION[pickupIndex];
+
         float_4 sumQuad = float_4(0.f);
 
         for (int q = 0; q < nQuads; ++q) {
@@ -1024,6 +1090,14 @@ struct Twang : Module {
             float_4 masked = out * float_4::load(maskArr);
             sumQuad += masked;
             if (polyOutput) polyVoice[q] = masked;
+
+            // Pickup: the string's velocity at the pickup point, which is
+            // what a magnetic pickup senses. Spare lanes are masked to zero.
+            if (pickupOn) {
+                float_4 mask = float_4::load(maskArr);
+                pickupVoice[q] = pickupDC[q].process(voiceQuad[q].pickupAt(pickupPoint)
+                                                     * float_4(TWANG_PICKUP_TRIM[pickupIndex]) * mask);
+            }
         }
 
         float sumArr[4];
@@ -1054,45 +1128,70 @@ struct Twang : Module {
         float mixed = voiceSum * a_polyNormalize * cachedToneCompensationGain
                     * TWANG_INPUT_GAIN;
 
-        // -- Mono core -----------------------------------------------------
-        // The instrument is one object, so its body is mono. The stereo
-        // image is built below from a mid-side width on this same core, so
-        // L/R stay locked together (mono sum = 2x core) instead of being two
-        // independent resonators.
-        float core = dcBlocker.process(mixed);
+        // Coming back to the body outputs (from Pickup Output, or after both
+        // jacks were unpatched), the chain restarts from silence rather than
+        // from whatever it held when it stopped.
+        if (bodyOn && !bodyWasOn) {
+            dcBlocker.reset();
+            outputDrive.reset();
+            body.clear();
+            spaceL.clear();
+            spaceR.clear();
+            for (int q = 0; q < TWANG_QUADS; ++q) {
+                polyDC[q].reset(); polyDrive[q].reset(); polyBody[q].clear();
+            }
+        }
+        bodyWasOn = bodyOn;
 
-        // DRIVE lives here, outside any string's feedback loop -- applied
-        // once after the voice sum, before the body resonator.
-        core = outputDrive.process(core, cachedDriveGain);
+        float voiceOutL = 0.f, voiceOutR = 0.f;
+        if (bodyOn) {
+            // -- Mono core -------------------------------------------------
+            // The instrument is one object, so its body is mono. The stereo
+            // image is built below from a mid-side width on this same core, so
+            // L/R stay locked together (mono sum = 2x core) instead of being
+            // two independent resonators.
+            float core = dcBlocker.process(mixed);
 
-        // -- Body resonator ------------------------------------------------
-        // FDN: four feedback delay lines with PRIMES-incommensurate delays.
-        // Per-line feedback: each line's own tail is material-lowpassed and
-        // fed back into that line (a shared-sum input would make all lines
-        // identical copies of one signal and the low modes would decay once
-        // per SAMPLE instead of once per line period, killing the ring in
-        // ~10 ms). The box output is the direct string feed plus 1/4 of the
-        // summed ring; the allpass chain after adds the short "air" blur.
-        float bodyOut = body.process(core) * TWANG_OUTPUT_MAKEUP;
+            // DRIVE lives here, outside any string's feedback loop -- applied
+            // once after the voice sum, before the body resonator.
+            core = outputDrive.process(core, cachedDriveGain);
 
-        // Body -> string: lowpass the box's output to the low end and re-
-        // inject it at the next sample's bridge pass. The box now sings
+            // -- Body resonator --------------------------------------------
+            // FDN: four feedback delay lines with PRIMES-incommensurate delays.
+            // Per-line feedback: each line's own tail is material-lowpassed and
+            // fed back into that line (a shared-sum input would make all lines
+            // identical copies of one signal and the low modes would decay once
+            // per SAMPLE instead of once per line period, killing the ring in
+            // ~10 ms). The box output is the direct string feed plus 1/4 of the
+            // summed ring; the allpass chain after adds the short "air" blur.
+            float bodyOut = body.process(core) * TWANG_OUTPUT_MAKEUP;
 
-        // -- Stereo width ---------------------------------------------------
-        // Two short feedback delay lines, same input, slightly different
-        // lengths. Their difference is decorrelated detail that lives only
-        // in the SIDE channel; L/R read as one thing in a room, and a mono
-        // sum cancels the side entirely.
-        float spaceOutL = spaceL.process(bodyOut);
-        float spaceOutR = spaceR.process(bodyOut);
-        float side = 0.5f * (spaceOutL - spaceOutR) * stereoWidth;
-        float voiceOutL = bodyOut + side;
-        float voiceOutR = bodyOut - side;
-        if (!std::isfinite(voiceOutL) || !std::isfinite(voiceOutR)) {
-            voiceOutL = 0.f;
-            voiceOutR = 0.f;
+            // -- Stereo width ----------------------------------------------
+            // Two short feedback delay lines, same input, slightly different
+            // lengths. Their difference is decorrelated detail that lives only
+            // in the SIDE channel; L/R read as one thing in a room, and a mono
+            // sum cancels the side entirely.
+            float spaceOutL = spaceL.process(bodyOut);
+            float spaceOutR = spaceR.process(bodyOut);
+            float side = 0.5f * (spaceOutL - spaceOutR) * stereoWidth;
+            voiceOutL = bodyOut + side;
+            voiceOutR = bodyOut - side;
+            if (!std::isfinite(voiceOutL) || !std::isfinite(voiceOutR)) {
+                voiceOutL = 0.f;
+                voiceOutR = 0.f;
+                panic();
+            }
+        }
+        else if (!std::isfinite(mixed)) {
             panic();
         }
+
+        // Quiet at the outputs: after the body when it runs (it rings on after
+        // the strings), otherwise the strings themselves, scaled to the same
+        // level.
+        const bool outputQuiet = bodyOn
+            ? (fabsf(voiceOutL) < 1e-5f && fabsf(voiceOutR) < 1e-5f)
+            : (fabsf(mixed) * TWANG_OUTPUT_MAKEUP < 1e-5f);
 
         // The output level alone is NOT a valid "has it rung out?" test for a
         // plucked string. The pluck is injected at the pluck point and the
@@ -1113,15 +1212,52 @@ struct Twang : Module {
         // The quiet test must also hold for a sustained window, not a single
         // sample: a ringing tail passes through zero every half cycle.
         if (loudestBow < TWANG_BOW_DEAD_ZONE * 0.5f && !anyPluckActive
-            && wakeHold == 0
-            && fabsf(voiceOutL) < 1e-5f && fabsf(voiceOutR) < 1e-5f)
+            && wakeHold == 0 && outputQuiet)
             ++quietSamples;
         else
             quietSamples = 0;
         if (quietSamples >= (int)(TWANG_SLEEP_QUIET_SEC * sampleRate))
             asleep = true;
 
-        if (polyOutput) {
+        if (pickupOn) {
+            // Pickup Output, the same on L and R. TONE's compensation is kept,
+            // since TONE darkens the string itself; VOLUME and its CV apply, as
+            // a guitar's volume knob does.
+            float pickupScale = TWANG_PICKUP_GAIN * cachedToneCompensationGain * cachedVolume;
+            if (polyOutput) {
+                outputs[OUT_L].setChannels(nVoices);
+                outputs[OUT_R].setChannels(nVoices);
+                for (int q = 0; q < nQuads; ++q) {
+                    float pickupArr[4];
+                    pickupVoice[q].store(pickupArr);
+                    for (int lane = 0; lane < 4; ++lane) {
+                        int v = q * 4 + lane;
+                        if (v >= nVoices) break;
+                        float y = pickupArr[lane] * pickupScale;
+                        y = std::isfinite(y) ? clamp(y, -10.f, 10.f) : 0.f;
+                        outputs[OUT_L].setVoltage(y, v);
+                        outputs[OUT_R].setVoltage(y, v);
+                    }
+                }
+            } else {
+                float_4 pickupSum = float_4(0.f);
+                for (int q = 0; q < nQuads; ++q) pickupSum += pickupVoice[q];
+                float y = (pickupSum[0] + pickupSum[1] + pickupSum[2] + pickupSum[3])
+                        * a_polyNormalize * pickupScale;
+                y = std::isfinite(y) ? clamp(y, -10.f, 10.f) : 0.f;
+                outputs[OUT_L].setChannels(1);
+                outputs[OUT_R].setChannels(1);
+                outputs[OUT_L].setVoltage(y);
+                outputs[OUT_R].setVoltage(y);
+            }
+        }
+        else if (!bodyOn) {
+            // Nothing patched: keep the declared width, skip the work.
+            int idleCh = polyOutput ? nVoices : 1;
+            outputs[OUT_L].setChannels(idleCh);
+            outputs[OUT_R].setChannels(idleCh);
+        }
+        else if (polyOutput) {
             // The full stereo chain, per voice, including the body -- the only
             // thing missing is the stereo widener, which has nothing to do on a
             // per-voice output. No 0.7 fudge factor any more: this really is
@@ -1576,7 +1712,16 @@ struct TwangWidget : ModuleWidget {
         menu->addChild(createMenuLabel("Output"));
         addToggle(menu, &m->polyOutput, "Poly Out");
         addFSlider(menu, &m->stereoWidth, 0.f, 1.f, 0.35f, "Stereo Width");
- 
+        // L and R as one dry pickup instead of the body mix.
+        menu->addChild(createBoolMenuItem("Pickup Output", "",
+            [m]() { return m->pickupMode; },
+            [m](bool on) { m->pickupMode = on; m->updateOutputNames(); }));
+        const std::vector<std::string> pickupLabels(TWANG_PICKUP_NAME, TWANG_PICKUP_NAME + TWANG_PICKUP_COUNT);
+        menu->addChild(createIndexSubmenuItem("Pickup Position", pickupLabels,
+            [m]() { return (size_t)m->pickupPosition; },
+            [m](size_t index) { m->pickupPosition = (int)index; m->updateOutputNames(); },
+            !m->pickupMode));
+
         menu->addChild(new MenuSeparator());
         struct PanicItem : MenuItem {
             Twang* module;

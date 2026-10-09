@@ -65,8 +65,8 @@ static const ModelInfo kModels[kModelCount] = {
       "5x Si NPN octave, 2x Ge D", 20.0, { 2.86, 2.67, 2.59 }, 1.0 },
     { "HORNET", "Hornet: after the Ibanez Standard Fuzz, flat (Japan 1970s)",
       "JFET + 3x Si octave, Ge D", 20.0, { 3.95,  3.69,  3.64  },  1.0 },
-    { "KALEIDO", "Kaleido: after the Colorsound Overdriver (UK 1970s)",
-      "3x Si NPN, fb pair + EQ", 30.0, { 0.318, 0.262, 0.254 }, -1.0 },
+    { "KALEIDO", "Kaleido: after the Colorsound Power Boost, 18 V (UK 1970)",
+      "3x Si NPN, 18 V fb pair + EQ", 30.0, { 0.164, 0.149, 0.146 }, -1.0 },
 };
 
 // ---- Input leveller, hand-tunable -----------------------------------------------
@@ -175,6 +175,9 @@ struct Fuzzy : Module {
     int   activeModel = 0;
     int   fadingModel = -1;               // the model being faded out, or -1
     float fadePosition = 1.f;             // 0 -> 1 across the crossfade
+    // Equal-power crossfade gains, sin and cos of 0.5 pi fadePosition, turned
+    // by a fixed rotation each substep instead of evaluated.
+    float fadeIn = 1.f, fadeOut = 0.f;
     int   requestedModel = 0;
     int   requestHeld = 0;                // samples the request has been stable
     int   sinceSwitch = 1 << 20;          // samples since the last switch
@@ -186,6 +189,11 @@ struct Fuzzy : Module {
     float drain = 0.f;
     double noiseAmplitude = 0.0;
     float appliedSampleRate = 0.f;
+    // Per-block and per-sample constants, set at the sample rate.
+    float smoothK = 1.f, chargeK = 1.f, deviceFall = 0.f, blockSeconds = 0.f;
+    float switchStep = 0.f, fadeStep = 0.f, fadeTurnCos = 1.f, fadeTurnSin = 0.f;
+    // VOLUME is read once per block and ramped across it.
+    float volumeGain = 0.f, volumeStep = 0.f;
 
     // ---- Audio-rate state ---------------------------------------------------------
     float levelEnvelope = 1.f, levelGain = 0.f;
@@ -208,6 +216,7 @@ struct Fuzzy : Module {
     // Device view: resting currents per model, this block's extremes, and
     // what the display reads (0..1).
     float deviceRest[kModelCount][fuzzy::kMaxDevices] = {};
+    float deviceRestInv[kModelCount][fuzzy::kMaxDevices] = {};
     float devicePeak[fuzzy::kMaxDevices] = {}, deviceLow[fuzzy::kMaxDevices] = {};
     int   deviceSaturated[fuzzy::kMaxDevices] = {};
     int   senseSamples = 0;
@@ -245,7 +254,7 @@ struct Fuzzy : Module {
         models[4] = new fuzzy::SingleStageModel<fuzzy::MaestroCircuit>();
         models[5] = new fuzzy::SuperFuzzModel();
         models[6] = new fuzzy::FetOctaveModel();
-        models[7] = new fuzzy::SingleStageModel<fuzzy::OverdriverCircuit>();
+        models[7] = new fuzzy::SingleStageModel<fuzzy::PowerBoostCircuit>();
         noiseWhite.seed(1);
         noisePink.seed(2);
     }
@@ -310,9 +319,11 @@ struct Fuzzy : Module {
         // Resting currents, for the device view.
         float forward[fuzzy::kMaxDevices] = {}, reverse[fuzzy::kMaxDevices] = {};
         models[k]->sense(forward, reverse);
-        for (int d = 0; d < models[k]->deviceCount(); ++d)
+        for (int d = 0; d < models[k]->deviceCount(); ++d) {
             deviceRest[k][d] = (models[k]->deviceKind(d) == fuzzy::DEVICE_DIODE)
                              ? kDiodeGlowFloorAmps : std::max(std::fabs(forward[d]), 1e-7f);
+            deviceRestInv[k][d] = 1.f / deviceRest[k][d];
+        }
         resetSense();
     }
 
@@ -328,7 +339,7 @@ struct Fuzzy : Module {
         model->sense(forward, reverse);
         int count = model->deviceCount();
         for (int d = 0; d < count; ++d) {
-            float ratio = std::fabs(forward[d]) / deviceRest[activeModel][d];
+            float ratio = std::fabs(forward[d]) * deviceRestInv[activeModel][d];
             devicePeak[d] = std::max(devicePeak[d], ratio);
             deviceLow[d] = std::min(deviceLow[d], ratio);
             if (reverse[d] > 1e-6f && reverse[d] > kSaturatedShare * std::fabs(forward[d])) deviceSaturated[d]++;
@@ -337,8 +348,8 @@ struct Fuzzy : Module {
     }
 
     // Once per control block: this block's extremes into what the display shows.
-    void updateDeviceView(float sampleRate) {
-        float fall = std::exp(-(float)kControlBlock / (sampleRate * kDeviceFallSec));
+    void updateDeviceView() {
+        const float fall = deviceFall;
         int count = models[activeModel]->deviceCount();
         for (int d = 0; d < fuzzy::kMaxDevices; ++d) {
             float glow = 0.f, saturation = 0.f, cutoff = 0.f;
@@ -359,11 +370,12 @@ struct Fuzzy : Module {
     }
 
     void reinit(float sampleRate) {
-        readControls(true, 1.f / sampleRate);
+        readControls(true);
         for (int k = 0; k < kModelCount; ++k) modelStarted[k] = false;
         activeModel = requestedModel = readModel();
         fadingModel = -1;
         fadePosition = 1.f;
+        fadeIn = 1.f; fadeOut = 0.f;
         startModel(activeModel, sampleRate);
         resampler.reset();
         levelEnvelope = kLevelFloorVolts;
@@ -385,19 +397,36 @@ struct Fuzzy : Module {
             blockState1 = blockState2 = 0.f;
         }
         appliedSampleRate = sampleRate;
+        blockSeconds = (float)kControlBlock / sampleRate;
+        smoothK = 1.f - std::exp(-blockSeconds / kSmoothTau);
+        chargeK = 1.f - std::exp(-blockSeconds / kBatterySmoothSec);
+        deviceFall = std::exp(-blockSeconds / kDeviceFallSec);
+        switchStep = 1.f / (kSwitchFadeSec * sampleRate);
+        fadeStep = 1.f / (kCrossfadeSec * sampleRate * fuzzy::kOversample);
+        fadeTurnCos = std::cos(0.5f * (float)M_PI * fadeStep);
+        fadeTurnSin = std::sin(0.5f * (float)M_PI * fadeStep);
+        volumeGain = readVolume();
+        volumeStep = 0.f;
         for (int k = 0; k < kModelCount; ++k)
             highPassCoeff[k] = std::exp(-2.f * (float)M_PI * (float)kModels[k].outputHighPassHz * (float)stepTime(sampleRate));
         // Base noise current per sample: white density times sqrt(bandwidth).
         noiseAmplitude = kNoiseWhiteAmps * std::sqrt(0.5 * sampleRate);
     }
 
-    void readControls(bool jump, float sampleTime) {
+    // VOLUME (knob plus CV) as the output gain.
+    float readVolume() {
+        float volume = params[VOLUME_PARAM].getValue();
+        if (inputs[VOLUME_CV_INPUT].isConnected()) volume += 0.1f * inputs[VOLUME_CV_INPUT].getVoltage();
+        volume = clamp(volume, 0.f, 1.f);
+        return volume * volume * kOutScale;
+    }
+
+    void readControls(bool jump) {
         float fuzzNorm   = readNormalized(FUZZ_PARAM, FUZZ_TRIM_PARAM, FUZZ_CV_INPUT);
         float guitarNorm = readNormalized(GUITAR_PARAM, GUITAR_TRIM_PARAM, GUITAR_CV_INPUT);
         float chargeNorm = readNormalized(BATTERY_PARAM, BATTERY_TRIM_PARAM, BATTERY_CV_INPUT);
-        float blockSec = (float)kControlBlock * sampleTime;
-        float k = jump ? 1.f : 1.f - std::exp(-blockSec / kSmoothTau);
-        float kCharge = jump ? 1.f : 1.f - std::exp(-blockSec / kBatterySmoothSec);
+        float k = jump ? 1.f : smoothK;
+        float kCharge = jump ? 1.f : chargeK;
         if (!smoothedValid) { k = kCharge = 1.f; smoothedValid = true; }
         smoothFuzz   += k * (fuzzNorm - smoothFuzz);
         smoothGuitar += k * (guitarNorm - smoothGuitar);
@@ -406,8 +435,10 @@ struct Fuzzy : Module {
     }
 
     void controlBlock(float sampleRate) {
-        readControls(false, 1.f / sampleRate);
-        updateDeviceView(sampleRate);
+        readControls(false);
+        updateDeviceView();
+        volumeStep = (readVolume() - volumeGain) * (1.f / kControlBlock);
+        lights[SWITCH_LIGHT].setBrightnessSmooth(params[SWITCH_PARAM].getValue() > 0.5f ? 1.f : 0.f, blockSeconds);
 
         // Model selection, rate-limited: a request must hold, and switches
         // are spaced, so CV can never switch models at audio rate.
@@ -424,6 +455,7 @@ struct Fuzzy : Module {
             if (!switchedOn) return;
             fadingModel = -1;
             fadePosition = 1.f;
+            fadeIn = 1.f; fadeOut = 0.f;
             startModel(activeModel, sampleRate);
             resampler.reset();
             circuitsIdle = false;
@@ -439,6 +471,8 @@ struct Fuzzy : Module {
             fadingModel = activeModel;
             activeModel = requestedModel;
             fadePosition = 0.f;
+            fadeIn = 0.f;
+            fadeOut = 1.f;
             sinceSwitch = 0;
         }
 
@@ -474,12 +508,11 @@ struct Fuzzy : Module {
         if (!std::isfinite(emf)) { emf = 0.f; levelEnvelope = kLevelFloorVolts; levelGain = 0.f; }
 
         // ---- Footswitch --------------------------------------------------------------
-        if (switchTrigger.process(inputs[SWITCH_CV_INPUT].getVoltage(), 0.1f, 1.f))
+        if (inputs[SWITCH_CV_INPUT].isConnected() && switchTrigger.process(inputs[SWITCH_CV_INPUT].getVoltage(), 0.1f, 1.f))
             params[SWITCH_PARAM].setValue(params[SWITCH_PARAM].getValue() > 0.5f ? 0.f : 1.f);
         float switchTarget = params[SWITCH_PARAM].getValue() > 0.5f ? 1.f : 0.f;
-        float switchStep = args.sampleTime / kSwitchFadeSec;
-        if (!circuitsIdle) switchFade = clamp(switchFade + (switchTarget > switchFade ? switchStep : -switchStep), 0.f, 1.f);
-        lights[SWITCH_LIGHT].setBrightnessSmooth(switchTarget, args.sampleTime);
+        if (!circuitsIdle && switchFade != switchTarget)
+            switchFade = clamp(switchFade + (switchTarget > switchFade ? switchStep : -switchStep), 0.f, 1.f);
 
         float dry = dryLine[dryIndex] * kDryGain;
         dryLine[dryIndex] = emf;
@@ -487,19 +520,22 @@ struct Fuzzy : Module {
 
         float wet = 0.f;
         if (!circuitsIdle) wet = runCircuits(emf, args.sampleRate);
-        float volume = clamp(params[VOLUME_PARAM].getValue() + 0.1f * inputs[VOLUME_CV_INPUT].getVoltage(), 0.f, 1.f);
-        wet *= volume * volume * kOutScale;
+        volumeGain += volumeStep;
+        wet *= volumeGain;
 
         // ---- Mix, DC blocker, limiter ---------------------------------------------------
-        float out = wet * switchFade + dry * (1.f - switchFade);
+        float out = (switchFade >= 1.f) ? wet : wet * switchFade + dry * (1.f - switchFade);
         float blocked = blockB0 * out + blockState1;
         blockState1 = blockB1 * out - blockA1 * blocked + blockState2;
         blockState2 = blockB2 * out - blockA2 * blocked;
         out = blocked;
         float magnitude = std::fabs(out);
         if (magnitude > kLimitKnee) {
-            float room = kLimitCeiling - kLimitKnee;
-            out = std::copysign(kLimitKnee + room * std::tanh((magnitude - kLimitKnee) / room), out);
+            // t / sqrt(1 + t^2): unit slope at the knee, rounding off toward
+            // the ceiling (a sqrt is far cheaper than tanh off ARM).
+            const float room = kLimitCeiling - kLimitKnee;
+            float over = (magnitude - kLimitKnee) * (1.f / room);
+            out = std::copysign(kLimitKnee + room * over / std::sqrt(1.f + over * over), out);
         }
         if (!std::isfinite(out)) out = 0.f;
         outputs[OUT_OUTPUT].setVoltage(out);
@@ -523,31 +559,36 @@ struct Fuzzy : Module {
         }
 
         float mixed[fuzzy::kOversample];
-        const float fadeStep = 1.f / (kCrossfadeSec * sampleRate * fuzzy::kOversample);
+        float activeSum = 0.f;
         for (int s = 0; s < fuzzy::kOversample; ++s) {
             float sum = 0.f;
             for (int r = 0; r < 2; ++r) {
                 int k = running[r];
-                if (k < 0) continue;
+                // The faded-out circuit stops the moment the fade ends.
+                if (k < 0 || (r == 1 && fadingModel < 0)) continue;
                 // The circuit's output capacitor into its level pot: one-pole high-pass.
                 float y = (float)models[k]->step(feed[r][s]);
+                if (r == 0) activeSum += y;
                 highPassState[k] = highPassCoeff[k] * (highPassState[k] + y - highPassInput[k]);
                 highPassInput[k] = y;
                 float level = highPassState[k] * modelGain[k];
                 // Equal-power crossfade: the two circuits are uncorrelated.
-                if (fadingModel >= 0)
-                    level *= (r == 0) ? std::sin(0.5f * (float)M_PI * fadePosition)
-                                      : std::cos(0.5f * (float)M_PI * fadePosition);
+                if (fadingModel >= 0) level *= (r == 0) ? fadeIn : fadeOut;
                 sum += level;
             }
             mixed[s] = sum;
             if (fadingModel >= 0) {
                 fadePosition += fadeStep;
-                if (fadePosition >= 1.f) { fadePosition = 1.f; fadingModel = -1; }
+                float turnedIn = fadeIn * fadeTurnCos + fadeOut * fadeTurnSin;
+                fadeOut = fadeOut * fadeTurnCos - fadeIn * fadeTurnSin;
+                fadeIn = turnedIn;
+                if (fadePosition >= 1.f) { fadePosition = 1.f; fadingModel = -1; fadeIn = 1.f; fadeOut = 0.f; }
             }
         }
-        // A diverged circuit is restarted at its operating point.
-        if (!models[activeModel]->finite()) {
+        // A diverged circuit is restarted at its operating point. Any
+        // non-finite junction or state reaches the output within a substep,
+        // so the output is checked each sample and the full state each block.
+        if (!std::isfinite(activeSum) || (controlCounter == 0 && !models[activeModel]->finite())) {
             models[activeModel]->start(stepTime(sampleRate), false);
             highPassState[activeModel] = highPassInput[activeModel] = 0.f;
         }

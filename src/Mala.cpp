@@ -24,6 +24,8 @@ using namespace rack;
 
 
 static const int   kMaxPoly     = 16;
+static const int   kVoicePairs  = kMaxPoly / 2;
+static const int   kMaxOs       = 8;
 static const int   kCaptureN    = 256;
 static const int   kPartials    = 8;
 static const int   kLutSize     = 8192;
@@ -40,6 +42,8 @@ static const float kTwoPi       = 6.28318530717959f;
 // Clpy's shaper threshold.  Below this the crossfade weight is identically
 // zero, which is the dead zone every reset in this module is aligned to.
 static const float kThresh      = 0.926605548037825f;
+// The window ramp's span past the threshold, as a reciprocal for the audio path.
+static const float kWindowScale = 1.f / (kPi - kThresh);
 
 // Decimation cutoff, fraction of the base rate.  Below Nyquist for more
 // rejection where fold-back lands.  Lower is cleaner but darker.
@@ -100,6 +104,16 @@ static const float kModHeat     = 5.00f;   // Heat units
 // Map button gate ramp time, seconds.
 static const float kGateTau     = 0.020f;
 
+// Partial weight rebuild period, in samples.  Weights, normalizer, noise mix and
+// noise mip level are rebuilt this often and ramped linearly in between, so
+// their cost does not depend on how much the controls or the pitch move (through-
+// zero FM is the exception: it rebuilds every sample).  Lower follows audio-rate
+// MORPH/SPREAD more closely at more CPU.
+static const int   kWeightDiv   = 16;
+
+// Front panel buttons are polled every this many samples (16 is 0.33 ms at 48 kHz).
+static const int   kButtonDiv   = 16;
+
 // =============================================================================
 // ADAA tanh saturator (GlassADAADrive / FilterAulos curve).  The clamp to
 // |x| <= 1 is the saturation.
@@ -139,6 +153,35 @@ struct MalaADAADrive {
 };
 
 
+// Saturator normaliser once the drive reaches the clamp.
+static const float kSatNormFull = 1.f / MalaADAADrive::curve(1.f);
+
+
+// =============================================================================
+// Sine and cosine polynomials, for angles folded into [-pi, pi].
+//
+// Sine: x (pi^2 - x^2) (c0 + c1 x^2 + c2 x^4 + c3 x^6), degree 9.  The factor
+// puts exact zeros at +-pi, so the wave is continuous where the fold wraps;
+// the coefficients are a minimax fit with the curvature also continuous
+// there.  Max error 1.5e-5; every harmonic sits below -99 dB, and H10 up below
+// -129 dB, so nothing audible is left to alias.  (A plain Taylor series of the
+// same degree leaves a 0.014 step at the wrap and 1/n harmonics.)
+//
+// Cosine: c0 + c1 x^2 + ... + c4 x^8, minimax with zero slope at +-pi so it
+// too is smooth across the wrap.  Max error 6.5e-5.  It only pairs with the
+// sine in the B PHASE rotation.
+// =============================================================================
+static const float kPiSquared = kPi * kPi;
+static const float kSinC0 =  1.013162234e-01f;
+static const float kSinC1 = -6.612881286e-03f;
+static const float kSinC2 =  1.702231847e-04f;
+static const float kSinC3 = -2.044066883e-06f;
+static const float kCosC0 =  9.999346761e-01f;
+static const float kCosC1 = -4.996958253e-01f;
+static const float kCosC2 =  4.143966119e-02f;
+static const float kCosC3 = -1.329117405e-03f;
+static const float kCosC4 =  1.823248472e-05f;
+
 // =============================================================================
 // Scalar helpers.
 // =============================================================================
@@ -147,10 +190,31 @@ struct MalaADAADrive {
 static inline float malaSin2pi(float x) {
     if (x > kPi) x -= kTwoPi;
     float x2 = x * x;
-    return x * (1.f - x2 * (1.f/6.f - x2 * (1.f/120.f - x2 * (1.f/5040.f - x2 / 362880.f))));
+    return x * (kPiSquared - x2) * (kSinC0 + x2 * (kSinC1 + x2 * (kSinC2 + x2 * kSinC3)));
 }
 
-static inline float malaWrap01(float x) { return x - floorf(x); }
+// x - floor(x).  32-bit ARM has no rounding instruction, so floorf is a
+// library call there; truncating through int32 and stepping down for negative
+// non-integers is exact for |x| < 2^31.
+static inline float malaWrap01(float x) {
+#if defined(__arm__)
+    float whole = (float)(int32_t)x;
+    return x - ((x < whole) ? whole - 1.f : whole);
+#else
+    return x - floorf(x);
+#endif
+}
+
+// floor() for the B phasors, on the same terms: simd::floor() is four floorf
+// calls on 32-bit ARM.  Phases and increments here stay far below 2^31.
+static inline simd::float_4 malaFloor4(simd::float_4 x) {
+#if defined(__arm__)
+    simd::float_4 whole = simd::float_4(simd::int32_4(x));
+    return whole - simd::ifelse(x < whole, simd::float_4(1.f), simd::float_4(0.f));
+#else
+    return simd::floor(x);
+#endif
+}
 
 // =============================================================================
 // Graft window, C4 smoothstep: w = t^5 (126 - 420t + 540t^2 - 315t^3 + 70t^4)
@@ -169,17 +233,17 @@ static inline float malaWindow(float t) {
 static inline simd::float_4 malaSin2pi4(simd::float_4 x) {
     x = simd::ifelse(x > simd::float_4(kPi), x - simd::float_4(kTwoPi), x);
     simd::float_4 x2 = x * x;
-    return x * (simd::float_4(1.f) - x2 * (simd::float_4(1.f/6.f)
-             - x2 * (simd::float_4(1.f/120.f)
-             - x2 * (simd::float_4(1.f/5040.f) - x2 * simd::float_4(1.f/362880.f)))));
+    return x * (simd::float_4(kPiSquared) - x2)
+             * (simd::float_4(kSinC0) + x2 * (simd::float_4(kSinC1)
+             + x2 * (simd::float_4(kSinC2) + x2 * simd::float_4(kSinC3))));
 }
 
 static inline simd::float_4 malaCos2pi4(simd::float_4 x) {
     x = simd::ifelse(x > simd::float_4(kPi), x - simd::float_4(kTwoPi), x);
     simd::float_4 x2 = x * x;
-    return simd::float_4(1.f) - x2 * (simd::float_4(0.5f)
-             - x2 * (simd::float_4(1.f/24.f)
-             - x2 * (simd::float_4(1.f/720.f) - x2 * simd::float_4(1.f/40320.f))));
+    return simd::float_4(kCosC0) + x2 * (simd::float_4(kCosC1)
+             + x2 * (simd::float_4(kCosC2) + x2 * (simd::float_4(kCosC3)
+             + x2 * simd::float_4(kCosC4))));
 }
 
 
@@ -276,31 +340,64 @@ static const float kQuantLog2[kQuantCount] = {
 
 
 // =============================================================================
-// Stereo decimator: Filter6pButter's cascade on float_4, L in lane 0, R in
-// lane 1.  Keep the Q schedule in step with Filter6pButter.h.
+// Decimator: Filter6pButter's cascade on float_4, two voices' L and R in the
+// four lanes.  Keep the Q schedule in step with Filter6pButter.h.
+// Coefficients are dsp::TBiquadFilter's LOWPASS; the structure is transposed
+// direct form II, and since a lowpass numerator is b0 * (1, 2, 1) each stage
+// needs one multiply on its input and no state shuffling.
 // =============================================================================
 struct MalaDecim2 {
-    using BQ = dsp::TBiquadFilter<simd::float_4>;
-    BQ f[3];
+    simd::float_4 gain[3], feedback1[3], feedback2[3];   // b0, a1, a2 per stage
+    simd::float_4 state1[3], state2[3];
+
+    MalaDecim2() { reset(); }
 
     void setCutoffFreq(float normalizedCutoff) {
         normalizedCutoff = clamp(normalizedCutoff, 1e-5f, 0.4999f);
         float t  = normalizedCutoff / 0.49f;
-        float q1 = 0.51763809f;
-        float q2 = 0.70710678f + (1.f - t) * 0.30f;
-        float q3 = 1.9318517f  - (1.f - t) * 0.80f;
-        f[0].setParameters(BQ::LOWPASS, normalizedCutoff, q1, 1.f);
-        f[1].setParameters(BQ::LOWPASS, normalizedCutoff, q2, 1.f);
-        f[2].setParameters(BQ::LOWPASS, normalizedCutoff, q3, 1.f);
+        float q[3] = { 0.51763809f,
+                       0.70710678f + (1.f - t) * 0.30f,
+                       1.9318517f  - (1.f - t) * 0.80f };
+        float K = std::tan(M_PI * normalizedCutoff);
+        for (int s = 0; s < 3; s++) {
+            float norm   = 1.f / (1.f + K / q[s] + K * K);
+            gain[s]      = simd::float_4(K * K * norm);
+            feedback1[s] = simd::float_4(2.f * (K * K - 1.f) * norm);
+            feedback2[s] = simd::float_4((1.f - K / q[s] + K * K) * norm);
+        }
     }
 
-    simd::float_4 process(simd::float_4 x) {
-        x = f[0].process(x);
-        x = f[1].process(x);
-        return f[2].process(x);
+    // Filters count inputs spaced stride floats apart and returns the last
+    // output.  The state stays in registers for the whole block.
+    simd::float_4 processBlock(const float* in, int stride, int count) {
+        simd::float_4 stage0Z1 = state1[0], stage0Z2 = state2[0];
+        simd::float_4 stage1Z1 = state1[1], stage1Z2 = state2[1];
+        simd::float_4 stage2Z1 = state1[2], stage2Z2 = state2[2];
+        simd::float_4 out(0.f);
+        for (int i = 0; i < count; i++) {
+            simd::float_4 x = simd::float_4::load(in + i * stride);
+            simd::float_4 scaledIn = gain[0] * x;
+            out      = scaledIn + stage0Z1;
+            stage0Z1 = scaledIn + scaledIn - feedback1[0] * out + stage0Z2;
+            stage0Z2 = scaledIn - feedback2[0] * out;
+            scaledIn = gain[1] * out;
+            out      = scaledIn + stage1Z1;
+            stage1Z1 = scaledIn + scaledIn - feedback1[1] * out + stage1Z2;
+            stage1Z2 = scaledIn - feedback2[1] * out;
+            scaledIn = gain[2] * out;
+            out      = scaledIn + stage2Z1;
+            stage2Z1 = scaledIn + scaledIn - feedback1[2] * out + stage2Z2;
+            stage2Z2 = scaledIn - feedback2[2] * out;
+        }
+        state1[0] = stage0Z1; state2[0] = stage0Z2;
+        state1[1] = stage1Z1; state2[1] = stage1Z2;
+        state1[2] = stage2Z1; state2[2] = stage2Z2;
+        return out;
     }
 
-    void reset() { f[0].reset(); f[1].reset(); f[2].reset(); }
+    void reset() {
+        for (int s = 0; s < 3; s++) state1[s] = state2[s] = simd::float_4(0.f);
+    }
 };
 
 
@@ -324,7 +421,8 @@ struct MalaShapeSetup {
         if (saturate) {
             // Normalized by the curve at the same gain, so the crest stays at unity.
             satDrive = fmaxf(shape * kSatMax, 1e-4f);
-            satNorm  = 1.f / MalaADAADrive::curve(satDrive);
+            // The curve clamps at 1, so from there on its peak is a constant.
+            satNorm  = (satDrive >= 1.f) ? kSatNormFull : 1.f / MalaADAADrive::curve(satDrive);
             // Fades out the ADAA half-sample average near zero, so the
             // saturator meets the bypass with no step.
             linearRestore = 1.f - shape;
@@ -421,9 +519,11 @@ struct Mala : Module {
     MalaADAADrive satL[kMaxPoly], satR[kMaxPoly];
 
     // ---- Decimation and DC ---------------------------------------------------
-    // Both carry L in lane 0 and R in lane 1.
-    MalaDecim2 decim[kMaxPoly];
-    simd::float_4 dcIn[kMaxPoly], dcOut[kMaxPoly];
+    // Two voices share each filter: lanes are voice 2p L, voice 2p R, voice
+    // 2p+1 L, voice 2p+1 R.  The DC state uses the same layout, voice * 2 + side.
+    MalaDecim2 decim[kVoicePairs];
+    float dcIn [kMaxPoly * 2] = {};
+    float dcOut[kMaxPoly * 2] = {};
 
     // ---- Noise -------------------------------------------------------------
     // Triple buffered: rebuilt on the UI thread while audio reads, and the third
@@ -439,6 +539,7 @@ struct Mala : Module {
     dsp::SchmittTrigger mapTriggers[7];
     // Per destination gate, ramped so map buttons fade the bus in and out.
     float modGate[7] = {};
+    int   gatesSettledAt = -1;   // routing the gates have fully landed on, -1 while ramping
     // B phase rotation coefficients.  Every 32 samples a new target angle is
     // set and the rotation glides to it by a fixed per-sample step.  Seeded to
     // the identity so an unrefreshed voice is unrotated, not silent.
@@ -451,12 +552,16 @@ struct Mala : Module {
     int   phaseHold[kMaxPoly] = {};   // samples left before an idle rotation disengages
     int   phaseDivCounter = 0;
     dsp::SchmittTrigger quantTrigger, syncTrigger;
+    int   buttonDivCounter = 0;
     float lfoPhase = 0.f;
+    float lfoVoiceOffset[kMaxPoly] = {};   // vi / nVoices, for the spread LFO
 
     // ---- Oversampling --------------------------------------------------------
-    int  osActive   = 2;
-    int  osSetting  = 0;      // 1, 2, 4, 8, or 0 for Auto (default)
-    int  osPending  = 2;
+    // Fixed 4x by default: Auto moves the decimator and so the output's
+    // headroom whenever it switches.
+    int  osActive   = 4;
+    int  osSetting  = 4;      // 1, 2, 4 (default), 8, or 0 for Auto
+    int  osPending  = 4;
     int  osStable   = 0;
     int  osDivCounter = 0;
     // Auto oversampling skirt width, in units of the fundamental, fitted to
@@ -493,18 +598,36 @@ struct Mala : Module {
     // Slewed detune amount per voice, so releasing the slider glides.
     float detuneSlew[kMaxPoly] = {};
 
-    // ---- Control rate cache --------------------------------------------------
-    // Setup work keyed on its inputs and rebuilt only when they change.
+    // ---- Control rate state --------------------------------------------------
     float ccRatioIn [kMaxPoly][2] = {};   // quantizer input,  L and R
     float ccRatioOut[kMaxPoly][2] = {};   // quantizer output
-    float ccMorph   [kMaxPoly][2] = {};   // weight key: morph
-    float ccSpread  [kMaxPoly][2] = {};   //             spread
-    float ccFade    [kMaxPoly]    = {};   //             Nyquist fade pitch
-    float ccWeight  [kMaxPoly][2][kPartials] = {};
     float ccMul     [kMaxPoly][2][kPartials] = {};
-    float ccNorm    [kMaxPoly][2] = {};
-    float ccNoise   [kMaxPoly][2] = {};
+    // Cleared by an invalidation (reset, sample rate, brightness); the next
+    // rebuild then snaps the weights to their targets instead of ramping.
     bool  ccValid   [kMaxPoly]    = {};
+
+    // Weights, normalizer, noise mix and noise mip level, ramped linearly to a
+    // target rebuilt every kWeightDiv samples.  Side 0 is L, side 1 is R.
+    float ccWeight      [kMaxPoly][2][kPartials] = {};
+    float ccWeightTarget[kMaxPoly][2][kPartials] = {};
+    float ccWeightStep  [kMaxPoly][2][kPartials] = {};
+    float ccNorm        [kMaxPoly][2] = {};
+    float ccNormTarget  [kMaxPoly][2] = {};
+    float ccNormStep    [kMaxPoly][2] = {};
+    float ccNoise       [kMaxPoly][2] = {};
+    float ccNoiseTarget [kMaxPoly][2] = {};
+    float ccNoiseStep   [kMaxPoly][2] = {};
+    float ccLutLevel      [kMaxPoly] = {};
+    float ccLutLevelTarget[kMaxPoly] = {};
+    float ccLutLevelStep  [kMaxPoly] = {};
+    int   weightRampLeft  [kMaxPoly] = {};   // samples until the ramp lands and the next rebuild
+
+    // Exact-input caches: recomputed whenever the input differs at all, so the
+    // result is identical to computing it every sample.  They pay off while a
+    // control sits still; under modulation or pot noise they simply miss.
+    float ccShapeIn   [kMaxPoly][2] = {};
+    MalaShapeSetup ccShape[kMaxPoly][2];
+    float lfoRateIn = -1.f, lfoRateHz = 0.f;
 
     int prevVoices = 0;
 
@@ -522,6 +645,8 @@ struct Mala : Module {
     int   capCount[2] = { 2, 2 };
     int   capWrite = 0, capRead = 1;
     int   capIndex = 0, capStride = 1, capStrideCount = 1;
+    int   capMinPoints = 2;   // a wrap before this many points is FM jitter, not a cycle
+    int   capIdle = 0;        // samples waited for a wrap since the last capture filled
     bool  capWriting = false;
 
     // =========================================================================
@@ -583,8 +708,16 @@ struct Mala : Module {
         for (int i = 0; i < kMaxPoly; i++)
             for (int n = 0; n < kPartials; n++) phaseCosD[i][n] = phaseStepCos[i][n] = 1.f;
 
-        for (int b = 0; b < 3; b++) buildLut(b, 0);
+        buildLutAllBuffers(0);
         retuneDecimators();
+    }
+
+    // All three buffers hold the same seed outside a seed change, so build one
+    // and copy it; the build is the slow part of instantiating the module.
+    void buildLutAllBuffers(int seedIdx) {
+        buildLut(0, seedIdx);
+        std::copy(&lut[0][0][0], &lut[0][0][0] + kLutLevels * kLutSize, &lut[1][0][0]);
+        std::copy(&lut[0][0][0], &lut[0][0][0] + kLutLevels * kLutSize, &lut[2][0][0]);
     }
 
     // -------------------------------------------------------------------------
@@ -661,14 +794,14 @@ struct Mala : Module {
 
     void retuneDecimators() {
         float cutoff = kDecimCutoff / (float)osActive;
-        for (int i = 0; i < kMaxPoly; i++) decim[i].setCutoffFreq(cutoff);
+        for (int p = 0; p < kVoicePairs; p++) decim[p].setCutoffFreq(cutoff);
     }
 
     // -------------------------------------------------------------------------
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
         json_object_set_new(rootJ, "modTarget",   json_integer(modTarget));
-        json_object_set_new(rootJ, "osSetting",    json_integer(osSetting));
+        json_object_set_new(rootJ, "oversampling", json_integer(osSetting));
         json_object_set_new(rootJ, "quantOn",      json_boolean(quantOn));
         json_object_set_new(rootJ, "syncOn",       json_boolean(syncOn));
         json_object_set_new(rootJ, "polyOutputs",  json_boolean(polyOutputs));
@@ -685,7 +818,17 @@ struct Mala : Module {
     void dataFromJson(json_t* rootJ) override {
         json_t* j;
         j = json_object_get(rootJ, "modTarget");   if (j) modTarget   = (int)json_integer_value(j);
-        j = json_object_get(rootJ, "osSetting");    if (j) osSetting    = (int)json_integer_value(j);
+        // "osSetting" is the old key, saved when Auto (0) was the default.  It
+        // loads as 4x, so older patches get the steady headroom too; the new
+        // key keeps an Auto chosen from now on.
+        j = json_object_get(rootJ, "oversampling");
+        if (j) osSetting = (int)json_integer_value(j);
+        else {
+            j = json_object_get(rootJ, "osSetting");
+            if (j) { osSetting = (int)json_integer_value(j); if (osSetting == 0) osSetting = 4; }
+        }
+        if (osSetting != 0 && osSetting != 1 && osSetting != 2 && osSetting != 4 && osSetting != 8)
+            osSetting = 4;
         j = json_object_get(rootJ, "quantOn");      if (j) quantOn      = json_is_true(j);
         j = json_object_get(rootJ, "syncOn");       if (j) syncOn       = json_is_true(j);
         j = json_object_get(rootJ, "polyOutputs");  if (j) polyOutputs  = json_is_true(j);
@@ -694,7 +837,7 @@ struct Mala : Module {
             brightHz = clamp((float)json_real_value(j), kBrightMin, kBrightMax);
         j = json_object_get(rootJ, "lutSeed");      if (j) {
             int sd = clamp((int)json_integer_value(j), 0, kNoiseSeeds - 1);
-            if (sd != lutSeed) { for (int b = 0; b < 3; b++) buildLut(b, sd); lutSeed = sd; }
+            if (sd != lutSeed) { buildLutAllBuffers(sd); lutSeed = sd; }
         }
         j = json_object_get(rootJ, "symOn");        if (j) symOn        = json_is_true(j);
         // Clamped: older patches may carry a 2 from the removed Random mode.
@@ -708,7 +851,8 @@ struct Mala : Module {
         // A patch load adopts SYM immediately.
         for (int i = 0; i < kMaxPoly; i++) symAct[i] = symOn;
 
-        osActive = (osSetting == 0) ? 2 : osSetting;
+        osActive  = (osSetting == 0) ? 4 : osSetting;
+        osPending = osActive;
         retuneDecimators();
     }
 
@@ -721,8 +865,7 @@ struct Mala : Module {
             lutPhase[i] = lutPhaseR[i] = 0.f;
             for (int n = 0; n < kPartials; n++)
                 partialPhase[i][n] = partialPhaseR[i][n] = 0.f;
-            dcIn[i] = dcOut[i] = simd::float_4(0.f);
-            decim[i].reset();
+            dcIn[i * 2] = dcIn[i * 2 + 1] = dcOut[i * 2] = dcOut[i * 2 + 1] = 0.f;
             detuneSlew[i] = 0.f;
             lastWL[i] = lastWR[i] = 0.f;
             latchWait[i] = 0;
@@ -731,21 +874,25 @@ struct Mala : Module {
             corePrev[i] = false;
             ccValid[i] = false;
         }
+        for (int p = 0; p < kVoicePairs; p++) decim[p].reset();
         for (int i = 0; i < 7; i++) modGate[i] = 0.f;
+        gatesSettledAt = -1;
         lfoPhase     = 0.f;
         modTarget   = 0;
-        osSetting    = 0;
-        osActive     = 2;
+        osSetting    = 4;
+        osActive     = 4;
+        osPending    = 4;
         quantOn      = false;
         syncOn       = true;
         polyOutputs  = true;
         lfoShape     = 0;
         setExtOverride(false);
         detuneWide   = false;
-        if (lutSeed != 0) { for (int b = 0; b < 3; b++) buildLut(b, 0); lutSeed = 0; }
+        if (lutSeed != 0) { buildLutAllBuffers(0); lutSeed = 0; }
         brightHz     = kBrightDef;
         symOn        = false;
         capWriting   = false;
+        capIdle      = 0;
         retuneDecimators();
     }
 
@@ -774,9 +921,12 @@ struct Mala : Module {
                 lastWL[vi] = lastWR[vi] = 0.f;
                 splitAct[vi] = false;
                 corePrev[vi] = false;
-                dcIn[vi] = dcOut[vi] = simd::float_4(0.f);
+                dcIn[vi * 2] = dcIn[vi * 2 + 1] = dcOut[vi * 2] = dcOut[vi * 2 + 1] = 0.f;
             }
         }
+        // Spread LFO phase offsets, one division per voice only when the count changes.
+        if (nVoices != prevVoices)
+            for (int vi = 0; vi < nVoices; vi++) lfoVoiceOffset[vi] = (float)vi / (float)nVoices;
         prevVoices = nVoices;
 
         // ---- Latching buttons ------------------------------------------------
@@ -786,21 +936,33 @@ struct Mala : Module {
             { MAP_DETUNE_PARAM, M_DETUNE }, { MAP_PHASE_PARAM,  M_PHASE  },
             { MAP_HEAT_PARAM,   M_HEAT   }
         };
-        for (int i = 0; i < 7; i++)
-            if (mapTriggers[i].process(params[mapBtns[i].param].getValue()))
-                modTarget ^= mapBtns[i].bit;
-
-        // Routing gates ramp toward their button state.
-        float gateCoef = clamp(args.sampleTime / kGateTau, 0.f, 1.f);
-        for (int i = 0; i < 7; i++) {
-            float target = (modTarget & mapBtns[i].bit) ? 1.f : 0.f;
-            modGate[i] += (target - modGate[i]) * gateCoef;
-            if (fabsf(target - modGate[i]) < 1e-4f) modGate[i] = target;
+        // Polled at a control rate; a press lasts far longer than kButtonDiv samples.
+        const bool pollButtons = (buttonDivCounter == 0);
+        if (++buttonDivCounter >= kButtonDiv) buttonDivCounter = 0;
+        if (pollButtons) {
+            for (int i = 0; i < 7; i++)
+                if (mapTriggers[i].process(params[mapBtns[i].param].getValue()))
+                    modTarget ^= mapBtns[i].bit;
+            if (quantTrigger.process(params[QUANT_PARAM].getValue())) quantOn = !quantOn;
+            if (syncTrigger.process (params[SYNC_PARAM ].getValue())) syncOn  = !syncOn;
+            if (symTrigger.process  (params[SYM_PARAM  ].getValue())) symOn   = !symOn;
         }
 
-        if (quantTrigger.process(params[QUANT_PARAM].getValue())) quantOn = !quantOn;
-        if (syncTrigger.process (params[SYNC_PARAM ].getValue())) syncOn  = !syncOn;
-        if (symTrigger.process  (params[SYM_PARAM  ].getValue())) symOn   = !symOn;
+        // Routing gates ramp toward their button state.  Once every gate has
+        // landed for the current routing the ramp step is exactly zero, so the
+        // loop is skipped until the routing changes.
+        if (modTarget != gatesSettledAt) {
+            float gateCoef = clamp(args.sampleTime / kGateTau, 0.f, 1.f);
+            bool settled = true;
+            for (int i = 0; i < 7; i++) {
+                float target = (modTarget & mapBtns[i].bit) ? 1.f : 0.f;
+                if (modGate[i] == target) continue;
+                modGate[i] += (target - modGate[i]) * gateCoef;
+                if (fabsf(target - modGate[i]) < 1e-4f) modGate[i] = target;
+                else settled = false;
+            }
+            if (settled) gatesSettledAt = modTarget;
+        }
 
         // Max wait for a dead zone before a latched change is forced, in samples.
         const int kLatchTimeout = (int)(args.sampleRate * 0.25f);
@@ -836,8 +998,14 @@ struct Mala : Module {
         bool rateCvOn  = inputs[MODRATE_CV_INPUT].isConnected() && !extSource;
         float modRateNorm = clamp(modRateKnob + (rateCvOn
                      ? inputs[MODRATE_CV_INPUT].getVoltage() * modRateTrim : 0.f), 0.f, 1.f);
-        float lfoHz  = 0.02f * dsp::exp2_taylor5(modRateNorm * 11.2877f);
-        lfoPhase = malaWrap01(lfoPhase + lfoHz * args.sampleTime);
+        if (modRateNorm != lfoRateIn) {
+            lfoRateIn = modRateNorm;
+            lfoRateHz = 0.02f * dsp::exp2_taylor5(modRateNorm * 11.2877f);
+        }
+        // The LFO phase sums below all stay in [0, 2), so one conditional subtract
+        // gives exactly x - floor(x) without the floorf call.
+        lfoPhase += lfoRateHz * args.sampleTime;
+        if (lfoPhase >= 1.f) lfoPhase -= 1.f;
 
         // ---- Mala LFO value per voice ----------------------------------------
         float modLfo[kMaxPoly];
@@ -847,12 +1015,16 @@ struct Mala : Module {
                 modLfo[vi] = clamp(inputs[MODRATE_CV_INPUT].getPolyVoltage(vi) * 0.2f, -1.f, 1.f);
                 continue;
             }
-            float p = (lfoPhaseMode == 1)
-                    ? lfoPhase
-                    : malaWrap01(lfoPhase + (float)vi / (float)nVoices);
+            float p = lfoPhase;
+            if (lfoPhaseMode != 1) {
+                p += lfoVoiceOffset[vi];
+                if (p >= 1.f) p -= 1.f;
+            }
             if (lfoShape == 1) {
                 // Triangle, phase aligned with the sine.
-                modLfo[vi] = 1.f - 4.f * fabsf(malaWrap01(p + 0.25f) - 0.5f);
+                float quarterAhead = p + 0.25f;
+                if (quarterAhead >= 1.f) quarterAhead -= 1.f;
+                modLfo[vi] = 1.f - 4.f * fabsf(quarterAhead - 0.5f);
             }
             else if (lfoShape == 2) {
                 // Unison voices share voice 0's sequence.
@@ -875,10 +1047,14 @@ struct Mala : Module {
             }
         }
 
-        phaseDivCounter++;
+        // Both dividers count modulo 32 so they never overflow in a patch left
+        // running for days; only their low five bits were ever used.
+        phaseDivCounter = (phaseDivCounter + 1) & 31;
 
         // ---- Oversampling decision -------------------------------------------
-        if ((osDivCounter++ & 31) == 0) {
+        const bool osTick = (osDivCounter == 0);
+        osDivCounter = (osDivCounter + 1) & 31;
+        if (osTick) {
             if (osSetting != 0) {
                 osPending = osSetting;
                 osStable  = 2;
@@ -963,17 +1139,21 @@ struct Mala : Module {
         const float osInv      = 1.f / (float)os;
         const float incScale   = args.sampleTime * osInv;
 
+        // Oversampled graft per voice, filled by the voice loop and decimated
+        // two voices at a time after it.  Index voice * 2 + side.
+        float decimIn[kMaxOs][kMaxPoly * 2];
+        // Per voice DC blocker pole, and what voice 0 hands to the scope.
+        float dcPole[kMaxPoly];
+        bool  scopeWrapped = false;
+        float scopeFreq = 0.f, scopeWindow = 0.f;
+
         for (int vi = 0; vi < nVoices; vi++) {
 
-            // --- Pitch ---
+            // Exact-input caches recompute on the first sample after an invalidation.
+            const bool cacheFresh = !ccValid[vi];
+
+            // --- Pitch, converted further down with the other exponentials ---
             float voct = voctOn ? inputs[VOCT_INPUT].getPolyVoltage(vi) : 0.f;
-            float f0 = dsp::FREQ_C4 * dsp::exp2_taylor5(voct + freqKnob);
-            f0 = clamp(f0, 0.001f, fMax);
-            // Through-zero linear FM: 1 V at full index deviates by f0, and a negative
-            // frequency runs every phasor backwards.  Clamped to +-Nyquist because the
-            // phasors wrap with one add or subtract.
-            float fmVolts = fmOn ? inputs[FM_INPUT].getPolyVoltage(vi) * fmAmount : 0.f;
-            float f0Fm = clamp(f0 + fmVolts * f0, -fMax, fMax);
 
             // --- Modulation ---
             // CV + trim + slider set the centre point, common to both channels.  The bus
@@ -1052,11 +1232,25 @@ struct Mala : Module {
 
             float halfDetune = clamp(detuneSlew[vi] + busDetune, -1.f, 1.f) * detuneSpan * 0.5f;
             bool  stereoPitch = (halfDetune != 0.f);
-            float f0L = stereoPitch ? (f0Fm * dsp::exp2_taylor5( halfDetune)) : f0Fm;
-            float f0R = stereoPitch ? (f0Fm * dsp::exp2_taylor5(-halfDetune)) : f0Fm;
+            // All of the voice's exponentials in one vector: pitch, detune up and
+            // down, left ratio.  Lane for lane the same as the scalar call.
+            simd::float_4 expIn(voct + freqKnob, halfDetune, -halfDetune, ratioVL);
+            simd::float_4 expOut = dsp::exp2_taylor5(expIn);
+            float ratioLinL = expOut[3];
+            float ratioLinR = (ratioVR == ratioVL) ? ratioLinL : dsp::exp2_taylor5(ratioVR);
 
-            float fBL = f0L * dsp::exp2_taylor5(ratioVL);
-            float fBR = f0R * dsp::exp2_taylor5(ratioVR);
+            float f0 = clamp(dsp::FREQ_C4 * expOut[0], 0.001f, fMax);
+            // Through-zero linear FM: 1 V at full index deviates by f0, and a negative
+            // frequency runs every phasor backwards.  Clamped to +-Nyquist because the
+            // phasors wrap with one add or subtract.
+            float fmVolts = fmOn ? inputs[FM_INPUT].getPolyVoltage(vi) * fmAmount : 0.f;
+            float f0Fm = clamp(f0 + fmVolts * f0, -fMax, fMax);
+
+            float f0L = stereoPitch ? (f0Fm * expOut[1]) : f0Fm;
+            float f0R = stereoPitch ? (f0Fm * expOut[2]) : f0Fm;
+
+            float fBL = f0L * ratioLinL;
+            float fBR = f0R * ratioLinR;
 
             // --- Return to unison: constant bend back to the left phasor ---
             double phaseGap = phaseA[vi] - phaseAR[vi];
@@ -1102,11 +1296,22 @@ struct Mala : Module {
             corePrev[vi] = stereoCore;
 
 
-            // --- Partial multipliers and weights, cached on their inputs ---
-            // The Nyquist fade is sized by the higher channel.
-            float fFade = fmaxf(fabsf(fBL), fabsf(fBR));
+            // --- Partial multipliers, every sample: they set B's partial pitches ---
             float* ratioMulL = ccMul[vi][0];
             float* ratioMulR = ccMul[vi][1];
+            const simd::float_4 harmonic0(1.f, 2.f, 3.f, 4.f), harmonic1(5.f, 6.f, 7.f, 8.f);
+            const simd::float_4 stretch0 = simd::float_4::load(&kSpreadOffset[0]);
+            const simd::float_4 stretch1 = simd::float_4::load(&kSpreadOffset[4]);
+            simd::float_4 mul0  = harmonic0 + simd::float_4(spreadL) * stretch0;
+            simd::float_4 mul1  = harmonic1 + simd::float_4(spreadL) * stretch1;
+            simd::float_4 mul0R = stereoOsc ? harmonic0 + simd::float_4(spreadR) * stretch0 : mul0;
+            simd::float_4 mul1R = stereoOsc ? harmonic1 + simd::float_4(spreadR) * stretch1 : mul1;
+            mul0.store(&ratioMulL[0]);  mul1.store(&ratioMulL[4]);
+            mul0R.store(&ratioMulR[0]); mul1R.store(&ratioMulR[4]);
+
+            // --- Partial weights, rebuilt at a fixed control rate and ramped ---
+            // The Nyquist fade is sized by the higher channel.
+            float fFade = fmaxf(fabsf(fBL), fabsf(fBR));
             float* weightL   = ccWeight[vi][0];
             float* weightR   = ccWeight[vi][1];
 
@@ -1116,62 +1321,128 @@ struct Mala : Module {
                 int   lo = (int)morphPos;
                 if (lo > kMorphStops - 2) lo = kMorphStops - 2;
                 float m  = morphPos - (float)lo;
-                float sumAbs = 0.f, sumSq = 0.f;
-                for (int n = 0; n < kPartials; n++) {
-                    float w = kMorphTable[lo][n] + m * (kMorphTable[lo + 1][n] - kMorphTable[lo][n]);
+                // Four partials at a time.  Under FM this runs every sample.
+                simd::float_4 sumAbs4(0.f), sumSq4(0.f);
+                for (int half = 0; half < kPartials; half += 4) {
+                    simd::float_4 rowLo = simd::float_4::load(&kMorphTable[lo][half]);
+                    simd::float_4 rowHi = simd::float_4::load(&kMorphTable[lo + 1][half]);
+                    simd::float_4 w = rowLo + simd::float_4(m) * (rowHi - rowLo);
                     // Fade over the top quarter octave so pitch sweeps don't click.
-                    float f = mul[n] * fFade;
-                    w *= clamp((nyq - f) * fadeSpan, 0.f, 1.f);
+                    simd::float_4 f = simd::float_4::load(&mul[half]) * simd::float_4(fFade);
+                    w *= simd::clamp((simd::float_4(nyq) - f) * simd::float_4(fadeSpan), 0.f, 1.f);
 
                     // Normalizer taken before the brightness rolloff.
-                    sumAbs += fabsf(w);
-                    sumSq  += w * w;
+                    sumAbs4 += simd::fabs(w);
+                    sumSq4  += w * w;
 
                     // Two pole rolloff in absolute frequency.  See kBrightDef.
-                    float x = f * brightInv;
-                    wOut[n] = w / (1.f + x * x);
+                    simd::float_4 x = f * simd::float_4(brightInv);
+                    (w / (simd::float_4(1.f) + x * x)).store(&wOut[half]);
                 }
+                float sumAbs = (sumAbs4[0] + sumAbs4[1]) + (sumAbs4[2] + sumAbs4[3]);
+                float sumSq  = (sumSq4[0]  + sumSq4[1])  + (sumSq4[2]  + sumSq4[3]);
                 float peakEst = kPeakBlendRms * sqrtf(sumSq) + (1.f - kPeakBlendRms) * sumAbs;
                 normOut = (peakEst > 1e-6f) ? (1.f / peakEst) : 0.f;
                 nzOut   = kMorphTable[lo][kPartials]
                         + m * (kMorphTable[lo + 1][kPartials] - kMorphTable[lo][kPartials]);
             };
 
-            bool fadeMoved = !ccValid[vi] || fFade != ccFade[vi];
-            if (fadeMoved || spreadL != ccSpread[vi][0] || morphL != ccMorph[vi][0]) {
-                if (fadeMoved || spreadL != ccSpread[vi][0])
-                    for (int n = 0; n < kPartials; n++)
-                        ratioMulL[n] = (float)(n + 1) + spreadL * kSpreadOffset[n];
-                buildWeights(morphL, ratioMulL, weightL, ccNorm[vi][0], ccNoise[vi][0]);
-                ccSpread[vi][0] = spreadL; ccMorph[vi][0] = morphL;
-            }
-            if (stereoOsc || stereoWgt) {
-                if (fadeMoved || spreadR != ccSpread[vi][1] || morphR != ccMorph[vi][1]) {
-                    for (int n = 0; n < kPartials; n++)
-                        ratioMulR[n] = (float)(n + 1) + spreadR * kSpreadOffset[n];
-                    buildWeights(morphR, ratioMulR, weightR, ccNorm[vi][1], ccNoise[vi][1]);
-                    ccSpread[vi][1] = spreadR; ccMorph[vi][1] = morphR;
+            // Rebuilt every kWeightDiv samples whatever the controls are doing, so
+            // the cost is the same with a still knob, pot noise or modulation.
+            // In between, each value ramps linearly and lands exactly on its
+            // target, so still controls give exactly the values a rebuild would.
+            // A fresh voice snaps to its first targets; later rebuilds are
+            // staggered across voices.  Through-zero FM moves the Nyquist fade
+            // and brightness at audio rate, so while it is engaged the weights
+            // are rebuilt every sample and follow it exactly.
+            if (!ccValid[vi] || weightRampLeft[vi] <= 0 || fmOn) {
+                float* targetL = ccWeightTarget[vi][0];
+                float* targetR = ccWeightTarget[vi][1];
+                buildWeights(morphL, ratioMulL, targetL, ccNormTarget[vi][0], ccNoiseTarget[vi][0]);
+                if (stereoOsc || stereoWgt)
+                    buildWeights(morphR, ratioMulR, targetR, ccNormTarget[vi][1], ccNoiseTarget[vi][1]);
+                else {
+                    for (int n = 0; n < kPartials; n++) targetR[n] = targetL[n];
+                    ccNormTarget[vi][1]  = ccNormTarget[vi][0];
+                    ccNoiseTarget[vi][1] = ccNoiseTarget[vi][0];
+                }
+
+                // Noise mip level for the same pitch, ramped with the rest.  Under
+                // FM it is only needed while noise is in the mix.
+                if (!fmOn || ccNoiseTarget[vi][0] > 1e-4f || ccNoiseTarget[vi][1] > 1e-4f) {
+                    float budget = nyq * (float)kNoiseRepeat / fmaxf(fFade, 0.001f);
+                    float level  = log2f(fmaxf((float)kLutHarm[0] / fmaxf(budget, 1e-3f), 1.f));
+                    ccLutLevelTarget[vi] = clamp(level, 0.f, (float)(kLutLevels - 1));
+                }
+
+                if (!ccValid[vi] || fmOn) {
+                    // Snap: a fresh voice, or FM.  Steps are cleared so a ramp
+                    // that follows starts from rest.
+                    for (int side = 0; side < 2; side++) {
+                        for (int n = 0; n < kPartials; n++) {
+                            ccWeight[vi][side][n]     = ccWeightTarget[vi][side][n];
+                            ccWeightStep[vi][side][n] = 0.f;
+                        }
+                        ccNorm[vi][side]  = ccNormTarget[vi][side];  ccNormStep[vi][side]  = 0.f;
+                        ccNoise[vi][side] = ccNoiseTarget[vi][side]; ccNoiseStep[vi][side] = 0.f;
+                    }
+                    ccLutLevel[vi] = ccLutLevelTarget[vi];
+                    ccLutLevelStep[vi] = 0.f;
+                    // Fresh voices are staggered so they do not all rebuild on the
+                    // same sample; under FM the next sample rebuilds anyway.
+                    weightRampLeft[vi] = fmOn ? 0 : 1 + (vi % kWeightDiv);
+                    ccValid[vi] = true;
+                }
+                else {
+                    const float rampInv = 1.f / (float)kWeightDiv;
+                    for (int side = 0; side < 2; side++) {
+                        for (int n = 0; n < kPartials; n++)
+                            ccWeightStep[vi][side][n] =
+                                (ccWeightTarget[vi][side][n] - ccWeight[vi][side][n]) * rampInv;
+                        ccNormStep[vi][side]  = (ccNormTarget[vi][side]  - ccNorm[vi][side])  * rampInv;
+                        ccNoiseStep[vi][side] = (ccNoiseTarget[vi][side] - ccNoise[vi][side]) * rampInv;
+                    }
+                    ccLutLevelStep[vi] = (ccLutLevelTarget[vi] - ccLutLevel[vi]) * rampInv;
+                    weightRampLeft[vi] = kWeightDiv;
                 }
             }
-            else {
-                for (int n = 0; n < kPartials; n++) {
-                    ratioMulR[n] = ratioMulL[n];
-                    weightR[n]   = weightL[n];
+
+            // One ramp step per sample; the last step lands exactly on the target.
+            if (weightRampLeft[vi] > 0) {
+                if (--weightRampLeft[vi] > 0) {
+                    for (int side = 0; side < 2; side++) {
+                        for (int n = 0; n < kPartials; n++)
+                            ccWeight[vi][side][n] += ccWeightStep[vi][side][n];
+                        ccNorm[vi][side]  += ccNormStep[vi][side];
+                        ccNoise[vi][side] += ccNoiseStep[vi][side];
+                    }
+                    ccLutLevel[vi] += ccLutLevelStep[vi];
                 }
-                ccSpread[vi][1] = spreadL; ccMorph[vi][1] = morphL;
-                ccNorm[vi][1]   = ccNorm[vi][0];
-                ccNoise[vi][1]  = ccNoise[vi][0];
+                else {
+                    for (int side = 0; side < 2; side++) {
+                        for (int n = 0; n < kPartials; n++)
+                            ccWeight[vi][side][n] = ccWeightTarget[vi][side][n];
+                        ccNorm[vi][side]  = ccNormTarget[vi][side];
+                        ccNoise[vi][side] = ccNoiseTarget[vi][side];
+                    }
+                    ccLutLevel[vi] = ccLutLevelTarget[vi];
+                }
             }
-            ccFade[vi]  = fFade;
-            ccValid[vi] = true;
 
             float bNormL = ccNorm[vi][0],  bNormR = ccNorm[vi][1];
             float noiseMixL = ccNoise[vi][0], noiseMixR = ccNoise[vi][1];
 
-            // --- Shape setups ---
-            MalaShapeSetup setupL, setupR;
-            setupL.set(shapeL);
-            if (stereoCore) setupR.set(shapeR); else setupR = setupL;
+            // --- Shape setups, cached on the shape value (the saturator setup divides) ---
+            if (cacheFresh || shapeL != ccShapeIn[vi][0]) {
+                ccShapeIn[vi][0] = shapeL;
+                ccShape[vi][0].set(shapeL);
+            }
+            if (stereoCore && (cacheFresh || shapeR != ccShapeIn[vi][1])) {
+                ccShapeIn[vi][1] = shapeR;
+                ccShape[vi][1].set(shapeR);
+            }
+            const MalaShapeSetup& setupL = ccShape[vi][0];
+            const MalaShapeSetup& setupR = stereoCore ? ccShape[vi][1] : ccShape[vi][0];
 
             // HEAT maps linearly from the shaper threshold to kDriveMax.
             float driveL = kThresh + heatL * heatToDriv;
@@ -1181,14 +1452,9 @@ struct Mala : Module {
             bool needB = (driveL > kThresh) || (driveR > kThresh)
                        || bPatched;
 
-            // --- LUT mip level, only when noise is in the mix ---
+            // --- LUT mip level, ramped with the weights; read only when noise is in the mix ---
             bool  needNoise = (noiseMixL > 1e-4f || noiseMixR > 1e-4f);
-            float lutLevelF = 0.f;
-            if (needNoise) {
-                float budget = nyq * (float)kNoiseRepeat / fmaxf(fFade, 0.001f);
-                float lv = log2f(fmaxf((float)kLutHarm[0] / fmaxf(budget, 1e-3f), 1.f));
-                lutLevelF = clamp(lv, 0.f, (float)(kLutLevels - 1));
-            }
+            float lutLevelF = needNoise ? ccLutLevel[vi] : 0.f;
             int   lutLo = (int)lutLevelF;
             if (lutLo > kLutLevels - 2) lutLo = kLutLevels - 2;
             float lutM  = lutLevelF - (float)lutLo;
@@ -1199,11 +1465,10 @@ struct Mala : Module {
             const float noiseRate = 1.f / (float)kNoiseRepeat;
             float lutIncL = fBL * noiseRate * incScale;
             float lutIncR = fBR * noiseRate * incScale;
-            float partIncL[kPartials], partIncR[kPartials];
-            for (int n = 0; n < kPartials; n++) {
-                partIncL[n] = ratioMulL[n] * fBL * incScale;
-                partIncR[n] = stereoOsc ? (ratioMulR[n] * fBR * incScale) : partIncL[n];
-            }
+            simd::float_4 inc0  = mul0 * simd::float_4(fBL) * simd::float_4(incScale);
+            simd::float_4 inc1  = mul1 * simd::float_4(fBL) * simd::float_4(incScale);
+            simd::float_4 inc0R = stereoOsc ? mul0R * simd::float_4(fBR) * simd::float_4(incScale) : inc0;
+            simd::float_4 inc1R = stereoOsc ? mul1R * simd::float_4(fBR) * simd::float_4(incScale) : inc1;
 
             // Rotation coefficients: every 32 samples, staggered by voice, and at once
             // when B PHASE first engages.
@@ -1232,10 +1497,6 @@ struct Mala : Module {
             simd::float_4 sinD0 = simd::float_4::load(&phaseSinD[vi][0]);
             simd::float_4 sinD1 = simd::float_4::load(&phaseSinD[vi][4]);
 
-            simd::float_4 inc0  = simd::float_4::load(&partIncL[0]);
-            simd::float_4 inc1  = simd::float_4::load(&partIncL[4]);
-            simd::float_4 inc0R = simd::float_4::load(&partIncR[0]);
-            simd::float_4 inc1R = simd::float_4::load(&partIncR[4]);
             simd::float_4 wgt0  = simd::float_4::load(&weightL[0]);
             simd::float_4 wgt1  = simd::float_4::load(&weightL[4]);
             simd::float_4 wgt0R = simd::float_4::load(&weightR[0]);
@@ -1246,19 +1507,32 @@ struct Mala : Module {
             simd::float_4 ph0R = simd::float_4::load(&partialPhaseR[vi][0]);
             simd::float_4 ph1R = simd::float_4::load(&partialPhaseR[vi][4]);
 
-            float outLv = 0.f, outRv = 0.f, aOut = 0.f, bOut = 0.f;
+            float aOut = 0.f, bOut = 0.f;
             float wLast = 0.f, wLastR = 0.f;
             bool  voiceWrapped = false;
+
+            // Per voice state lives in locals through the block and is written
+            // back after it, so the compiler can keep it in registers.
+            double phaseLeft  = phaseA[vi];
+            double phaseRight = phaseAR[vi];
+            float  lutPhaseLeft  = lutPhase[vi];
+            float  lutPhaseRight = lutPhaseR[vi];
+            MalaADAADrive satLeft  = satL[vi];
+            MalaADAADrive satRight = satR[vi];
+
+            // A window can only open once its drive passes the threshold.
+            const bool windowL = driveL > kThresh;
+            const bool windowR = driveR > kThresh;
 
             // ================= Oversampled block =================
             for (int sub = 0; sub < os; sub++) {
 
                 // --- Advance A, one phasor per side when detuned ---
                 // Wraps either way, since TZFM can run the phasors backwards.
-                phaseA[vi] += incAL;
+                phaseLeft += incAL;
                 bool wrappedL = false;
-                if (phaseA[vi] >= 1.0)     { phaseA[vi] -= 1.0; wrappedL = true; voiceWrapped = true; }
-                else if (phaseA[vi] < 0.0) { phaseA[vi] += 1.0; wrappedL = true; voiceWrapped = true; }
+                if (phaseLeft >= 1.0)     { phaseLeft -= 1.0; wrappedL = true; voiceWrapped = true; }
+                else if (phaseLeft < 0.0) { phaseLeft += 1.0; wrappedL = true; voiceWrapped = true; }
 
                 bool wrappedR = wrappedL;
                 double stepR = incAL;
@@ -1267,7 +1541,7 @@ struct Mala : Module {
                     if (realigning) {
                         // Constant bend; the last step takes exactly the remaining gap, recomputed
                         // here because the per-sample gap is a block stale.
-                        double g = phaseA[vi] - phaseAR[vi];
+                        double g = phaseLeft - phaseRight;
                         if (g >  0.5) g -= 1.0;
                         if (g < -0.5) g += 1.0;
                         double e = g - incAL;
@@ -1276,87 +1550,95 @@ struct Mala : Module {
                         if (e < -move) e = -move;
                         stepR = incAL + e;
                     }
-                    phaseAR[vi] += stepR;
+                    phaseRight += stepR;
                     wrappedR = false;
-                    if (phaseAR[vi] >= 1.0) { phaseAR[vi] -= 1.0; wrappedR = true; }
-                    else if (phaseAR[vi] < 0.0) { phaseAR[vi] += 1.0; wrappedR = true; }
+                    if (phaseRight >= 1.0) { phaseRight -= 1.0; wrappedR = true; }
+                    else if (phaseRight < 0.0) { phaseRight += 1.0; wrappedR = true; }
                 }
                 else {
-                    phaseAR[vi] = phaseA[vi];
+                    phaseRight = phaseLeft;
                 }
 
                 // --- Advance B ---
-                ph0 += inc0; ph0 -= simd::floor(ph0);
-                ph1 += inc1; ph1 -= simd::floor(ph1);
-                lutPhase[vi] = malaWrap01(lutPhase[vi] + lutIncL);
+                // The noise phasors move under a quarter cycle per substep (fB / 32
+                // stays below a quarter of the base rate), so one conditional wrap
+                // gives exactly x - floor(x) without the floorf call.
+                ph0 += inc0; ph0 -= malaFloor4(ph0);
+                ph1 += inc1; ph1 -= malaFloor4(ph1);
+                lutPhaseLeft += lutIncL;
+                if (lutPhaseLeft >= 1.f) lutPhaseLeft -= 1.f;
+                else if (lutPhaseLeft < 0.f) lutPhaseLeft += 1.f;
                 if (stereoOsc) {
-                    ph0R += inc0R; ph0R -= simd::floor(ph0R);
-                    ph1R += inc1R; ph1R -= simd::floor(ph1R);
-                    lutPhaseR[vi] = malaWrap01(lutPhaseR[vi] + lutIncR);
+                    ph0R += inc0R; ph0R -= malaFloor4(ph0R);
+                    ph1R += inc1R; ph1R -= malaFloor4(ph1R);
+                    lutPhaseRight += lutIncR;
+                    if (lutPhaseRight >= 1.f) lutPhaseRight -= 1.f;
+                    else if (lutPhaseRight < 0.f) lutPhaseRight += 1.f;
                 }
                 else {
                     ph0R = ph0; ph1R = ph1;
-                    lutPhaseR[vi] = lutPhase[vi];
+                    lutPhaseRight = lutPhaseLeft;
                 }
 
                 // --- Sync: each side resets on its own A wrap, inside its dead zone ---
                 if (syncOn) {
                     // frac: substeps since the crossing, counted from 0 going forward or
                     // from 1 going backward.
+                    // Each partial restarts at its increment times frac, wrapped.
                     if (wrappedL) {
-                        float frac = (float)((incAL > 0.0 ? phaseA[vi] : phaseA[vi] - 1.0) / incAL);
-                        float reset[kPartials];
-                        for (int n = 0; n < kPartials; n++)
-                            reset[n] = malaWrap01(partIncL[n] * frac);
-                        ph0 = simd::float_4::load(&reset[0]);
-                        ph1 = simd::float_4::load(&reset[4]);
+                        simd::float_4 frac((float)((incAL > 0.0 ? phaseLeft : phaseLeft - 1.0) / incAL));
+                        ph0 = inc0 * frac; ph0 -= malaFloor4(ph0);
+                        ph1 = inc1 * frac; ph1 -= malaFloor4(ph1);
                         if (!stereoOsc) { ph0R = ph0; ph1R = ph1; }
                     }
                     if (stereoOsc && wrappedR) {
-                        float fracR = (float)((stepR > 0.0 ? phaseAR[vi] : phaseAR[vi] - 1.0) / stepR);
-                        float resetR[kPartials];
-                        for (int n = 0; n < kPartials; n++)
-                            resetR[n] = malaWrap01(partIncR[n] * fracR);
-                        ph0R = simd::float_4::load(&resetR[0]);
-                        ph1R = simd::float_4::load(&resetR[4]);
+                        simd::float_4 fracR((float)((stepR > 0.0 ? phaseRight : phaseRight - 1.0) / stepR));
+                        ph0R = inc0R * fracR; ph0R -= malaFloor4(ph0R);
+                        ph1R = inc1R * fracR; ph1R -= malaFloor4(ph1R);
                     }
                 }
 
                 // --- Osc A ---
-                float s  = malaSin2pi(kTwoPi * (float)phaseA[vi]);
-                float sR = splitPitch ? malaSin2pi(kTwoPi * (float)phaseAR[vi]) : s;
+                float s  = malaSin2pi(kTwoPi * (float)phaseLeft);
+                float sR = splitPitch ? malaSin2pi(kTwoPi * (float)phaseRight) : s;
 
                 // The saturator tracks its input even when unused, so it
                 // picks up mid-cycle without a step.
                 float shapedL;
                 if (setupL.saturate)
-                    shapedL = satL[vi].process(s, setupL.satDrive, setupL.linearRestore) * setupL.satNorm;
+                    shapedL = satLeft.process(s, setupL.satDrive, setupL.linearRestore) * setupL.satNorm;
                 else {
-                    satL[vi].lastInput = s;
+                    satLeft.lastInput = s;
                     shapedL = setupL.bypass ? s
                             : (s * (1.f + setupL.thinK) / (1.f + setupL.thinK * fabsf(s)));
                 }
                 float shapedR = shapedL;
                 if (stereoCore) {
                     if (setupR.saturate)
-                        shapedR = satR[vi].process(sR, setupR.satDrive, setupR.linearRestore) * setupR.satNorm;
+                        shapedR = satRight.process(sR, setupR.satDrive, setupR.linearRestore) * setupR.satNorm;
                     else {
-                        satR[vi].lastInput = sR;
+                        satRight.lastInput = sR;
                         shapedR = setupR.bypass ? sR
                                 : (sR * (1.f + setupR.thinK) / (1.f + setupR.thinK * fabsf(sR)));
                     }
                 }
 
                 // --- Window, zero around A's crossings ---
-                float xL = driveL * shapedL;
-                float tL = clamp((fabsf(xL) - kThresh) / (kPi - kThresh), 0.f, 1.f);
-                float wL = malaWindow(tL);
+                float wL = 0.f;
+                if (windowL) {
+                    float xL = driveL * shapedL;
+                    float tL = clamp((fabsf(xL) - kThresh) * kWindowScale, 0.f, 1.f);
+                    wL = malaWindow(tL);
+                }
 
                 float wR = wL;
                 if (stereoCore) {
-                    float xR = driveR * shapedR;
-                    float tR = clamp((fabsf(xR) - kThresh) / (kPi - kThresh), 0.f, 1.f);
-                    wR = malaWindow(tR);
+                    wR = 0.f;
+                    if (windowR) {
+                        float xR = driveR * shapedR;
+                        float tR = clamp((fabsf(xR) - kThresh) * kWindowScale, 0.f, 1.f);
+                        wR = malaWindow(tR);
+                    }
                 }
 
                 // --- Osc B, skipped per substep while both windows are shut ---
@@ -1397,10 +1679,10 @@ struct Mala : Module {
                     // --- Noise ---
                     if (needNoise) {
                         float off = usePhase ? (phaseAmt * kPhaseRange) : 0.f;
-                        float nL = lutRead(lutTab, lutLo, lutM, malaWrap01(lutPhase[vi] + off));
+                        float nL = lutRead(lutTab, lutLo, lutM, malaWrap01(lutPhaseLeft + off));
                         // Own phasor, so detune and ratio widen the texture too.
                         float nR = (stereoOsc || usePhase)
-                                 ? lutRead(lutTab, lutLo, lutM, malaWrap01(lutPhaseR[vi] - off))
+                                 ? lutRead(lutTab, lutLo, lutM, malaWrap01(lutPhaseRight - off))
                                  : nL;
                         bL = bL * (1.f - noiseMixL) + nL * noiseMixL;
                         bR = bR * (1.f - noiseMixR) + nR * noiseMixR;
@@ -1419,10 +1701,9 @@ struct Mala : Module {
                 float mL = shapedL * (1.f - wL) + tailL * wL;
                 float mR = shapedR * (1.f - wR) + tailR * wR;
 
-                // --- Decimate, L and R in two lanes of one filter ---
-                simd::float_4 dec = decim[vi].process(simd::float_4(mL, mR, 0.f, 0.f));
-                outLv = dec[0];
-                outRv = dec[1];
+                // --- Handed to the paired decimator after the voice loop ---
+                decimIn[sub][vi * 2]     = mL;
+                decimIn[sub][vi * 2 + 1] = mR;
 
                 aOut  = shapedL;
                 bOut  = bL;
@@ -1430,6 +1711,13 @@ struct Mala : Module {
                 wLastR = wR;
             }
             // ================= end oversampled block =================
+
+            phaseA[vi]    = phaseLeft;
+            phaseAR[vi]   = phaseRight;
+            lutPhase[vi]  = lutPhaseLeft;
+            lutPhaseR[vi] = lutPhaseRight;
+            satL[vi] = satLeft;
+            satR[vi] = satRight;
 
             ph0.store(&partialPhase[vi][0]);
             ph1.store(&partialPhase[vi][4]);
@@ -1452,16 +1740,62 @@ struct Mala : Module {
             lastWL[vi] = wLast;
             lastWR[vi] = wLastR;
 
-            // --- DC blocker, corner tracked to pitch ---
-            {
-                float dcCut = clamp(f0 * 0.1f, 0.5f, 20.f);
-                float r = 1.f - kTwoPi * dcCut * args.sampleTime;
-                simd::float_4 x(outLv, outRv, 0.f, 0.f);
-                simd::float_4 y = x - dcIn[vi] + simd::float_4(r) * dcOut[vi];
-                dcIn[vi] = x; dcOut[vi] = y;
-                outLv = y[0];
-                outRv = y[1];
+            // DC blocker corner tracked to pitch; the filter itself runs per pair below.
+            float dcCut = clamp(f0 * 0.1f, 0.5f, 20.f);
+            dcPole[vi] = 1.f - kTwoPi * dcCut * args.sampleTime;
+
+            outputs[A_OUTPUT].setVoltage(clamp(aOut * 5.f, -10.f, 10.f), vi);
+            outputs[B_OUTPUT].setVoltage(clamp(bOut * 5.f, -10.f, 10.f), vi);
+            outputs[MOD_OUTPUT].setVoltage(modLfo[vi] * 5.f, vi);
+
+            // --- Voice 0 drives the displays and the capture scope ---
+            if (vi == 0) {
+                // The panel only redraws at the UI frame rate, so these are
+                // refreshed on the button poll rather than every sample.
+                if (pollButtons) {
+                    displayShape    = shapeL;
+                    displayRatio    = ratioLinL;
+                    displayHeat     = heatL;
+                    displayNoiseMix = noiseMixL;
+                    for (int n = 0; n < kPartials; n++) {
+                        displayWeight[n]   = weightL[n] * bNormL;
+                        displayRatioMul[n] = ratioMulL[n];
+                    }
+                }
+                scopeWrapped = voiceWrapped;
+                scopeFreq    = f0;    // carrier, before FM
+                scopeWindow  = wLast;
             }
+        }
+
+        // ---- Decimate and DC block, two voices per float_4 --------------------
+        // An odd voice count leaves the last pair's upper lanes idle; they are
+        // fed silence so their state stays finite.
+        const int nPairs = (nVoices + 1) / 2;
+        if (nVoices & 1) {
+            for (int sub = 0; sub < os; sub++)
+                decimIn[sub][nVoices * 2] = decimIn[sub][nVoices * 2 + 1] = 0.f;
+            dcPole[nVoices] = dcPole[nVoices - 1];
+        }
+        float voiceOut[kMaxPoly * 2];
+        for (int p = 0; p < nPairs; p++) {
+            simd::float_4 dec = decim[p].processBlock(&decimIn[0][p * 4], kMaxPoly * 2, os);
+
+            simd::float_4 pole(dcPole[p * 2], dcPole[p * 2], dcPole[p * 2 + 1], dcPole[p * 2 + 1]);
+            simd::float_4 y = dec - simd::float_4::load(&dcIn[p * 4])
+                            + pole * simd::float_4::load(&dcOut[p * 4]);
+            dec.store(&dcIn[p * 4]);
+            y.store(&dcOut[p * 4]);
+            y.store(&voiceOut[p * 4]);
+        }
+        // An idle upper lane is not a voice: keep its DC state at rest, as a
+        // dropped voice's would be.
+        if (nVoices & 1)
+            dcIn[nVoices * 2] = dcIn[nVoices * 2 + 1] = dcOut[nVoices * 2] = dcOut[nVoices * 2 + 1] = 0.f;
+
+        for (int vi = 0; vi < nVoices; vi++) {
+            float outLv = voiceOut[vi * 2];
+            float outRv = voiceOut[vi * 2 + 1];
 
             // VOLUME only here, so the scope shows the signal before it.  A patched
             // CV is a 0-10 V VCA under the knob.
@@ -1479,54 +1813,59 @@ struct Mala : Module {
                 mixL += vL;
                 mixR += vR;
             }
+        }
 
-            outputs[A_OUTPUT].setVoltage(clamp(aOut * 5.f, -10.f, 10.f), vi);
-            outputs[B_OUTPUT].setVoltage(clamp(bOut * 5.f, -10.f, 10.f), vi);
-            outputs[MOD_OUTPUT].setVoltage(modLfo[vi] * 5.f, vi);
+        // ---- Capture scope, voice 0 ------------------------------------------
+        // Captures run wrap to wrap, so without FM the back buffer holds exactly
+        // one cycle.  The span is sized by the carrier (V/Oct + FREQ, before
+        // FM): through-zero FM can slow, stop or reverse the phasor, so sizing
+        // by the instantaneous frequency could set a huge stride, and wraps that
+        // jitter back and forth around zero would restart the capture before it
+        // published anything.  Instead, a wrap less than half a carrier cycle
+        // into a capture is ignored, a full buffer is published at once, and if
+        // no wrap follows within a carrier period the next capture starts anyway.
+        {
+            float outLv = voiceOut[0], outRv = voiceOut[1];
+            int per = (int)(args.sampleRate / scopeFreq);
+            bool startCapture = false;
+            if (capWriting) {
+                if (scopeWrapped && capIndex >= capMinPoints) {
+                    capCount[capWrite] = capIndex;
+                    capRead  = capWrite;
+                    capWrite ^= 1;
+                    startCapture = true;
+                }
+            }
+            else if (scopeWrapped || ++capIdle > per) {
+                startCapture = true;
+            }
+            if (startCapture) {
+                // Ceiling division, so one whole cycle always fits.
+                capStride = 1 + (per > 1 ? (per - 1) / kCaptureN : 0);
+                capMinPoints = std::max(2, (per / capStride) / 2);
+                capIndex  = 0;
+                capStrideCount = 1;
+                capWriting = true;
+            }
+            if (capWriting && --capStrideCount <= 0) {
+                capStrideCount = capStride;
+                capL[capWrite][capIndex] = outLv;
+                capR[capWrite][capIndex] = outRv;
+                capW[capWrite][capIndex] = scopeWindow;
+                if (++capIndex >= kCaptureN) {
+                    // Full: publish now and wait for the next wrap (or the timeout).
+                    capCount[capWrite] = capIndex;
+                    capRead  = capWrite;
+                    capWrite ^= 1;
+                    capWriting = false;
+                    capIdle = 0;
+                }
+            }
 
-            // --- Voice 0 drives the displays and the capture scope ---
-            if (vi == 0) {
-                displayShape    = shapeL;
-                displayRatio    = dsp::exp2_taylor5(ratioVL);
-                displayHeat     = heatL;
-                displayNoiseMix = noiseMixL;
-                for (int n = 0; n < kPartials; n++) {
-                    displayWeight[n]   = weightL[n] * bNormL;
-                    displayRatioMul[n] = ratioMulL[n];
-                }
-
-                // Capture wrap to wrap, so the back buffer holds exactly one cycle.
-                if (voiceWrapped) {
-                    if (capWriting && capIndex >= 2) {
-                        capCount[capWrite] = capIndex;
-                        capRead  = capWrite;
-                        capWrite ^= 1;
-                    }
-                    int per = (int)(args.sampleRate / fmaxf(fabsf(f0Fm), 0.001f));
-                    // Ceiling division, so one whole cycle always fits.
-                    capStride = 1 + (per > 1 ? (per - 1) / kCaptureN : 0);
-                    capIndex  = 0;
-                    capStrideCount = 1;
-                    capWriting = true;
-                }
-                if (capWriting) {
-                    if (--capStrideCount <= 0) {
-                        capStrideCount = capStride;
-                        if (capIndex < kCaptureN) {
-                            capL[capWrite][capIndex] = outLv;
-                            capR[capWrite][capIndex] = outRv;
-                            capW[capWrite][capIndex] = wLast;
-                            capIndex++;
-                        }
-                        else capWriting = false;
-                    }
-                }
-
-                // Oversampling changes apply at a phase wrap, after two matching requests.
-                if (voiceWrapped && osStable >= 2 && osPending != osActive) {
-                    osActive = osPending;
-                    retuneDecimators();
-                }
+            // Oversampling changes apply at a phase wrap, after two matching requests.
+            if (scopeWrapped && osStable >= 2 && osPending != osActive) {
+                osActive = osPending;
+                retuneDecimators();
             }
         }
 
@@ -1620,16 +1959,31 @@ struct MalaWidget : ModuleWidget {
             const float midY = h * 0.5f;
             const float ampY = (h - 2.f * pad) * 0.5f;
 
-            // Shaded window, alpha following w.
+            // The shaped curve, evaluated once for both the shading and the trace.
+            float curveAt[N + 1];
+            for (int k = 0; k <= N; k++)
+                curveAt[k] = Mala::shapeCurve(malaSin2pi(kTwoPi * (float)k / N), shape);
+
+            // Shaded window, alpha following w.  Slices are grouped into a few
+            // shade levels so the window takes one fill per level instead of one
+            // per slice.  24 levels is a 0.015 alpha step, below what shows.
+            const int kShadeLevels = 24;
+            int shadeLevel[N];
             for (int k = 0; k < N; k++) {
-                float phase = (float)k / N;
-                float x = drive * Mala::shapeCurve(malaSin2pi(kTwoPi * phase), shape);
-                float t = clamp((fabsf(x) - kThresh) / (kPi - kThresh), 0.f, 1.f);
+                float t  = clamp((fabsf(drive * curveAt[k]) - kThresh) / (kPi - kThresh), 0.f, 1.f);
                 float wv = malaWindow(t);
-                if (wv < 0.01f) continue;
-                float plotX = pad + phase * (w - 2.f * pad);
-                nvgBeginPath(args.vg);
-                nvgRect(args.vg, plotX, pad, (w - 2.f * pad) / N + 0.7f, h - 2.f * pad);
+                shadeLevel[k] = (wv < 0.01f) ? 0 : 1 + std::min((int)(wv * kShadeLevels), kShadeLevels - 1);
+            }
+            for (int level = 1; level <= kShadeLevels; level++) {
+                bool anySlice = false;
+                for (int k = 0; k < N; k++) {
+                    if (shadeLevel[k] != level) continue;
+                    if (!anySlice) { nvgBeginPath(args.vg); anySlice = true; }
+                    float plotX = pad + (float)k / N * (w - 2.f * pad);
+                    nvgRect(args.vg, plotX, pad, (w - 2.f * pad) / N + 0.7f, h - 2.f * pad);
+                }
+                if (!anySlice) continue;
+                float wv = ((float)level - 0.5f) / kShadeLevels;
                 nvgFillColor(args.vg, nvgRGBAf(1.00f, 0.32f, 0.10f, 0.35f * wv));
                 nvgFill(args.vg);
             }
@@ -1637,7 +1991,7 @@ struct MalaWidget : ModuleWidget {
             nvgBeginPath(args.vg);
             for (int k = 0; k <= N; k++) {
                 float phase = (float)k / N;
-                float v = Mala::shapeCurve(malaSin2pi(kTwoPi * phase), shape);
+                float v = curveAt[k];
                 float plotX = pad + phase * (w - 2.f * pad);
                 float plotY = midY - clamp(v, -1.2f, 1.2f) * ampY;
                 k == 0 ? nvgMoveTo(args.vg, plotX, plotY) : nvgLineTo(args.vg, plotX, plotY);
@@ -1978,7 +2332,7 @@ struct MalaWidget : ModuleWidget {
                 }
             };
             const int   factors[4] = { 2, 4, 8, 0 };
-            const char* labels[4]  = { "2x", "4x", "8x", "Auto (default)" };
+            const char* labels[4]  = { "2x", "4x (default)", "8x", "Auto" };
             for (int i = 0; i < 4; i++) {
                 auto* it = new OsItem();
                 it->text = labels[i]; it->module = m; it->factor = factors[i];

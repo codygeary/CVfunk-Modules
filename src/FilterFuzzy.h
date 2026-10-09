@@ -160,42 +160,28 @@ struct DKMatrices {
     bool   stateIsCap[S];
 };
 
-// Gauss-Jordan inverse with partial pivoting.
-template <int N>
-inline bool invertNodal(double G[N][N], double inverse[N][N]) {
-    double work[N][2 * N];
-    for (int r = 0; r < N; ++r)
-        for (int c = 0; c < N; ++c) { work[r][c] = G[r][c]; work[r][N + c] = (r == c) ? 1.0 : 0.0; }
-    for (int col = 0; col < N; ++col) {
-        int pivot = col;
-        for (int r = col + 1; r < N; ++r)
-            if (std::fabs(work[r][col]) > std::fabs(work[pivot][col])) pivot = r;
-        if (std::fabs(work[pivot][col]) < 1e-300) return false;
-        if (pivot != col)
-            for (int c = 0; c < 2 * N; ++c) { double t = work[col][c]; work[col][c] = work[pivot][c]; work[pivot][c] = t; }
-        double inv = 1.0 / work[col][col];
-        for (int c = 0; c < 2 * N; ++c) work[col][c] *= inv;
-        for (int r = 0; r < N; ++r) {
-            if (r == col || work[r][col] == 0.0) continue;
-            double factor = work[r][col];
-            for (int c = 0; c < 2 * N; ++c) work[r][c] -= factor * work[col][c];
-        }
-    }
-    for (int r = 0; r < N; ++r)
-        for (int c = 0; c < N; ++c) inverse[r][c] = work[r][N + c];
-    return true;
-}
-
+// The nodal matrix G holds conductances only (resistors, companions, gmin),
+// so it is symmetric positive definite: Cholesky, G = L L^T, no pivoting.
+// Each row the step needs (a companion's terminals, a junction's terminals,
+// the output node) is solved against G once, then projected onto the sparse
+// source columns, rather than inverting G and multiplying out in full.
 template <int N, int S, int P, int I>
 inline bool buildDK(const Netlist& net, int outputNode, double T, DKMatrices<N, S, P, I>& m,
                     bool backwardEuler = false) {
     double G[N][N] = {};
-    double Bu[N][I] = {};
-    double Nx[N][S] = {};
-    double Nr[S][N] = {};
-    double Prow[P][N] = {};
-    double Inj[N][P] = {};
     const double voltageGain = backwardEuler ? 1.0 : 2.0;
+    // Sparse source columns: each companion's history current between its
+    // two nodes, each current source into its node, each junction port's
+    // injection into its terminals; and the rows that read each port.
+    struct Tap { int node, column; double gain; };
+    int    stateA[S], stateB[S];
+    double stateSign[S];
+    Tap sources[MAX_ELEMENTS];
+    Tap injections[6 * MAX_ELEMENTS];
+    Tap portRows[4 * MAX_ELEMENTS];
+    int sourceCount = 0, injectionCount = 0, portRowCount = 0;
+    auto inject = [&](int node, int port, double gain) { if (node != GND) injections[injectionCount++] = { node, port, gain }; };
+    auto readPort = [&](int node, int port, double gain) { if (node != GND) portRows[portRowCount++] = { node, port, gain }; };
 
     auto stampG = [&](int a, int b, double g) {
         if (a != GND) G[a][a] += g;
@@ -220,8 +206,9 @@ inline bool buildDK(const Netlist& net, int outputNode, double T, DKMatrices<N, 
             stampG(e.a, e.b, g);
             // The history term is a current sign * x flowing a -> b; it leaves
             // node a, so it enters the right-hand side as -sign at a.
-            if (e.a != GND) { Nx[e.a][states] -= sign; Nr[states][e.a] += 1.0; }
-            if (e.b != GND) { Nx[e.b][states] += sign; Nr[states][e.b] -= 1.0; }
+            stateA[states] = e.a;
+            stateB[states] = e.b;
+            stateSign[states] = sign;
             m.stateG[states] = g;
             m.historyGain[states] = (backwardEuler && isCap) ? 0.0 : sign;
             m.stateIsCap[states] = isCap;
@@ -229,7 +216,7 @@ inline bool buildDK(const Netlist& net, int outputNode, double T, DKMatrices<N, 
             break;
         }
         case EL_ISRC:
-            if (e.a != GND && e.input >= 0 && e.input < I) Bu[e.a][e.input] += e.value;
+            if (e.a != GND && e.input >= 0 && e.input < I) sources[sourceCount++] = { e.a, e.input, e.value };
             break;
         case EL_BJT: {
             // PNP: vF = V(E) - V(B), vR = V(C) - V(B); the forward diode current
@@ -238,50 +225,96 @@ inline bool buildDK(const Netlist& net, int outputNode, double T, DKMatrices<N, 
             const double pol = e.polarity;
             const int portF = e.port, portR = e.port + 1;
             if (portR >= P) return false;
-            if (e.emitter != GND)   { Prow[portF][e.emitter] += pol;  Inj[e.emitter][portF] += -pol;  Inj[e.emitter][portR] += pol * e.alphaR; }
-            if (e.collector != GND) { Prow[portR][e.collector] += pol; Inj[e.collector][portF] += pol * e.alphaF; Inj[e.collector][portR] += -pol; }
-            if (e.base != GND)      { Prow[portF][e.base] -= pol; Prow[portR][e.base] -= pol;
-                                      Inj[e.base][portF] += pol * (1.0 - e.alphaF); Inj[e.base][portR] += pol * (1.0 - e.alphaR); }
+            readPort(e.emitter, portF, pol);
+            readPort(e.collector, portR, pol);
+            readPort(e.base, portF, -pol);
+            readPort(e.base, portR, -pol);
+            inject(e.emitter, portF, -pol);
+            inject(e.emitter, portR, pol * e.alphaR);
+            inject(e.collector, portF, pol * e.alphaF);
+            inject(e.collector, portR, -pol);
+            inject(e.base, portF, pol * (1.0 - e.alphaF));
+            inject(e.base, portR, pol * (1.0 - e.alphaR));
             break;
         }
         case EL_DIODE:
             if (e.port >= P) return false;
-            if (e.a != GND) { Prow[e.port][e.a] += 1.0; Inj[e.a][e.port] -= 1.0; }
-            if (e.b != GND) { Prow[e.port][e.b] -= 1.0; Inj[e.b][e.port] += 1.0; }
+            readPort(e.a, e.port, 1.0);
+            readPort(e.b, e.port, -1.0);
+            inject(e.a, e.port, -1.0);
+            inject(e.b, e.port, 1.0);
             break;
         }
     }
     if (states != S) return false;
     for (int node = 0; node < N; ++node) G[node][node] += 1e-12;   // gmin
 
-    double inverse[N][N];
-    if (!invertNodal<N>(G, inverse)) return false;
-
-    double SNx[N][S] = {}, SBu[N][I] = {}, SInj[N][P] = {};
-    for (int r = 0; r < N; ++r)
-        for (int k = 0; k < N; ++k) {
-            double s = inverse[r][k];
-            if (s == 0.0) continue;
-            for (int c = 0; c < S; ++c) SNx[r][c]  += s * Nx[k][c];
-            for (int c = 0; c < I; ++c) SBu[r][c]  += s * Bu[k][c];
-            for (int c = 0; c < P; ++c) SInj[r][c] += s * Inj[k][c];
+    // Cholesky, lower triangle, with the reciprocal of its diagonal.
+    double lower[N][N], invDiagonal[N];
+    for (int j = 0; j < N; ++j) {
+        double d = G[j][j];
+        for (int k = 0; k < j; ++k) d -= lower[j][k] * lower[j][k];
+        if (!(d > 1e-300)) return false;
+        double pivot = std::sqrt(d);
+        lower[j][j] = pivot;
+        invDiagonal[j] = 1.0 / pivot;
+        for (int i = j + 1; i < N; ++i) {
+            double sum = G[i][j];
+            for (int k = 0; k < j; ++k) sum -= lower[i][k] * lower[j][k];
+            lower[i][j] = sum * invDiagonal[j];
         }
+    }
 
-    auto project = [&](const double* row, double* outX, double* outU, double* outI) {
-        for (int c = 0; c < S; ++c) { double s = 0; for (int k = 0; k < N; ++k) s += row[k] * SNx[k][c];  outX[c] = s; }
-        for (int c = 0; c < I; ++c) { double s = 0; for (int k = 0; k < N; ++k) s += row[k] * SBu[k][c];  outU[c] = s; }
-        for (int c = 0; c < P; ++c) { double s = 0; for (int k = 0; k < N; ++k) s += row[k] * SInj[k][c]; outI[c] = s; }
+    // Every row the step reads, solved against G together: as columns of
+    // one right-hand side, so each elimination runs across all of them at
+    // once (vectorizes). Columns: the S companions, the P ports, the output.
+    static const int SOLVED = S + P + 1;
+    static const int SOLVED_PAD = (SOLVED + 1) / 2 * 2;
+    alignas(16) double solved[N][SOLVED_PAD];
+    std::memset(solved, 0, sizeof(solved));
+    for (int s = 0; s < S; ++s) {
+        const double scale = voltageGain * m.stateG[s];
+        if (stateA[s] != GND) solved[stateA[s]][s] += scale;
+        if (stateB[s] != GND) solved[stateB[s]][s] -= scale;
+    }
+    for (int k = 0; k < portRowCount; ++k) solved[portRows[k].node][S + portRows[k].column] += portRows[k].gain;
+    if (outputNode != GND) solved[outputNode][S + P] = 1.0;
+    // G is symmetric, so row G^-1 is the solve G w = row^T: forward through
+    // L, then back through L^T.
+    for (int i = 0; i < N; ++i) {
+        for (int k = 0; k < i; ++k) {
+            const double factor = lower[i][k];
+            if (factor == 0.0) continue;
+            for (int c = 0; c < SOLVED_PAD; ++c) solved[i][c] -= factor * solved[k][c];
+        }
+        for (int c = 0; c < SOLVED_PAD; ++c) solved[i][c] *= invDiagonal[i];
+    }
+    for (int i = N - 1; i >= 0; --i) {
+        for (int k = i + 1; k < N; ++k) {
+            const double factor = lower[k][i];
+            if (factor == 0.0) continue;
+            for (int c = 0; c < SOLVED_PAD; ++c) solved[i][c] -= factor * solved[k][c];
+        }
+        for (int c = 0; c < SOLVED_PAD; ++c) solved[i][c] *= invDiagonal[i];
+    }
+
+    // Each solved row onto the sparse source columns.
+    auto project = [&](int column, double* outX, double* outU, double* outI) {
+        for (int s = 0; s < S; ++s) {
+            double sum = 0.0;
+            if (stateA[s] != GND) sum -= stateSign[s] * solved[stateA[s]][column];
+            if (stateB[s] != GND) sum += stateSign[s] * solved[stateB[s]][column];
+            outX[s] = sum;
+        }
+        for (int k = 0; k < sourceCount; ++k) outU[sources[k].column] += sources[k].gain * solved[sources[k].node][column];
+        for (int k = 0; k < injectionCount; ++k) outI[injections[k].column] += injections[k].gain * solved[injections[k].node][column];
     };
     for (int s = 0; s < S; ++s) {
-        double row[N];
-        for (int k = 0; k < N; ++k) row[k] = voltageGain * m.stateG[s] * Nr[s][k];
-        project(row, m.A[s], m.B[s], m.C[s]);
+        project(s, m.A[s], m.B[s], m.C[s]);
         m.A[s][s] += m.historyGain[s];
     }
-    for (int p = 0; p < P; ++p) project(Prow[p], m.D[p], m.E[p], m.F[p]);
-    double rowZ[N] = {};
-    if (outputNode != GND) rowZ[outputNode] = 1.0;
-    project(rowZ, m.Dz, m.Ez, m.Fz);
+    for (int p = 0; p < P; ++p) project(S + p, m.D[p], m.E[p], m.F[p]);
+    project(S + P, m.Dz, m.Ez, m.Fz);
     return true;
 }
 
@@ -304,9 +337,29 @@ static const int kMaxIterations = 16;
 template <int N, int S, int P, int I>
 struct Core {
     static const int PADDED = (P + 3) / 4 * 4;    // ports rounded up to whole float_4s
-    DKMatrices<N, S, P, I> m;
+    // Rows of the state update: the S states, then the output; padded to an
+    // even count (and the ports likewise) so every column is whole pairs.
+    static const int ROWS = S + 1;
+    static const int ROWS_PAD = (ROWS + 1) / 2 * 2;
+    static const int PORTS_PAD = (P + 1) / 2 * 2;
+
+    // Everything a substep reads, by column, so each product runs as
+    // contiguous multiply-adds down a column (vectorizes). One flat block of
+    // doubles, so a pot move can glide it in with a single loop.
+    struct Packed {
+        alignas(16) double update[S + P][ROWS_PAD];   // [A C; Dz Fz]
+        alignas(16) double port[S][PORTS_PAD];        // D
+        alignas(16) double inputUpdate[I][ROWS_PAD];  // [B; Ez]
+        alignas(16) double inputPort[I][PORTS_PAD];   // E
+        alignas(16) double F[P][PORTS_PAD];
+    };
+    static const int kPackedCount = (S + P) * ROWS_PAD + S * PORTS_PAD + I * ROWS_PAD + I * PORTS_PAD + P * PORTS_PAD;
+    static_assert(sizeof(Packed) == kPackedCount * sizeof(double), "Packed must be one gapless block of doubles");
+    static double* flat(Packed& block) { return &block.update[0][0]; }
+
+    DKMatrices<N, S, P, I> m;          // as built; the substeps run on `packed`
+    Packed packed;
     double x[S] = {};
-    double xPrev[S] = {};
     double v[P] = {};
     double current[P] = {};
     double saturation[P] = {}, invNVt[P] = {}, nVt[P] = {}, vcrit[P] = {};
@@ -323,10 +376,15 @@ struct Core {
     // control block): the drain ramp moves the rail, and a stepped rail
     // through these gains clicks.
     static const int kHeldGlideSamples = 32;
-    double heldP[P] = {}, heldX[S] = {}, heldZ = 0.0;
-    double glideP[P] = {}, glideX[S] = {}, glideZ = 0.0;
+    alignas(16) double heldUpdate[ROWS_PAD] = {}, heldPort[PORTS_PAD] = {};
+    alignas(16) double sampleUpdate[ROWS_PAD] = {}, samplePort[PORTS_PAD] = {};
+    double heldU[I] = {}, heldTarget[I] = {}, glideU[I] = {};
     int    glideLeft = 0;
-    double sampleP[P] = {}, sampleX[S] = {}, sampleZ = 0.0;
+    // A pot move rebuilds the matrices; the new ones glide in over the same
+    // block, entry by entry, so a turning pot moves the circuit smoothly
+    // instead of in control-rate steps (zipper noise).
+    Packed packedTarget, packedStep;
+    int    matrixGlideLeft = 0;
 
     double z = 0.0;
     int    lastIterations = 0;
@@ -335,6 +393,8 @@ struct Core {
     // inputs they glide in over a control block; snap = true jumps.
     double glideSaturation[P] = {}, glideInvNVt[P] = {};
     int    portGlideLeft = 0;
+
+    Core() { std::memset(&packed, 0, sizeof(packed)); }
 
     void updatePortDerived() {
         for (int k = 0; k < P; ++k) {
@@ -362,44 +422,72 @@ struct Core {
         portGlideLeft = kHeldGlideSamples;
     }
 
-    // snap = true jumps straight to the new values (start, DC solve).
-    // Every change of m (start, rebuild, DC solve) passes through here, so
-    // the column copies are refreshed with it.
-    void setHeldInputs(const double u[I], bool snap = false) {
-        packMatrices();
-        const double perSample = 1.0 / kHeldGlideSamples;
-        for (int r = 0; r < P; ++r) {
-            double a = 0.0;
-            for (int c = INPUT_RAIL; c < I - 1; ++c) a += m.E[r][c] * u[c];
-            if (snap) { heldP[r] = a; glideP[r] = 0.0; } else glideP[r] = (a - heldP[r]) * perSample;
-        }
-        for (int r = 0; r < S; ++r) {
-            double a = 0.0;
-            for (int c = INPUT_RAIL; c < I - 1; ++c) a += m.B[r][c] * u[c];
-            if (snap) { heldX[r] = a; glideX[r] = 0.0; } else glideX[r] = (a - heldX[r]) * perSample;
-        }
-        double a = 0.0;
-        for (int c = INPUT_RAIL; c < I - 1; ++c) a += m.Ez[c] * u[c];
-        if (snap) { heldZ = a; glideZ = 0.0; } else glideZ = (a - heldZ) * perSample;
-        glideLeft = snap ? 0 : kHeldGlideSamples;
-    }
-
-    // Column-major copies of the per-substep matrices, so each product runs
-    // as contiguous multiply-adds down a column (vectorizes). Rows of the
-    // update are the S states, then the output.
-    static const int ROWS = S + 1;
-    alignas(16) double updateColumns[S + P][ROWS + 1] = {};   // [A C; Dz Fz] by column
-    alignas(16) double portColumns[S][P + 1] = {};            // D by column
-    void packMatrices() {
+    static void pack(const DKMatrices<N, S, P, I>& from, Packed& to) {
+        std::memset(&to, 0, sizeof(to));
         for (int c = 0; c < S; ++c) {
-            for (int r = 0; r < S; ++r) updateColumns[c][r] = m.A[r][c];
-            updateColumns[c][S] = m.Dz[c];
-            for (int r = 0; r < P; ++r) portColumns[c][r] = m.D[r][c];
+            for (int r = 0; r < S; ++r) to.update[c][r] = from.A[r][c];
+            to.update[c][S] = from.Dz[c];
+            for (int r = 0; r < P; ++r) to.port[c][r] = from.D[r][c];
         }
         for (int c = 0; c < P; ++c) {
-            for (int r = 0; r < S; ++r) updateColumns[S + c][r] = m.C[r][c];
-            updateColumns[S + c][S] = m.Fz[c];
+            for (int r = 0; r < S; ++r) to.update[S + c][r] = from.C[r][c];
+            to.update[S + c][S] = from.Fz[c];
         }
+        for (int c = 0; c < I; ++c) {
+            for (int r = 0; r < S; ++r) to.inputUpdate[c][r] = from.B[r][c];
+            to.inputUpdate[c][S] = from.Ez[c];
+            for (int r = 0; r < P; ++r) to.inputPort[c][r] = from.E[r][c];
+        }
+        for (int r = 0; r < P; ++r)
+            for (int c = 0; c < P; ++c) to.F[r][c] = from.F[r][c];
+    }
+
+    // The held inputs' share of the update and the ports at the current matrices.
+    void updateHeld() {
+        for (int r = 0; r < ROWS_PAD; ++r) {
+            double a = 0.0;
+            for (int c = INPUT_RAIL; c < I - 1; ++c) a += packed.inputUpdate[c][r] * heldU[c];
+            heldUpdate[r] = a;
+        }
+        for (int r = 0; r < PORTS_PAD; ++r) {
+            double a = 0.0;
+            for (int c = INPUT_RAIL; c < I - 1; ++c) a += packed.inputPort[c][r] * heldU[c];
+            heldPort[r] = a;
+        }
+    }
+
+    // snap = true jumps straight to the new values and repacks `m`, which
+    // the caller may have replaced outright (start, DC solve). Otherwise only
+    // a change glides in; the same inputs again cost nothing.
+    void setHeldInputs(const double u[I], bool snap = false) {
+        if (snap) {
+            pack(m, packed);
+            matrixGlideLeft = 0;
+            for (int c = 0; c < I; ++c) { heldU[c] = heldTarget[c] = u[c]; glideU[c] = 0.0; }
+            glideLeft = 0;
+            updateHeld();
+            return;
+        }
+        bool changed = false;
+        for (int c = INPUT_RAIL; c < I - 1; ++c) changed = changed || u[c] != heldTarget[c];
+        if (!changed) return;
+        for (int c = INPUT_RAIL; c < I - 1; ++c) {
+            heldTarget[c] = u[c];
+            glideU[c] = (u[c] - heldU[c]) / kHeldGlideSamples;
+        }
+        glideLeft = kHeldGlideSamples;
+    }
+
+    // New matrices after a pot move, glided in over a control block.
+    void glideToMatrices(const DKMatrices<N, S, P, I>& next) {
+        m = next;
+        pack(next, packedTarget);
+        const double perSample = 1.0 / kHeldGlideSamples;
+        double* step = flat(packedStep);
+        const double* from = flat(packed);
+        const double* to = flat(packedTarget);
+        for (int k = 0; k < kPackedCount; ++k) step[k] = (to[k] - from[k]) * perSample;
+        matrixGlideLeft = kHeldGlideSamples;
     }
 
     void prepare(double noise) {
@@ -408,23 +496,32 @@ struct Core {
             for (int k = 0; k < P; ++k) { saturation[k] += glideSaturation[k]; invNVt[k] += glideInvNVt[k]; }
             updatePortDerived();
         }
-        if (glideLeft > 0) {
-            --glideLeft;
-            for (int r = 0; r < P; ++r) heldP[r] += glideP[r];
-            for (int r = 0; r < S; ++r) heldX[r] += glideX[r];
-            heldZ += glideZ;
+        bool moved = false;
+        if (matrixGlideLeft > 0) {
+            if (--matrixGlideLeft == 0) packed = packedTarget;
+            else {
+                double* entry = flat(packed);
+                const double* step = flat(packedStep);
+                for (int k = 0; k < kPackedCount; ++k) entry[k] += step[k];
+            }
+            moved = true;
         }
-        for (int r = 0; r < P; ++r) sampleP[r] = heldP[r] + m.E[r][I - 1] * noise;
-        for (int r = 0; r < S; ++r) sampleX[r] = heldX[r] + m.B[r][I - 1] * noise;
-        sampleZ = heldZ + m.Ez[I - 1] * noise;
+        if (glideLeft > 0) {
+            if (--glideLeft == 0) for (int c = INPUT_RAIL; c < I - 1; ++c) heldU[c] = heldTarget[c];
+            else                  for (int c = INPUT_RAIL; c < I - 1; ++c) heldU[c] += glideU[c];
+            moved = true;
+        }
+        if (moved) updateHeld();
+        for (int r = 0; r < PORTS_PAD; ++r) samplePort[r] = heldPort[r] + packed.inputPort[I - 1][r] * noise;
+        for (int r = 0; r < ROWS_PAD; ++r) sampleUpdate[r] = heldUpdate[r] + packed.inputUpdate[I - 1][r] * noise;
     }
 
     inline double step(double signal) {
         double p[P];
-        for (int r = 0; r < P; ++r) p[r] = sampleP[r] + m.E[r][INPUT_SIGNAL] * signal;
+        for (int r = 0; r < P; ++r) p[r] = samplePort[r] + packed.inputPort[INPUT_SIGNAL][r] * signal;
         for (int c = 0; c < S; ++c) {
             const double state = x[c];
-            for (int r = 0; r < P; ++r) p[r] += portColumns[c][r] * state;
+            for (int r = 0; r < P; ++r) p[r] += packed.port[c][r] * state;
         }
 
         // Tangent predictor.
@@ -467,7 +564,7 @@ struct Core {
             double rhs[P];
             for (int r = 0; r < P; ++r) {
                 double g = p[r] - v[r];
-                for (int c = 0; c < P; ++c) { g += m.F[r][c] * current[c]; J[r][c] = m.F[r][c] * slope[c]; }
+                for (int c = 0; c < P; ++c) { g += packed.F[r][c] * current[c]; J[r][c] = packed.F[r][c] * slope[c]; }
                 J[r][r] -= 1.0;
                 rhs[r] = -g;
             }
@@ -511,20 +608,18 @@ struct Core {
         for (int k = 0; k < P; ++k) current[k] += slope[k] * dv[k];
 
         // New states and the output in one pass over the columns.
-        alignas(16) double next[ROWS + 1];
-        for (int r = 0; r < S; ++r) next[r] = sampleX[r] + m.B[r][INPUT_SIGNAL] * signal;
-        next[S] = sampleZ + m.Ez[INPUT_SIGNAL] * signal;
-        next[ROWS] = 0.0;
+        alignas(16) double next[ROWS_PAD];
+        for (int r = 0; r < ROWS_PAD; ++r) next[r] = sampleUpdate[r] + packed.inputUpdate[INPUT_SIGNAL][r] * signal;
         for (int c = 0; c < S; ++c) {
             const double state = x[c];
-            for (int r = 0; r < ROWS; ++r) next[r] += updateColumns[c][r] * state;
+            for (int r = 0; r < ROWS_PAD; ++r) next[r] += packed.update[c][r] * state;
         }
         for (int c = 0; c < P; ++c) {
             const double junction = current[c];
-            for (int r = 0; r < ROWS; ++r) next[r] += updateColumns[S + c][r] * junction;
+            for (int r = 0; r < ROWS_PAD; ++r) next[r] += packed.update[S + c][r] * junction;
         }
         z = next[S];
-        for (int r = 0; r < S; ++r) { xPrev[r] = x[r]; x[r] = next[r]; }
+        for (int r = 0; r < S; ++r) x[r] = next[r];
         return z;
     }
 
@@ -552,7 +647,7 @@ struct Core {
 // then written for the trapezoidal audio matrices:
 //   capacitor: v = x_BE / g_BE, zero current; x_trap = g_trap v
 //   inductor : v = 0, current = x_BE;          x_trap = current
-// with xPrev = x, a steady state for both kinds.
+// a steady state for both kinds.
 // ==========================================================================
 template <int N, int S, int P, int I>
 inline bool solveOperatingPoint(const Netlist& net, int outputNode, const PortModel<P>& pm,
@@ -561,7 +656,6 @@ inline bool solveOperatingPoint(const Netlist& net, int outputNode, const PortMo
     if (!buildDK<N, S, P, I>(net, outputNode, 10.0, dcm, true)) return false;
     if (!warm) {
         std::memset(scratch.x, 0, sizeof(scratch.x));
-        std::memset(scratch.xPrev, 0, sizeof(scratch.xPrev));
         std::memset(scratch.v, 0, sizeof(scratch.v));
     }
     scratch.m = dcm;
@@ -585,7 +679,6 @@ inline void loadOperatingPoint(Core<N, S, P, I>& core, const Core<N, S, P, I>& d
     for (int s = 0; s < S; ++s) {
         double xs = dc.m.stateIsCap[s] ? core.m.stateG[s] * dc.x[s] / dc.m.stateG[s] : dc.x[s];
         core.x[s] = xs;
-        core.xPrev[s] = xs;
     }
     for (int k = 0; k < P; ++k) { core.v[k] = dc.v[k]; core.current[k] = dc.current[k]; }
     core.z = dc.z;
@@ -686,16 +779,16 @@ struct NoiseSource {
 
     void seed(uint32_t s) { state = s * 2654435761u + 0x9E3779B9u; if (!state) state = 1; }
 
-    inline float uniform() {
-        state ^= state << 13; state ^= state >> 17; state ^= state << 5;
-        return ((float)(state >> 8) + 0.5f) * (1.f / 16777216.f);
-    }
     // Unit-variance, near-Gaussian: the sum of four uniforms (Irwin-Hall),
-    // centred and scaled. Tails stop at +-3.5 sigma, which a noise floor
-    // never shows.
+    // centred and scaled, the four taken as 16-bit halves of two draws.
+    // Tails stop at +-3.5 sigma, which a noise floor never shows.
     inline float gaussian() {
-        float sum = uniform() + uniform() + uniform() + uniform();
-        return (sum - 2.f) * 1.7320508f;
+        state ^= state << 13; state ^= state >> 17; state ^= state << 5;
+        const uint32_t first = state;
+        state ^= state << 13; state ^= state >> 17; state ^= state << 5;
+        const uint32_t second = state;
+        float sum = (float)(first & 0xFFFFu) + (float)(first >> 16) + (float)(second & 0xFFFFu) + (float)(second >> 16);
+        return ((sum + 2.f) * (1.f / 65536.f) - 2.f) * 1.7320508f;
     }
     // Pink noise from unit white; density at 1 kHz is kPinkGainAt1kHz times
     // the white density at 48 kHz.
@@ -818,7 +911,7 @@ struct Stage {
     bool rebuild(double T) {
         DKMatrices<N, S, P, I> next;
         if (!buildDK<N, S, P, I>(net, output, T, next)) return false;
-        core.m = next;
+        core.glideToMatrices(next);
         core.setHeldInputs(u);
         return true;
     }
@@ -895,16 +988,19 @@ inline void setDevices(const Device* devices, int count, double temperatureC, Po
 template <class Circuit>
 struct SingleStageModel : FuzzModel {
     Stage<Circuit::NODES, Circuit::STATES, Circuit::PORTS, Circuit::INPUTS> stage;
-    double builtFuzz = -1.0, builtGuitar = -1.0;
+    double builtFuzz = -1.0, builtGuitar = -1.0, builtDrain = -1.0;
 
     bool configure(const ModelControls& c) override {
+        // Nothing moved since the last block: netlists, ports and inputs stand.
+        bool moved = std::fabs(c.fuzz - builtFuzz) > 1e-4 || std::fabs(c.guitar - builtGuitar) > 1e-4;
+        if (!moved && c.drain == builtDrain) return false;
+        builtDrain = c.drain;
         stage.net.count = 0;
         Circuit::describe(c, stage.net, stage.output);
         double fraction = railFraction(c.drain, Circuit::drainOnset(), Circuit::drainFloor());
         double temperature = drainTemperature(fraction, Circuit::drainHeat());
         setDevices<Circuit::PORTS, Circuit::INPUTS>(Circuit::devices(), Circuit::TRANSISTORS, temperature, stage.ports, stage.u);
         stage.u[INPUT_RAIL] = Circuit::railVolts() * fraction;
-        bool moved = std::fabs(c.fuzz - builtFuzz) > 1e-4 || std::fabs(c.guitar - builtGuitar) > 1e-4;
         if (moved) { builtFuzz = c.fuzz; builtGuitar = c.guitar; }
         return moved;
     }
@@ -1148,58 +1244,57 @@ struct MaestroCircuit {
 };
 
 // --------------------------------------------------------------------------
-// Colorsound Overdriver (UK, 1970s). Q1 Q2 a direct-coupled silicon pair
-// (Q1's collector load is Q2's base bias, 150K from Q2's emitter back to
-// Q1's base) with series feedback: the output, after its 10 uF, returns
-// through 12K into Q1's emitter, where DRIVE (a 10K rheostat behind 22 uF)
-// sets the closed-loop gain, 1 + 12K / DRIVE. The 220 pF Miller cap rolls
-// off the top. Then an active Baxandall: Q3's base takes the network's
-// centre, its collector drives the network's far end through 10 uF. BASS
-// and TREBLE sit at noon. One stage: the tone network loads the feedback
-// node, so the two cannot be cut apart cleanly.
+// Colorsound Power Boost, early 18 V version. Q1 Q2 a direct-coupled
+// silicon pair (Q1's collector load is Q2's base bias, 150K from the tap in
+// Q2's emitter leg back to Q1's base) with series feedback DC-coupled from
+// Q2's collector through 12K straight into Q1's emitter (4K7 to ground),
+// where the 10K VOLUME rheostat behind 22 uF sets the gain, 1 + 12K / DRIVE.
+// Q2's emitter is 470 + 1K2 with 22 uF across the whole leg; the 220 pF
+// Miller cap rolls off the top. Then an active Baxandall: Q3's base takes
+// the network's centre, its collector drives the network's far end through
+// 22 uF; BASS and TREBLE sit at noon. Q3 runs 180K / 33K, 3K9 and a 1K
+// emitter bypassed by 4.7 uF. One stage: the tone network loads the
+// feedback node, so the two cannot be cut apart cleanly.
 // --------------------------------------------------------------------------
-struct OverdriverCircuit {
-    enum { M, P, W, B1, C1, E1, FB, E2, C2, X, BL, BR, BW, TM, TW, TL, TR, Y, B3, C3, E3, RAIL, NODES };
+struct PowerBoostCircuit {
+    enum { M, P, W, B1, C1, E1, VR, E2, TAP, C2, X, BL, BR, BW, TM, TW, TL, TR, Y, B3, C3, E3, RAIL, NODES };
     static const int STATES = 14, TRANSISTORS = 3, PORTS = 6, INPUTS = TRANSISTORS + 3;
-    static double railVolts() { return 9.0; }
-    static double drainOnset() { return 0.62; }
-    static double drainFloor() { return 0.18; }
+    static double railVolts() { return 18.0; }
+    static double drainOnset() { return 0.72; }
+    static double drainFloor() { return 0.11; }
     static double drainHeat()  { return 10.0; }
     static double noiseAmps()  { return 0.3; }
     static Device* devices() {
-        // BC169C / BC184C / BC109: high-beta silicon.
         static Device d[3] = { { false, 2e-14, 1.0, 450.0, 5.0, 0.0 }, { false, 2e-14, 1.0, 450.0, 5.0, 0.0 },
                                { false, 2e-14, 1.0, 300.0, 5.0, 0.0 } };
         return d;
     }
-    // Tone pots at noon (0..1 along the track). Hand-tunable.
     static constexpr double kBass = 0.5, kTreble = 0.5;
-    // FUZZ: DRIVE's resistance, ohms, for knob 0 .. 1. Logarithmic, measured
-    // so each tenth of the knob is audible.
+    // FUZZ: the VOLUME rheostat's resistance, ohms, for knob 0 .. 1. Logarithmic,
+    // measured so each tenth of the knob is audible; above ~300 ohms it is a clean boost.
     static void describe(const ModelControls& c, Netlist& net, int& output) {
-        static const double drive[11] = { 1200, 800, 540, 360, 240, 160, 110, 75, 50, 33, 22 };
+        static const double drive[11] = { 300, 200, 140, 100, 70, 50, 36, 26, 18, 12, 8 };
         addPickup(net, M, P, W, c.guitar);
         addRail(net, RAIL);
         net.cap(W, B1, 0.22e-6);
-        net.res(B1, E2, 150e3);
+        net.res(B1, TAP, 150e3);
         net.res(C1, RAIL, 120e3);
         net.bjt(E1, B1, C1, false, devices()[0].betaF, devices()[0].betaR, 0);
         // Q1's base-collector capacitance with its stray. Without it the
         // feedback loop's fastest pole sits beyond what 4x resolves and rings
-        // (-14 dB of non-harmonic junk on a 1.25 kHz sine); at 22 pF the
-        // loop settles (-60 dB). Hand-tunable, 10 pF upward.
+        // into broadband junk; at 22 pF the loop settles. Hand-tunable, 10 pF upward.
         net.cap(B1, C1, 22e-12);
-        net.res(E1, GND, 6800.0);
-        net.cap(E1, FB, 22e-6);
-        net.res(FB, GND, lookup11(drive, c.fuzz));
-        net.res(FB, X, 12e3);
+        net.res(E1, GND, 4700.0);
+        net.cap(E1, VR, 22e-6);
+        net.res(VR, GND, lookup11(drive, c.fuzz));
+        net.res(C2, E1, 12e3);
         net.bjt(E2, C1, C2, false, devices()[1].betaF, devices()[1].betaR, 2);
         net.cap(C1, C2, 220e-12);
-        net.res(E2, GND, 470.0);
+        net.res(E2, TAP, 470.0);
+        net.res(TAP, GND, 1200.0);
         net.cap(E2, GND, 22e-6);
         net.res(C2, RAIL, 1800.0);
-        net.cap(C2, X, 10e-6);
-        // Active Baxandall.
+        net.cap(C2, X, 4.7e-6);
         net.res(X, BL, 4700.0);
         net.res(BL, BW, kBass * 100e3);
         net.res(BW, BR, (1.0 - kBass) * 100e3);
@@ -1212,14 +1307,14 @@ struct OverdriverCircuit {
         net.res(TW, TR, (1.0 - kTreble) * 100e3);
         net.cap(TR, Y, 0.01e-6);
         net.cap(TM, B3, 0.1e-6);
-        net.res(B3, RAIL, 150e3);
+        net.res(B3, RAIL, 180e3);
         net.res(B3, GND, 33e3);
         net.bjt(E3, B3, C3, false, devices()[2].betaF, devices()[2].betaR, 4);
-        net.res(E3, GND, 470.0);
-        net.cap(E3, GND, 22e-6);
-        net.res(C3, RAIL, 1800.0);
-        net.cap(Y, C3, 10e-6);
-        net.isrc(B1, 1.0, INPUTS - 1);            // noise into Q1's base
+        net.res(E3, GND, 1000.0);
+        net.cap(E3, GND, 4.7e-6);
+        net.res(C3, RAIL, 3900.0);
+        net.cap(Y, C3, 22e-6);
+        net.isrc(B1, 1.0, INPUTS - 1);
         output = C3;
     }
 };
@@ -1248,7 +1343,7 @@ struct SuperFuzzModel : FuzzModel {
     Stage<StageA::NODES, 9, 4, 3> stageA;
     Stage<StageB::NODES, 5, 6, 3> stageB;
     Stage<StageC::NODES, 5, 2, 3> stageC;
-    double builtFuzz = -1.0, builtGuitar = -1.0;
+    double builtFuzz = -1.0, builtGuitar = -1.0, builtDrain = -1.0;
 
     // Balance, fixed. Hand-tunable 0..1.
     static constexpr double kBalance = 0.7;
@@ -1261,6 +1356,10 @@ struct SuperFuzzModel : FuzzModel {
     static constexpr double kOutputGain = -10e3 / (1000.0 + 52.0);
 
     bool configure(const ModelControls& c) override {
+        // Nothing moved since the last block: netlists, ports and inputs stand.
+        bool moved = std::fabs(c.fuzz - builtFuzz) > 1e-4 || std::fabs(c.guitar - builtGuitar) > 1e-4;
+        if (!moved && c.drain == builtDrain) return false;
+        builtDrain = c.drain;
         static const double expander[11] = { 0.05, 0.10, 0.16, 0.23, 0.31, 0.40, 0.50, 0.61, 0.73, 0.86, 1.0 };
         double x = lookup11(expander, c.fuzz);
         const double b = kBalance;
@@ -1352,7 +1451,6 @@ struct SuperFuzzModel : FuzzModel {
         stageC.ports.setDiode(0, kDiodeSaturation * saturationScale(temperature, kDiodeEmission, kGermaniumBandgap), kDiodeEmission, temperature);
         stageC.ports.setDiode(1, kDiodeSaturation * saturationScale(temperature, kDiodeEmission, kGermaniumBandgap), kDiodeEmission, temperature);
         stageA.u[INPUT_RAIL] = stageB.u[INPUT_RAIL] = stageC.u[INPUT_RAIL] = rail;
-        bool moved = std::fabs(c.fuzz - builtFuzz) > 1e-4 || std::fabs(c.guitar - builtGuitar) > 1e-4;
         if (moved) { builtFuzz = c.fuzz; builtGuitar = c.guitar; }
         return moved;
     }
@@ -1411,7 +1509,7 @@ struct FetOctaveModel : FuzzModel {
     Stage<StageG::NODES, 3, 1, 3> stageG;
     Stage<StageB::NODES, 8, 6, 3> stageB;
     Stage<StageC::NODES, 3, 2, 3> stageC;
-    double builtFuzz = -1.0, builtGuitar = -1.0;
+    double builtFuzz = -1.0, builtGuitar = -1.0, builtDrain = -1.0;
 
     // 2SK30A-Y, square law. Idss and Vp picked inside the grade's range so
     // the bias lands where the schematic marks it (source 0.9 V, drain
@@ -1452,6 +1550,10 @@ struct FetOctaveModel : FuzzModel {
     }
 
     bool configure(const ModelControls& c) override {
+        // Nothing moved since the last block: netlists, ports and inputs stand.
+        bool moved = std::fabs(c.fuzz - builtFuzz) > 1e-4 || std::fabs(c.guitar - builtGuitar) > 1e-4;
+        if (!moved && c.drain == builtDrain) return false;
+        builtDrain = c.drain;
         // FUZZ DEPTH wiper, measured so each tenth of the knob is audible.
         static const double depth[11] = { 0.03, 0.06, 0.10, 0.15, 0.21, 0.28, 0.37, 0.48, 0.61, 0.78, 1.0 };
         double wiper = lookup11(depth, c.fuzz);
@@ -1526,7 +1628,6 @@ struct FetOctaveModel : FuzzModel {
         stageC.ports.setDiode(0, kDiodeSaturation * saturationScale(temperature, kDiodeEmission, kGermaniumBandgap), kDiodeEmission, temperature);
         stageC.ports.setDiode(1, kDiodeSaturation * saturationScale(temperature, kDiodeEmission, kGermaniumBandgap), kDiodeEmission, temperature);
         stageB.u[INPUT_RAIL] = stageC.u[INPUT_RAIL] = railTarget;
-        bool moved = std::fabs(c.fuzz - builtFuzz) > 1e-4 || std::fabs(c.guitar - builtGuitar) > 1e-4;
         if (moved) { builtFuzz = c.fuzz; builtGuitar = c.guitar; }
         return moved;
     }
