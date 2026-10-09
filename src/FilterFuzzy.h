@@ -686,49 +686,60 @@ inline void loadOperatingPoint(Core<N, S, P, I>& core, const Core<N, S, P, I>& d
 }
 
 // ==========================================================================
-// Fixed 4x polyphase resampler, mono.
-// Kaiser-windowed sinc, 16 base samples long, cutoff 0.45 of the base rate.
+// Polyphase resampler, mono: 1x (a pass-through), 2x, 4x or 8x.
+// Kaiser-windowed sinc, 16 base samples long at every factor, cutoff 0.45
+// of the base rate.
 // ==========================================================================
-static const int kOversample = 4;
+static const int kMaxOversample = 8;
+static const int kDefaultOversample = 4;
 static const int kResampleQuality = 16;                     // base samples per kernel
-static const int kResampleTaps = kOversample * kResampleQuality;
+static const int kMaxResampleTaps = kMaxOversample * kResampleQuality;
 
 struct Resampler {
+    int factor = kDefaultOversample;
+    int taps = kDefaultOversample * kResampleQuality;
     // Up: per phase, its 16 taps as four float_4, newest first, against a
     // doubled ring of base-rate samples (index walks down).
-    float_4 upPhase[kOversample][kResampleQuality / 4];
+    float_4 upPhase[kMaxOversample][kResampleQuality / 4];
     float   upRing[2 * kResampleQuality] = {};
     int     upIndex = 0;
     // Down: the kernel as float_4, newest first, against a doubled ring of
     // oversampled samples (index walks down).
-    float_4 downKernel[kResampleTaps / 4];
-    float   downRing[2 * kResampleTaps] = {};
+    float_4 downKernel[kMaxResampleTaps / 4];
+    float   downRing[2 * kMaxResampleTaps] = {};
     int     downIndex = 0;
 
-    Resampler() {
-        float kernel[kResampleTaps];
+    Resampler() { setFactor(kDefaultOversample); }
+
+    // Designs the kernel for 1, 2, 4 or 8 and clears the history.
+    void setFactor(int newFactor) {
+        factor = newFactor;
+        taps = factor * kResampleQuality;
+        reset();
+        if (factor == 1) return;
+        float kernel[kMaxResampleTaps];
         const double beta = 8.0, cutoff = 0.45;
         auto bessel0 = [](double x) {
             double sum = 1.0, term = 1.0;
             for (int k = 1; k < 30; ++k) { term *= (x / (2.0 * k)) * (x / (2.0 * k)); sum += term; }
             return sum;
         };
-        double fc = cutoff / kOversample, total = 0.0;
-        for (int i = 0; i < kResampleTaps; ++i) {
-            double m = i - (kResampleTaps - 1) / 2.0;
+        double fc = cutoff / factor, total = 0.0;
+        for (int i = 0; i < taps; ++i) {
+            double m = i - (taps - 1) / 2.0;
             double sinc = (m == 0.0) ? 2.0 * fc : std::sin(2.0 * M_PI * fc * m) / (M_PI * m);
-            double r = 2.0 * i / (kResampleTaps - 1) - 1.0;
+            double r = 2.0 * i / (taps - 1) - 1.0;
             double w = bessel0(beta * std::sqrt(std::fmax(0.0, 1.0 - r * r))) / bessel0(beta);
             kernel[i] = (float)(sinc * w);
             total += kernel[i];
         }
-        for (int i = 0; i < kResampleTaps; ++i) kernel[i] = (float)(kernel[i] / total);
-        for (int phase = 0; phase < kOversample; ++phase)
+        for (int i = 0; i < taps; ++i) kernel[i] = (float)(kernel[i] / total);
+        for (int phase = 0; phase < factor; ++phase)
             for (int j = 0; j < kResampleQuality; j += 4)
-                upPhase[phase][j / 4] = float_4(kernel[j * kOversample + phase], kernel[(j + 1) * kOversample + phase],
-                                                kernel[(j + 2) * kOversample + phase], kernel[(j + 3) * kOversample + phase])
-                                      * (float)kOversample;
-        for (int i = 0; i < kResampleTaps; i += 4)
+                upPhase[phase][j / 4] = float_4(kernel[j * factor + phase], kernel[(j + 1) * factor + phase],
+                                                kernel[(j + 2) * factor + phase], kernel[(j + 3) * factor + phase])
+                                      * (float)factor;
+        for (int i = 0; i < taps; i += 4)
             downKernel[i / 4] = float_4(kernel[i], kernel[i + 1], kernel[i + 2], kernel[i + 3]);
     }
 
@@ -738,30 +749,32 @@ struct Resampler {
         upIndex = downIndex = 0;
     }
 
-    // One base sample in, kOversample out.
-    void up(float in, float out[kOversample]) {
-        upIndex = (upIndex + kResampleQuality - 1) % kResampleQuality;
+    // One base sample in, `factor` out.
+    void up(float in, float out[kMaxOversample]) {
+        if (factor == 1) { out[0] = in; return; }
+        if (--upIndex < 0) upIndex += kResampleQuality;
         upRing[upIndex] = in;
         upRing[upIndex + kResampleQuality] = in;
         const float* window = &upRing[upIndex];
         float_4 w0 = float_4::load(window), w1 = float_4::load(window + 4),
                 w2 = float_4::load(window + 8), w3 = float_4::load(window + 12);
-        for (int phase = 0; phase < kOversample; ++phase) {
+        for (int phase = 0; phase < factor; ++phase) {
             float_4 acc = w0 * upPhase[phase][0] + w1 * upPhase[phase][1] + w2 * upPhase[phase][2] + w3 * upPhase[phase][3];
             out[phase] = acc[0] + acc[1] + acc[2] + acc[3];
         }
     }
 
-    // kOversample in (oldest first), one base sample out.
-    float down(const float in[kOversample]) {
-        for (int s = 0; s < kOversample; ++s) {
-            downIndex = (downIndex + kResampleTaps - 1) % kResampleTaps;
+    // `factor` in (oldest first), one base sample out.
+    float down(const float in[kMaxOversample]) {
+        if (factor == 1) return in[0];
+        for (int s = 0; s < factor; ++s) {
+            if (--downIndex < 0) downIndex += taps;
             downRing[downIndex] = in[s];
-            downRing[downIndex + kResampleTaps] = in[s];
+            downRing[downIndex + taps] = in[s];
         }
         const float* window = &downRing[downIndex];
         float_4 acc = float_4(0.f);
-        for (int i = 0; i < kResampleTaps / 4; ++i) acc += float_4::load(window + 4 * i) * downKernel[i];
+        for (int i = 0; i < taps / 4; ++i) acc += float_4::load(window + 4 * i) * downKernel[i];
         return acc[0] + acc[1] + acc[2] + acc[3];
     }
 };
@@ -928,6 +941,9 @@ static const int kMaxDevices = 8;
 // Base class the module drives. One instance per model; only the selected
 // one (two while crossfading) runs.
 struct FuzzModel {
+    // Substeps per base sample. A model's base-rate front stage steps at
+    // T * oversample; set before start().
+    int oversample = kDefaultOversample;
     virtual ~FuzzModel() {}
     // Control rate: rewrite the netlists and inputs from the controls.
     // Returns true if a pot moved enough that the matrices need rebuilding.
@@ -1456,11 +1472,11 @@ struct SuperFuzzModel : FuzzModel {
     }
     bool start(double T, bool warm) override {
         // Each stage settles on the one before it's resting output.
-        if (!stageA.start(T * kOversample, 0.0, warm)) return false;
+        if (!stageA.start(T * oversample, 0.0, warm)) return false;
         if (!stageB.start(T, stageA.rest, warm)) return false;
         return stageC.start(T, stageB.rest, warm);
     }
-    void rebuild(double T) override { stageA.rebuild(T * kOversample); stageB.rebuild(T); stageC.rebuild(T); }
+    void rebuild(double T) override { stageA.rebuild(T * oversample); stageB.rebuild(T); stageC.rebuild(T); }
     void refresh() override { stageA.refresh(); stageB.refresh(); stageC.refresh(); }
     void prepare(double noise) override {
         stageA.core.prepare(noise);
@@ -1632,7 +1648,7 @@ struct FetOctaveModel : FuzzModel {
         return moved;
     }
     bool start(double T, bool warm) override {
-        baseStep = T * kOversample;
+        baseStep = T * oversample;
         rail = railTarget;
         if (!stageG.start(baseStep, 0.0, warm)) return false;
         jfetRest();
@@ -1640,7 +1656,7 @@ struct FetOctaveModel : FuzzModel {
         if (!stageB.start(T, frontRest, warm)) return false;
         return stageC.start(T, stageB.rest, warm);
     }
-    void rebuild(double T) override { stageG.rebuild(T * kOversample); stageB.rebuild(T); stageC.rebuild(T); }
+    void rebuild(double T) override { stageG.rebuild(T * oversample); stageB.rebuild(T); stageC.rebuild(T); }
     void refresh() override { stageG.refresh(); stageB.refresh(); stageC.refresh(); }
     void prepare(double noise) override {
         stageG.core.prepare(noise);

@@ -43,7 +43,8 @@ struct ModelInfo {
 //
 //   The input is levelled in the back end so any source arrives at the
 //   level of a hot single-coil pickup; GUITAR then cleans up the same way
-//   whatever is driving it. Mono in, mono out, 4x oversampled.
+//   whatever is driving it. Mono in, mono out, 4x oversampled (off, 2x
+//   and 8x in the context menu).
 
 
 // Output gains are measured for equal loudness (K-weighted, BS.1770 style)
@@ -91,9 +92,10 @@ static const float kBatterySmoothSec = 0.15f;
 
 // ---- Footswitch, hand-tunable -----------------------------------------------------------
 // Off, the output is the levelled input, delayed by the resampler's latency
-// so it lines up with the circuit, at output volts per input EMF volt that
-// sit 3 dB under the fuzz at VOLUME 0.7 (a clean guitar's pick peaks run far
-// above a fuzz's). The switch fades over kSwitchFadeSec.
+// so it lines up with the circuit (about 16 base samples at every
+// oversampling factor, none without oversampling), at output volts per input
+// EMF volt that sit 3 dB under the fuzz at VOLUME 0.7 (a clean guitar's pick
+// peaks run far above a fuzz's). The switch fades over kSwitchFadeSec.
 static const int   kDryDelaySamples = 15;
 static const float kDryGain = 28.4f;
 static const float kSwitchFadeSec = 0.02f;
@@ -147,6 +149,13 @@ static const float kOutScale = 10.f;
 static const float kSmoothTau = 0.010f;
 static const int   kControlBlock = 32;
 
+// ---- Oversampling --------------------------------------------------------------------
+// Context menu: circuit substeps per base sample. 4x is the voicing every
+// model was tuned at; fewer costs proportionally less CPU but aliases more
+// and lets the fastest feedback loops ring, 8x costs twice 4x.
+static const int kOversampleFactors[4] = { 1, 2, 4, 8 };
+static const int kDefaultOversampleIndex = 2;
+
 
 struct Fuzzy : Module {
 
@@ -157,6 +166,7 @@ struct Fuzzy : Module {
         MODEL_PARAM,
         VOLUME_PARAM,
         SWITCH_PARAM,
+        OVERSAMPLE_PARAM,           // no panel control: context menu
         NUM_PARAMS
     };
     enum InputIds { IN_INPUT, BATTERY_CV_INPUT, FUZZ_CV_INPUT, GUITAR_CV_INPUT, MODEL_CV_INPUT, SWITCH_CV_INPUT, VOLUME_CV_INPUT, NUM_INPUTS };
@@ -194,6 +204,9 @@ struct Fuzzy : Module {
     float switchStep = 0.f, fadeStep = 0.f, fadeTurnCos = 1.f, fadeTurnSin = 0.f;
     // VOLUME is read once per block and ramped across it.
     float volumeGain = 0.f, volumeStep = 0.f;
+    // Oversampling in force, and the dry path's matching delay.
+    int   oversample = fuzzy::kDefaultOversample;
+    int   dryDelay = kDryDelaySamples;
 
     // ---- Audio-rate state ---------------------------------------------------------
     float levelEnvelope = 1.f, levelGain = 0.f;
@@ -237,6 +250,8 @@ struct Fuzzy : Module {
         configSwitch(MODEL_PARAM, 0.f, (float)(kModelCount - 1), 0.f, "Model", names);
         configParam(VOLUME_PARAM, 0.f, 1.f, 0.7f, "Volume", " %", 0.f, 100.f);
         configSwitch(SWITCH_PARAM, 0.f, 1.f, 1.f, "Footswitch", { "Off (clean)", "On" });
+        configSwitch(OVERSAMPLE_PARAM, 0.f, 3.f, (float)kDefaultOversampleIndex, "Oversampling", { "Off (1x)", "2x", "4x", "8x" });
+        getParamQuantity(OVERSAMPLE_PARAM)->randomizeEnabled = false;
         configInput(IN_INPUT, "Audio");
         configInput(BATTERY_CV_INPUT, "Battery CV");
         configInput(FUZZ_CV_INPUT, "Fuzz CV");
@@ -295,7 +310,12 @@ struct Fuzzy : Module {
         return c;
     }
 
-    double stepTime(float sampleRate) { return 1.0 / ((double)sampleRate * fuzzy::kOversample); }
+    double stepTime(float sampleRate) { return 1.0 / ((double)sampleRate * oversample); }
+
+    int requestedOversample() {
+        int index = clamp((int)std::round(params[OVERSAMPLE_PARAM].getValue()), 0, 3);
+        return kOversampleFactors[index];
+    }
 
     void updateModelGain(int k) {
         const double* g = kModels[k].outputGain;
@@ -371,6 +391,16 @@ struct Fuzzy : Module {
 
     void reinit(float sampleRate) {
         readControls(true);
+        // Oversampling: every model's substep and base-rate stages, every
+        // resampler's kernel, and the dry path's latency.
+        oversample = requestedOversample();
+        for (int k = 0; k < kModelCount; ++k) {
+            models[k]->oversample = oversample;
+            upsampler[k].setFactor(oversample);
+        }
+        resampler.setFactor(oversample);
+        dryDelay = (oversample > 1) ? kDryDelaySamples : 0;
+        dryIndex = 0;
         for (int k = 0; k < kModelCount; ++k) modelStarted[k] = false;
         activeModel = requestedModel = readModel();
         fadingModel = -1;
@@ -402,7 +432,7 @@ struct Fuzzy : Module {
         chargeK = 1.f - std::exp(-blockSeconds / kBatterySmoothSec);
         deviceFall = std::exp(-blockSeconds / kDeviceFallSec);
         switchStep = 1.f / (kSwitchFadeSec * sampleRate);
-        fadeStep = 1.f / (kCrossfadeSec * sampleRate * fuzzy::kOversample);
+        fadeStep = 1.f / (kCrossfadeSec * sampleRate * oversample);
         fadeTurnCos = std::cos(0.5f * (float)M_PI * fadeStep);
         fadeTurnSin = std::sin(0.5f * (float)M_PI * fadeStep);
         volumeGain = readVolume();
@@ -438,6 +468,9 @@ struct Fuzzy : Module {
         readControls(false);
         updateDeviceView();
         volumeStep = (readVolume() - volumeGain) * (1.f / kControlBlock);
+        // A new oversampling setting re-initializes on the next sample, as a
+        // sample-rate change does.
+        if (requestedOversample() != oversample) appliedSampleRate = 0.f;
         lights[SWITCH_LIGHT].setBrightnessSmooth(params[SWITCH_PARAM].getValue() > 0.5f ? 1.f : 0.f, blockSeconds);
 
         // Model selection, rate-limited: a request must hold, and switches
@@ -514,9 +547,12 @@ struct Fuzzy : Module {
         if (!circuitsIdle && switchFade != switchTarget)
             switchFade = clamp(switchFade + (switchTarget > switchFade ? switchStep : -switchStep), 0.f, 1.f);
 
-        float dry = dryLine[dryIndex] * kDryGain;
-        dryLine[dryIndex] = emf;
-        if (++dryIndex >= kDryDelaySamples) dryIndex = 0;
+        float dry = emf * kDryGain;
+        if (dryDelay > 0) {
+            dry = dryLine[dryIndex] * kDryGain;
+            dryLine[dryIndex] = emf;
+            if (++dryIndex >= dryDelay) dryIndex = 0;
+        }
 
         float wet = 0.f;
         if (!circuitsIdle) wet = runCircuits(emf, args.sampleRate);
@@ -550,7 +586,7 @@ struct Fuzzy : Module {
         double noise = noiseAmplitude * (noiseWhite.gaussian()
                      + std::sqrt(kNoiseFlickerCornerHz / 1000.0) / fuzzy::kPinkGainAt1kHz * noisePink.pink(noisePink.gaussian()));
         const int running[2] = { activeModel, fadingModel };
-        float feed[2][fuzzy::kOversample];
+        float feed[2][fuzzy::kMaxOversample];
         for (int r = 0; r < 2; ++r) {
             int k = running[r];
             if (k < 0) continue;
@@ -558,9 +594,9 @@ struct Fuzzy : Module {
             upsampler[k].up((float)models[k]->front(emf), feed[r]);
         }
 
-        float mixed[fuzzy::kOversample];
+        float mixed[fuzzy::kMaxOversample];
         float activeSum = 0.f;
-        for (int s = 0; s < fuzzy::kOversample; ++s) {
+        for (int s = 0; s < oversample; ++s) {
             float sum = 0.f;
             for (int r = 0; r < 2; ++r) {
                 int k = running[r];
@@ -795,6 +831,15 @@ struct FuzzyWidget : ModuleWidget {
             TransparentWidget::drawLayer(args, layer);
         }
     };
+
+    void appendContextMenu(Menu* menu) override {
+        Fuzzy* fuzzyModule = getModule<Fuzzy>();
+        if (!fuzzyModule) return;
+        menu->addChild(new MenuSeparator);
+        menu->addChild(createIndexSubmenuItem("Oversampling", { "Off (1x)", "2x", "4x (default)", "8x" },
+            [=]() { return (size_t)clamp((int)std::round(fuzzyModule->params[Fuzzy::OVERSAMPLE_PARAM].getValue()), 0, 3); },
+            [=](size_t index) { fuzzyModule->params[Fuzzy::OVERSAMPLE_PARAM].setValue((float)index); }));
+    }
 
     FuzzyWidget(Fuzzy* module) {
         setModule(module);
