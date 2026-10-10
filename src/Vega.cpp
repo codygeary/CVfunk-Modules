@@ -6,11 +6,7 @@
 //   Copyright 2026, MIT License
 //
 //   Bass pedals after a classic 1976 analog bass pedal synthesizer.
-//   Two sawtooth oscillators into the transistor ladder, contour
-//   generators, VCA and the pitch hold, simulated from the Norlin
-//   schematic and service bulletin 1178. Presets VEGA, TUBA and BASS use
-//   the values read from the schematic's preset switches; VARIABLE plays
-//   from the programmed preset sliders.
+//   Two sawtooth oscillators into the transistor ladder with contour generators.
 //
 ////////////////////////////////////////////////////////////
 
@@ -443,8 +439,8 @@ struct Vega : Module {
         // Glide into the voice's pitch hold.
         const float glideSec = kGlideMinSec * std::pow(kGlideMaxSec / kGlideMinSec, stripValue(STRIP_GLIDE, v));
         followCoeff[v] = 1.f - std::exp(-sampleTime / (glideOn ? glideSec : kHoldSettleSec));
-        // The foot OCTAVE and the programmed preset's range both move the
-        // keyboard voltage, so both reach the cutoff through R511.
+        // The foot OCTAVE and VARIABLE's range both move the keyboard voltage
+        // (ahead of the hold), so both glide and reach the cutoff through R511.
         octaveVolts[v] = (octaveOn ? 1.f : 0.f) + rangeVolts;
 
         footFilterTarget[v] = stripValue(STRIP_FILTER, v);
@@ -630,7 +626,9 @@ struct Vega : Module {
                 targetVolts[v] = pedalVolts(v, inputs[VOCT_INPUT].getPolyVoltage(v));
             }
             gates[v] = gate;
-            pitch[v] = hold[v].process(gate, targetVolts[v], followCoeff[v], droopPerSample) + octaveVolts[v];
+            // The octave shifts the keyboard voltage ahead of the hold, so it
+            // glides like any other pitch change.
+            pitch[v] = hold[v].process(gate, targetVolts[v] + octaveVolts[v], followCoeff[v], droopPerSample);
             loud[v] = loudContour[v].process(gate, loudLevel[v], loudAttackCoeff[v], loudReleaseCoeff[v]);
             filterEnv[v] = filterContour[v].process(gate, filterLevel[v], filterAttackCoeff[v], filterReleaseCoeff[v]);
             if (gate) {
