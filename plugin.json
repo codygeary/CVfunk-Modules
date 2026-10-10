@@ -457,6 +457,18 @@
         "Effect",
         "Hardware clone"
       ]
+    },
+    {
+      "slug": "Vega",
+      "name": "Vega",
+      "description": "Bass pedal synthesizer modelled on a classic 1970s transistor-ladder design.",
+      "tags": [
+        "Oscillator",
+        "Polyphonic",
+        "Filter",
+        "Synth voice",
+        "Hardware clone"
+      ]
     }
   ]
 }

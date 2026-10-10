@@ -55,6 +55,7 @@ void init(Plugin* p) {
     p->addModel(modelHotPot);
     p->addModel(modelMala);
     p->addModel(modelFuzzy);
+    p->addModel(modelVega);
     
 
     
