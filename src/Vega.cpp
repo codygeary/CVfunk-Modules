@@ -6,7 +6,11 @@
 //   Copyright 2026, MIT License
 //
 //   Bass pedals after a classic 1976 analog bass pedal synthesizer.
-//   Two sawtooth oscillators into the transistor ladder with contour generators.
+//   Two sawtooth oscillators into the transistor ladder, contour
+//   generators, VCA and the pitch hold, simulated from the Norlin
+//   schematic and service bulletin 1178. Presets VEGA, TUBA and BASS use
+//   the values read from the schematic's preset switches; VARIABLE plays
+//   from the programmed preset sliders.
 //
 ////////////////////////////////////////////////////////////
 
@@ -101,7 +105,7 @@ static const int kControlBlock = 32;
 static const int kOversampleFactors[3] = { 1, 2, 4 };
 static const int kKeys = 13;
 static const float kLowCHz = 32.703f;            // the low C pedal
-static const float kFoldMarginVolts = 0.5f / 12.f;   // V/Oct this close to a C folds as that C
+static const float kFoldMarginVolts = 0.5f / 12.f;   // V/Oct this far past the range still counts as inside
 
 // ---- Polyphony --------------------------------------------------------------------
 // Voice 0 runs alone (the mono engine); voices 1 .. 15 run four at a time,
@@ -230,9 +234,6 @@ struct Vega : Module {
 
     // ---- Per sample ----------------------------------------------------------------------
     float targetVolts[kVoiceSlots] = {};
-    // Each voice's last V/Oct and the pedal it went to, for folding a C.
-    float lastInputVolts[kVoiceSlots] = {}, lastPedalVolts[kVoiceSlots] = {};
-    bool  foldHistory[kVoiceSlots] = {};
 
     Vega() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
@@ -567,28 +568,20 @@ struct Vega : Module {
         }
     }
 
-    // A voice's V/Oct onto the pedals (0 = low C, 1 = high C), unless the full
-    // range is chosen. Every note but C has one pedal in the octave. A C has
-    // two, and takes the one that continues the line: the folded note moves
-    // by the same interval the input did, so D -> C lands on the low C, B -> C
-    // on the high C, a held C stays put, and playing within the pedals' own
-    // octave comes through exactly.
+    // A voice's V/Oct as a pedal (0 = low C, 1 = high C, before the octave).
+    // Folded (the default), the range is the 13 pedals where they sound now,
+    // OCTAVE and VARIABLE's range included: a note inside it plays as it is,
+    // a note above drops by whole octaves (a C lands on the upper C), a note
+    // below rises (a C lands on the lower C). Full range passes V/Oct through
+    // and the octave transposes it.
     float pedalVolts(int v, float voct) {
         const float volts = clamp(voct + 3.f, -20.f, 20.f);   // C1 = -3 V
         if (params[PEDAL_RANGE_PARAM].getValue() > 0.5f) return volts;
-        const float fromC = volts - std::round(volts);         // -0.5 .. 0.5 around the nearest C
-        float pedal;
-        if (std::fabs(fromC) <= kFoldMarginVolts) {
-            const float wanted = foldHistory[v] ? lastPedalVolts[v] + (volts - lastInputVolts[v]) : volts;
-            const float low = fromC, high = 1.f + fromC;
-            pedal = (std::fabs(wanted - high) < std::fabs(wanted - low)) ? high : low;
-        } else {
-            pedal = volts - std::floor(volts);
-        }
-        lastInputVolts[v] = volts;
-        lastPedalVolts[v] = pedal;
-        foldHistory[v] = true;
-        return pedal;
+        const float low = octaveVolts[v], high = low + 1.f;
+        float sounding = volts;
+        if (volts > high + kFoldMarginVolts) sounding -= std::ceil(volts - high - kFoldMarginVolts);
+        else if (volts < low - kFoldMarginVolts) sounding += std::ceil(low - kFoldMarginVolts - volts);
+        return sounding - low;
     }
 
     void process(const ProcessArgs& args) override {
@@ -888,7 +881,7 @@ struct VegaWidget : ModuleWidget {
 
         // ---- Mode buttons, directly over the pedals, centred on the panel ----
         // The preset CV, VARIABLE VEGA TUBA BASS, a gap, GLIDE DECAY OCTAVE.
-        const float yButtons = 80.f, buttonPitch = 9.5f, buttonGroupGap = 14.f, presetCvGap = 10.f;
+        const float yButtons = 83.f, buttonPitch = 9.5f, buttonGroupGap = 14.f, presetCvGap = 10.f;
         const float buttonsLeft = 0.5f * (panelWidth - (presetCvGap + 5.f * buttonPitch + buttonGroupGap));
         addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(buttonsLeft, yButtons)), module, Vega::MODE_CV_INPUT));
         const float presetsLeft = buttonsLeft + presetCvGap;
@@ -926,7 +919,7 @@ struct VegaWidget : ModuleWidget {
 
         // ---- The 13 pedals, C to C: eight white, five black, black on top ----
         const float whiteWidth = 9.f, whiteHeight = 21.5f, blackWidth = 5.6f, blackHeight = 13.f;
-        const float keyboardLeft = 0.5f * (panelWidth - 8.f * whiteWidth), keyboardTop = 93.5f;
+        const float keyboardLeft = 0.5f * (panelWidth - 8.f * whiteWidth), keyboardTop = 96.5f;
         const int whiteNotes[8] = { 0, 2, 4, 5, 7, 9, 11, 12 };
         for (int k = 0; k < 8; ++k) {
             PedalKey* pedal = createWidget<PedalKey>(mm2px(Vec(keyboardLeft + k * whiteWidth, keyboardTop)));
