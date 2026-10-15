@@ -115,6 +115,18 @@ static const int   kWeightDiv   = 16;
 static const int   kButtonDiv   = 16;
 
 // =============================================================================
+// Compare-based clamp for the audio path.  Rack's clamp() is
+// fmax(fmin(x, hi), lo), and on 32-bit ARM (MetaModule's Cortex-A7) without
+// finite-math flags fminf/fmaxf are library calls; this compiles to compares
+// and selects.  It differs from clamp() only for NaN, which passes through
+// instead of pinning to hi.  std::min/std::max replace fminf/fmaxf on the
+// audio path for the same reason.
+// =============================================================================
+static inline float malaClamp(float x, float lo, float hi) {
+    return std::min(std::max(x, lo), hi);
+}
+
+// =============================================================================
 // ADAA tanh saturator (GlassADAADrive / FilterAulos curve).  The clamp to
 // |x| <= 1 is the saturation.
 // =============================================================================
@@ -126,7 +138,7 @@ struct MalaADAADrive {
         return x - x * x2 * (1.f/3.f - x2 * (2.f/15.f - 17.f/315.f * x2));
     }
     // Static transfer, used by the normalizer and by the display.
-    static float curve(float x) { return polyTanh(clamp(x, -1.f, 1.f)); }
+    static float curve(float x) { return polyTanh(malaClamp(x, -1.f, 1.f)); }
 
     // lastInput is the undriven signal, so both points of the difference
     // quotient see the same drive and the state stays valid while bypassed.
@@ -135,8 +147,8 @@ struct MalaADAADrive {
     float process(float in, float drive, float linearRestore) {
         // Clamp before the difference quotient so both the current and the
         // previous value sit where the series and its antiderivative agree.
-        float x  = clamp(drive * in, -1.f, 1.f);
-        float x0 = clamp(drive * lastInput, -1.f, 1.f);
+        float x  = malaClamp(drive * in, -1.f, 1.f);
+        float x0 = malaClamp(drive * lastInput, -1.f, 1.f);
         lastInput = in;
         // (F(x) - F(x0)) / (x - x0) for F = antiderivative of polyTanh,
         // F = x^2/2 - x^4/12 + x^6/45 - 17x^8/2520, with the division done
@@ -353,7 +365,7 @@ struct MalaDecim2 {
     MalaDecim2() { reset(); }
 
     void setCutoffFreq(float normalizedCutoff) {
-        normalizedCutoff = clamp(normalizedCutoff, 1e-5f, 0.4999f);
+        normalizedCutoff = malaClamp(normalizedCutoff, 1e-5f, 0.4999f);
         float t  = normalizedCutoff / 0.49f;
         float q[3] = { 0.51763809f,
                        0.70710678f + (1.f - t) * 0.30f,
@@ -420,7 +432,7 @@ struct MalaShapeSetup {
         saturate = (shape > 0.f);
         if (saturate) {
             // Normalized by the curve at the same gain, so the crest stays at unity.
-            satDrive = fmaxf(shape * kSatMax, 1e-4f);
+            satDrive = std::max(shape * kSatMax, 1e-4f);
             // The curve clamps at 1, so from there on its peak is a constant.
             satNorm  = (satDrive >= 1.f) ? kSatNormFull : 1.f / MalaADAADrive::curve(satDrive);
             // Fades out the ADAA half-sample average near zero, so the
@@ -952,7 +964,7 @@ struct Mala : Module {
         // landed for the current routing the ramp step is exactly zero, so the
         // loop is skipped until the routing changes.
         if (modTarget != gatesSettledAt) {
-            float gateCoef = clamp(args.sampleTime / kGateTau, 0.f, 1.f);
+            float gateCoef = malaClamp(args.sampleTime / kGateTau, 0.f, 1.f);
             bool settled = true;
             for (int i = 0; i < 7; i++) {
                 float target = (modTarget & mapBtns[i].bit) ? 1.f : 0.f;
@@ -996,7 +1008,7 @@ struct Mala : Module {
         // on and the jack patched, the Ma CV is the source and stops steering the rate.
         bool extSource = extOverride && inputs[MODRATE_CV_INPUT].isConnected();
         bool rateCvOn  = inputs[MODRATE_CV_INPUT].isConnected() && !extSource;
-        float modRateNorm = clamp(modRateKnob + (rateCvOn
+        float modRateNorm = malaClamp(modRateKnob + (rateCvOn
                      ? inputs[MODRATE_CV_INPUT].getVoltage() * modRateTrim : 0.f), 0.f, 1.f);
         if (modRateNorm != lfoRateIn) {
             lfoRateIn = modRateNorm;
@@ -1012,7 +1024,7 @@ struct Mala : Module {
         for (int vi = 0; vi < nVoices; vi++) {
             if (extSource) {
                 // +-5 V spans the same swing as the internal LFO.
-                modLfo[vi] = clamp(inputs[MODRATE_CV_INPUT].getPolyVoltage(vi) * 0.2f, -1.f, 1.f);
+                modLfo[vi] = malaClamp(inputs[MODRATE_CV_INPUT].getPolyVoltage(vi) * 0.2f, -1.f, 1.f);
                 continue;
             }
             float p = lfoPhase;
@@ -1040,7 +1052,7 @@ struct Mala : Module {
                                 + (2.f * pts[0] - 5.f * pts[1] + 4.f * pts[2] - pts[3]) * p * p
                                 + (pts[2] - pts[0]) * p
                                 + 2.f * pts[1]);
-                modLfo[vi] = clamp(c, -1.f, 1.f);
+                modLfo[vi] = malaClamp(c, -1.f, 1.f);
             }
             else {
                 modLfo[vi] = malaSin2pi(kTwoPi * p);
@@ -1063,40 +1075,40 @@ struct Mala : Module {
                 float worstF0   = 0.f;
                 float worstTop  = 0.f;
                 // Budget for the higher channel when detune is spreading them.
-                float ratioBaseHz = exp2f(clamp(ratioBase, -3.f, 4.f))
-                                  * exp2f(clamp(detuneBase, 0.f, 1.f) * kDetuneOct
+                float ratioBaseHz = exp2f(malaClamp(ratioBase, -3.f, 4.f))
+                                  * exp2f(malaClamp(detuneBase, 0.f, 1.f) * kDetuneOct
                                           * (detuneWide ? kDetuneWide : 1.f) * 0.5f);
                 float topMul = (float)kPartials
-                             + clamp(spreadBase, 0.f, 1.f) * kSpreadOffset[kPartials - 1];
+                             + malaClamp(spreadBase, 0.f, 1.f) * kSpreadOffset[kPartials - 1];
                 for (int vi = 0; vi < nVoices; vi++) {
                     float voct = inputs[VOCT_INPUT].isConnected()
                                ? inputs[VOCT_INPUT].getPolyVoltage(vi) : 0.f;
                     float f0 = dsp::FREQ_C4 * dsp::exp2_taylor5(voct + freqKnob);
-                    worstF0  = fmaxf(worstF0, f0);
-                    worstTop = fmaxf(worstTop, f0 * ratioBaseHz * topMul);
+                    worstF0  = std::max(worstF0, f0);
+                    worstTop = std::max(worstTop, f0 * ratioBaseHz * topMul);
                 }
 
                 // Partials above the Nyquist fade are already gone, so cap the estimate.
-                worstTop = fminf(worstTop, kPartialNyq * args.sampleRate);
+                worstTop = std::min(worstTop, kPartialNyq * args.sampleRate);
 
                 // Must mirror the HEAT mapping used in the voice loop.
-                float drive = kThresh + clamp(heatBase, 0.f, 10.f) * 0.1f
+                float drive = kThresh + malaClamp(heatBase, 0.f, 10.f) * 0.1f
                             * (kDriveMax - kThresh);
                 int want = 1;
                 if (drive > kThresh) {
                     // Phase width of the window's transition.
-                    float thHi = asinf(fminf(kPi / drive, 1.f));
-                    float thLo = asinf(fminf(kThresh / drive, 1.f));
-                    float dTheta = fmaxf(thHi - thLo, 1e-3f);
+                    float thHi = asinf(std::min(kPi / drive, 1.f));
+                    float thLo = asinf(std::min(kThresh / drive, 1.f));
+                    float dTheta = std::max(thHi - thLo, 1e-3f);
 
                     // Window depth at the crest.  The sqrt is empirical.
-                    float tPk = clamp((drive - kThresh) / (kPi - kThresh), 0.f, 1.f);
+                    float tPk = malaClamp((drive - kThresh) / (kPi - kThresh), 0.f, 1.f);
                     float wPk = malaWindow(tPk);
 
                     // SHAPE's saturator adds its own harmonics.  Compared against half the base
                     // rate, since the graft skirt sits on top of B's partials.
-                    float shapeTop = worstF0 * (1.f + 10.f * fmaxf(shapeBase, 0.f));
-                    float bwNeeded = fmaxf(worstTop, shapeTop)
+                    float shapeTop = worstF0 * (1.f + 10.f * std::max(shapeBase, 0.f));
+                    float bwNeeded = std::max(worstTop, shapeTop)
                                    + worstF0 * autoOsK * sqrtf(wPk) / dTheta;
 
                     float need = bwNeeded / (0.5f * args.sampleRate);
@@ -1112,7 +1124,7 @@ struct Mala : Module {
         float mixL = 0.f, mixR = 0.f;
         float nyq      = kPartialNyq * args.sampleRate;
         float fadeSpan = 1.f / (0.25f * nyq);
-        float volume   = clamp(params[VOLUME_PARAM].getValue(), 0.f, 1.f);
+        float volume   = malaClamp(params[VOLUME_PARAM].getValue(), 0.f, 1.f);
         bool  bPatched = outputs[B_OUTPUT].isConnected();
         // Acquire pairs with the release store in setNoiseSeed.
         const float (*lutTab)[kLutSize] = lut[lutActive.load(std::memory_order_acquire)];
@@ -1158,7 +1170,7 @@ struct Mala : Module {
             // --- Modulation ---
             // CV + trim + slider set the centre point, common to both channels.  The bus
             // reaches a destination through its ramped gate, in antiphase L/R.
-            float modDepth = clamp(depthKnob + (cvOnDepth
+            float modDepth = malaClamp(depthKnob + (cvOnDepth
                             ? inputs[MODDEPTH_CV_INPUT].getPolyVoltage(vi) * depthTrimAmt : 0.f), 0.f, 1.f);
             float bus = modLfo[vi] * modDepth;
 
@@ -1178,24 +1190,24 @@ struct Mala : Module {
             float busPhase  = modGate[5] * bus * kModPhase;
             float busHeat   = modGate[6] * bus * kModHeat;
 
-            float shapeL  = clamp(shapeBase  + cvShape  + busShape,  -1.f, 1.f);
-            float shapeR  = clamp(shapeBase  + cvShape  - busShape,  -1.f, 1.f);
-            float heatL   = clamp(heatBase   + cvHeat   + busHeat,    0.f, 10.f);
-            float heatR   = clamp(heatBase   + cvHeat   - busHeat,    0.f, 10.f);
-            float morphL  = clamp(morphBase  + cvMorph  + busMorph,   0.f, morphTop);
-            float morphR  = clamp(morphBase  + cvMorph  - busMorph,   0.f, morphTop);
-            float spreadL = clamp(spreadBase + cvSpread + busSpread,  0.f, 1.f);
-            float spreadR = clamp(spreadBase + cvSpread - busSpread,  0.f, 1.f);
+            float shapeL  = malaClamp(shapeBase  + cvShape  + busShape,  -1.f, 1.f);
+            float shapeR  = malaClamp(shapeBase  + cvShape  - busShape,  -1.f, 1.f);
+            float heatL   = malaClamp(heatBase   + cvHeat   + busHeat,    0.f, 10.f);
+            float heatR   = malaClamp(heatBase   + cvHeat   - busHeat,    0.f, 10.f);
+            float morphL  = malaClamp(morphBase  + cvMorph  + busMorph,   0.f, morphTop);
+            float morphR  = malaClamp(morphBase  + cvMorph  - busMorph,   0.f, morphTop);
+            float spreadL = malaClamp(spreadBase + cvSpread + busSpread,  0.f, 1.f);
+            float spreadR = malaClamp(spreadBase + cvSpread - busSpread,  0.f, 1.f);
 
             // Detune and B phase are already stereo, so the bus scales their amount.
             // Detune is bipolar internally so the bus swings it both ways.
             // Only slider and CV glide; the Mala bus is already smooth and goes straight through.
-            float detuneAmt = clamp(detuneBase + cvDetune, -1.f, 1.f);
+            float detuneAmt = malaClamp(detuneBase + cvDetune, -1.f, 1.f);
             // Neither wrapped nor clamped -- see kPhaseRange.
             float phaseAmt  = phaseBase + cvPhase + busPhase;
 
-            float ratioVL = clamp(ratioBase + cvRatio + busRatio, -3.f, 4.f);
-            float ratioVR = clamp(ratioBase + cvRatio - busRatio, -3.f, 4.f);
+            float ratioVL = malaClamp(ratioBase + cvRatio + busRatio, -3.f, 4.f);
+            float ratioVR = malaClamp(ratioBase + cvRatio - busRatio, -3.f, 4.f);
 
             // --- Quantize before detune, so the channels keep their interval ---
             if (quantOn) {
@@ -1230,7 +1242,7 @@ struct Mala : Module {
             else if (dGap < -dStep) detuneSlew[vi] -= dStep;
             else detuneSlew[vi] = detuneAmt;
 
-            float halfDetune = clamp(detuneSlew[vi] + busDetune, -1.f, 1.f) * detuneSpan * 0.5f;
+            float halfDetune = malaClamp(detuneSlew[vi] + busDetune, -1.f, 1.f) * detuneSpan * 0.5f;
             bool  stereoPitch = (halfDetune != 0.f);
             // All of the voice's exponentials in one vector: pitch, detune up and
             // down, left ratio.  Lane for lane the same as the scalar call.
@@ -1239,12 +1251,12 @@ struct Mala : Module {
             float ratioLinL = expOut[3];
             float ratioLinR = (ratioVR == ratioVL) ? ratioLinL : dsp::exp2_taylor5(ratioVR);
 
-            float f0 = clamp(dsp::FREQ_C4 * expOut[0], 0.001f, fMax);
+            float f0 = malaClamp(dsp::FREQ_C4 * expOut[0], 0.001f, fMax);
             // Through-zero linear FM: 1 V at full index deviates by f0, and a negative
             // frequency runs every phasor backwards.  Clamped to +-Nyquist because the
             // phasors wrap with one add or subtract.
             float fmVolts = fmOn ? inputs[FM_INPUT].getPolyVoltage(vi) * fmAmount : 0.f;
-            float f0Fm = clamp(f0 + fmVolts * f0, -fMax, fMax);
+            float f0Fm = malaClamp(f0 + fmVolts * f0, -fMax, fMax);
 
             float f0L = stereoPitch ? (f0Fm * expOut[1]) : f0Fm;
             float f0R = stereoPitch ? (f0Fm * expOut[2]) : f0Fm;
@@ -1311,11 +1323,11 @@ struct Mala : Module {
 
             // --- Partial weights, rebuilt at a fixed control rate and ramped ---
             // The Nyquist fade is sized by the higher channel.
-            float fFade = fmaxf(fabsf(fBL), fabsf(fBR));
+            float fFade = std::max(fabsf(fBL), fabsf(fBR));
             float* weightL   = ccWeight[vi][0];
             float* weightR   = ccWeight[vi][1];
 
-            const float brightInv = 1.f / clamp(brightHz, kBrightMin, kBrightMax);
+            const float brightInv = 1.f / malaClamp(brightHz, kBrightMin, kBrightMax);
             auto buildWeights = [&](float morphPos, const float* mul,
                                     float* wOut, float& normOut, float& nzOut) {
                 int   lo = (int)morphPos;
@@ -1370,9 +1382,9 @@ struct Mala : Module {
                 // Noise mip level for the same pitch, ramped with the rest.  Under
                 // FM it is only needed while noise is in the mix.
                 if (!fmOn || ccNoiseTarget[vi][0] > 1e-4f || ccNoiseTarget[vi][1] > 1e-4f) {
-                    float budget = nyq * (float)kNoiseRepeat / fmaxf(fFade, 0.001f);
-                    float level  = log2f(fmaxf((float)kLutHarm[0] / fmaxf(budget, 1e-3f), 1.f));
-                    ccLutLevelTarget[vi] = clamp(level, 0.f, (float)(kLutLevels - 1));
+                    float budget = nyq * (float)kNoiseRepeat / std::max(fFade, 0.001f);
+                    float level  = log2f(std::max((float)kLutHarm[0] / std::max(budget, 1e-3f), 1.f));
+                    ccLutLevelTarget[vi] = malaClamp(level, 0.f, (float)(kLutLevels - 1));
                 }
 
                 if (!ccValid[vi] || fmOn) {
@@ -1627,7 +1639,7 @@ struct Mala : Module {
                 float wL = 0.f;
                 if (windowL) {
                     float xL = driveL * shapedL;
-                    float tL = clamp((fabsf(xL) - kThresh) * kWindowScale, 0.f, 1.f);
+                    float tL = malaClamp((fabsf(xL) - kThresh) * kWindowScale, 0.f, 1.f);
                     wL = malaWindow(tL);
                 }
 
@@ -1636,7 +1648,7 @@ struct Mala : Module {
                     wR = 0.f;
                     if (windowR) {
                         float xR = driveR * shapedR;
-                        float tR = clamp((fabsf(xR) - kThresh) * kWindowScale, 0.f, 1.f);
+                        float tR = malaClamp((fabsf(xR) - kThresh) * kWindowScale, 0.f, 1.f);
                         wR = malaWindow(tR);
                     }
                 }
@@ -1741,11 +1753,11 @@ struct Mala : Module {
             lastWR[vi] = wLastR;
 
             // DC blocker corner tracked to pitch; the filter itself runs per pair below.
-            float dcCut = clamp(f0 * 0.1f, 0.5f, 20.f);
+            float dcCut = malaClamp(f0 * 0.1f, 0.5f, 20.f);
             dcPole[vi] = 1.f - kTwoPi * dcCut * args.sampleTime;
 
-            outputs[A_OUTPUT].setVoltage(clamp(aOut * 5.f, -10.f, 10.f), vi);
-            outputs[B_OUTPUT].setVoltage(clamp(bOut * 5.f, -10.f, 10.f), vi);
+            outputs[A_OUTPUT].setVoltage(malaClamp(aOut * 5.f, -10.f, 10.f), vi);
+            outputs[B_OUTPUT].setVoltage(malaClamp(bOut * 5.f, -10.f, 10.f), vi);
             outputs[MOD_OUTPUT].setVoltage(modLfo[vi] * 5.f, vi);
 
             // --- Voice 0 drives the displays and the capture scope ---
@@ -1800,10 +1812,10 @@ struct Mala : Module {
             // VOLUME only here, so the scope shows the signal before it.  A patched
             // CV is a 0-10 V VCA under the knob.
             float gain = vcaOn
-                       ? volume * clamp(inputs[VOLUME_CV_INPUT].getPolyVoltage(vi) * 0.1f, 0.f, 1.f)
+                       ? volume * malaClamp(inputs[VOLUME_CV_INPUT].getPolyVoltage(vi) * 0.1f, 0.f, 1.f)
                        : volume;
-            float vL = clamp(outLv * gain * 5.f * kOutGain, -10.f, 10.f);
-            float vR = clamp(outRv * gain * 5.f * kOutGain, -10.f, 10.f);
+            float vL = malaClamp(outLv * gain * 5.f * kOutGain, -10.f, 10.f);
+            float vR = malaClamp(outRv * gain * 5.f * kOutGain, -10.f, 10.f);
 
             if (polyOutputs) {
                 outputs[OUT_L_OUTPUT].setVoltage(vL, vi);
@@ -1874,8 +1886,8 @@ struct Mala : Module {
             float norm = 1.f / sqrtf((float)nVoices);
             outputs[OUT_L_OUTPUT].setChannels(1);
             outputs[OUT_R_OUTPUT].setChannels(1);
-            outputs[OUT_L_OUTPUT].setVoltage(clamp(mixL * norm, -10.f, 10.f));
-            outputs[OUT_R_OUTPUT].setVoltage(clamp(mixR * norm, -10.f, 10.f));
+            outputs[OUT_L_OUTPUT].setVoltage(malaClamp(mixL * norm, -10.f, 10.f));
+            outputs[OUT_R_OUTPUT].setVoltage(malaClamp(mixR * norm, -10.f, 10.f));
         }
         else {
             outputs[OUT_L_OUTPUT].setChannels(nVoices);

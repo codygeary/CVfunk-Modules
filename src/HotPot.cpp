@@ -225,6 +225,17 @@ static constexpr float HAZE_DIFFUSE_SCALE   = 1.6f;
 static constexpr float HAZE_MOD_START       = 0.2f;
 
 // -----------------------------------------------------------------------------
+// Compare-based clamp for everything that runs on the audio thread. Rack's
+// clamp() is fmax(fmin(x, hi), lo), and on 32-bit ARM (MetaModule's Cortex-A7)
+// without finite-math flags fminf/fmaxf are library calls; this compiles to
+// compares and selects. It differs from clamp() only for NaN, which passes
+// through instead of pinning to hi.
+// -----------------------------------------------------------------------------
+static inline float hotPotClamp(float x, float lo, float hi) {
+    return std::min(std::max(x, lo), hi);
+}
+
+// -----------------------------------------------------------------------------
 // HotPotSat -- HazeLoopSat's curve with adjustable knee and width.
 // Exactly linear below the knee, cubic into a zero-slope ceiling, first-order
 // ADAA throughout. No corner anywhere, so it never hard-clips.
@@ -300,7 +311,7 @@ struct HotPotDelay {
     float read(float delaySamples) const {
         // Minimum of 2 keeps the fourth Lagrange point on written samples
         // rather than the slot about to be overwritten.
-        delaySamples = clamp(delaySamples, MIN_TAP_DELAY, (float)mask - 4.f);
+        delaySamples = hotPotClamp(delaySamples, MIN_TAP_DELAY, (float)mask - 4.f);
         float readPos   = (float)writeIndex - delaySamples;
         // floor() without a library call (ARMv7 has no floor instruction):
         // truncate, then step down for negative non-integers. Exact.
@@ -887,8 +898,10 @@ struct HotPotTube {
 // -----------------------------------------------------------------------------
 static inline float hotPotSteppedPhase(float phase) {
     const float scaled    = phase * MOTION_STEPS;
-    const float stepIndex = floorf(scaled);
-    float glide = clamp((scaled - stepIndex - (1.f - STEP_GLIDE_FRACTION)) / STEP_GLIDE_FRACTION, 0.f, 1.f);
+    // floor() without a library call: truncate, then step down below zero.
+    float stepIndex = (float)(int)scaled;
+    if (stepIndex > scaled) stepIndex -= 1.f;
+    float glide = hotPotClamp((scaled - stepIndex - (1.f - STEP_GLIDE_FRACTION)) / STEP_GLIDE_FRACTION, 0.f, 1.f);
     glide = glide * glide * (3.f - 2.f * glide);
     return (stepIndex + glide) / MOTION_STEPS;
 }
@@ -1098,47 +1111,47 @@ struct HotPot : Module {
         const char* railNames[NUM_RAILS] = { "Stir", "Shabu", "Fan" };
 
         configParam(POS_PARAM + 0, -1.f, 1.f, 0.f,  "Stir angle", " deg", 0.f, 180.f);
-        configParam(POS_PARAM + 1, -1.f, 1.f, 0.f,  "Shabu position (left to right)", " m at 1x", 0.f, RAIL_HALF_LENGTH_M);
-        configParam(POS_PARAM + 2, -1.f, 1.f, 0.f,  "Fan position (back to front)", "%", 0.f, 50.f, 50.f);
+        configParam(POS_PARAM + 1, -1.f, 1.f, 0.f,  "Shabu position", "%", 0.f, 100.f);
+        configParam(POS_PARAM + 2, -1.f, 1.f, 0.f,  "Fan position", "%", 0.f, 50.f, 50.f);
 
         for (int r = 0; r < NUM_RAILS; ++r) {
             std::string name = railNames[r];
-            configParam(POS_ATT_PARAM    + r, -1.f, 1.f, 0.f,  name + " position CV attenuverter", "%", 0.f, 100.f);
+            configParam(POS_ATT_PARAM    + r, -1.f, 1.f, 0.f,  name + " position CV", "%", 0.f, 100.f);
             configParam(SPREAD_PARAM     + r,  0.f, 1.f, 0.3f, name + " spread", "%", 0.f, 100.f);
-            configParam(SPREAD_ATT_PARAM + r, -1.f, 1.f, 0.f,  name + " spread CV attenuverter", "%", 0.f, 100.f);
-            configParam<MoveQuantity>(MOVE_PARAM + r, 0.f, 1.f, 0.f, name + " motion rate");
-            configParam(MOVE_ATT_PARAM   + r, -1.f, 1.f, 0.f,  name + " move CV attenuverter", "%", 0.f, 100.f);
+            configParam(SPREAD_ATT_PARAM + r, -1.f, 1.f, 0.f,  name + " spread CV", "%", 0.f, 100.f);
+            configParam<MoveQuantity>(MOVE_PARAM + r, 0.f, 1.f, 0.f, name + " motion");
+            configParam(MOVE_ATT_PARAM   + r, -1.f, 1.f, 0.f,  name + " motion CV", "%", 0.f, 100.f);
             // dB readout: 40 log10(x) - 40 log10(LEVEL_UNITY_POS).
             configParam(LEVEL_PARAM      + r,  0.f, 1.f, LEVEL_UNITY_POS, name + " level", " dB", -10.f, 40.f,
                         -40.f * log10f(LEVEL_UNITY_POS));
-            configParam(LEVEL_ATT_PARAM  + r,  0.f, 1.f, 1.f,  name + " level CV depth", "%", 0.f, 100.f);
+            configParam(LEVEL_ATT_PARAM  + r,  0.f, 1.f, 1.f,  name + " level CV", "%", 0.f, 100.f);
 
             configInput(IN_A_INPUT      + r, name + " A");
             configInput(IN_B_INPUT      + r, name + " B");
-            configInput(POS_CV_INPUT    + r, name + " position CV (poly: per source)");
+            configInput(POS_CV_INPUT    + r, name + " position CV");
             configInput(SPREAD_CV_INPUT + r, name + " spread CV");
-            configInput(MOVE_CV_INPUT   + r, name + " move CV");
-            configInput(LEVEL_CV_INPUT  + r, name + " level CV, 0-10 V VCA (poly: per source)");
+            configInput(MOVE_CV_INPUT   + r, name + " motion CV");
+            configInput(LEVEL_CV_INPUT  + r, name + " level CV");
         }
 
-        configParam(ROOM_PARAM,      0.f, 1.f, 0.25f,  "Broth (reverb send)", "%", 0.f, 100.f);
-        configParam(ROOM_ATT_PARAM, -1.f, 1.f, 0.f,    "Broth CV attenuverter", "%", 0.f, 100.f);
+        configParam(ROOM_PARAM,      0.f, 1.f, 0.25f,  "Broth (send)", "%", 0.f, 100.f);
+        configParam(ROOM_ATT_PARAM, -1.f, 1.f, 0.f,    "Broth CV", "%", 0.f, 100.f);
         configParam(DECAY_PARAM,     0.f, 1.f, 0.4f,   "MSG (decay)", "%", 0.f, 100.f);
-        configParam(DECAY_ATT_PARAM,-1.f, 1.f, 0.f,    "MSG CV attenuverter", "%", 0.f, 100.f);
-        configParam(HAZE_PARAM,      0.f, 1.f, 0.375f, "Steam (diffusion, then modulation)", "%", 0.f, 100.f);
-        configParam(HAZE_ATT_PARAM, -1.f, 1.f, 0.f,    "Steam CV attenuverter", "%", 0.f, 100.f);
-        configParam(DAMP_PARAM,      0.f, 1.f, 0.7f,   "Lid (damping ceiling)", " Hz", ROOM_DAMP_RANGE, ROOM_DAMP_MIN_HZ);
-        configParam(DAMP_ATT_PARAM, -1.f, 1.f, 0.f,    "Lid CV attenuverter", "%", 0.f, 100.f);
+        configParam(DECAY_ATT_PARAM,-1.f, 1.f, 0.f,    "MSG CV", "%", 0.f, 100.f);
+        configParam(HAZE_PARAM,      0.f, 1.f, 0.375f, "Steam (diffusion)", "%", 0.f, 100.f);
+        configParam(HAZE_ATT_PARAM, -1.f, 1.f, 0.f,    "Steam CV", "%", 0.f, 100.f);
+        configParam(DAMP_PARAM,      0.f, 1.f, 0.7f,   "Lid (damping)", " Hz", ROOM_DAMP_RANGE, ROOM_DAMP_MIN_HZ);
+        configParam(DAMP_ATT_PARAM, -1.f, 1.f, 0.f,    "Lid CV", "%", 0.f, 100.f);
         configParam(SIZE_PARAM,      0.f, 1.f, 0.376f, "Pot (size)", "x", SCENE_SCALE_RANGE, SCENE_SCALE_MIN);
-        configParam(SIZE_ATT_PARAM, -1.f, 1.f, 0.f,    "Pot CV attenuverter", "%", 0.f, 100.f);
-        configParam(CUES_PARAM,      0.f, 3.f, 1.f,    "Spice (cue strength; above 100% exaggerates)", "%", 0.f, 100.f);
-        configParam(CUES_ATT_PARAM, -1.f, 1.f, 0.f,    "Spice CV attenuverter", "%", 0.f, 100.f);
-        configParam<SimmerQuantity>(MAIN_PARAM, 0.f, 1.f, 0.5f, "Simmer (volume / tube drive)");
-        configParam(MAIN_ATT_PARAM, -1.f, 1.f, 0.f,    "Simmer CV attenuverter", "%", 0.f, 100.f);
-        configButton(RESET_PARAM, "Skim (motion reset)");
-        configSwitch(MODE_PARAM + 0, 0.f, 1.f, 0.f, "Stir motion",  { "Parallel: all turn together", "Mirrored: halves turn opposite ways" });
-        configSwitch(MODE_PARAM + 1, 0.f, 1.f, 0.f, "Shabu motion", { "Parallel: the group swishes together", "Mirrored: halves open and close" });
-        configSwitch(MODE_PARAM + 2, 0.f, 1.f, 0.f, "Fan motion",   { "Parallel: both tracks move together", "Mirrored: the two tracks rock against each other" });
+        configParam(SIZE_ATT_PARAM, -1.f, 1.f, 0.f,    "Pot CV", "%", 0.f, 100.f);
+        configParam(CUES_PARAM,      0.f, 3.f, 1.f,    "Spice (cues)", "%", 0.f, 100.f);
+        configParam(CUES_ATT_PARAM, -1.f, 1.f, 0.f,    "Spice CV", "%", 0.f, 100.f);
+        configParam<SimmerQuantity>(MAIN_PARAM, 0.f, 1.f, 0.5f, "Simmer (volume/drive)");
+        configParam(MAIN_ATT_PARAM, -1.f, 1.f, 0.f,    "Simmer CV", "%", 0.f, 100.f);
+        configButton(RESET_PARAM, "Skim");
+        configSwitch(MODE_PARAM + 0, 0.f, 1.f, 0.f, "Stir mode",  { "Parallel", "Mirrored" });
+        configSwitch(MODE_PARAM + 1, 0.f, 1.f, 0.f, "Shabu mode", { "Parallel", "Mirrored" });
+        configSwitch(MODE_PARAM + 2, 0.f, 1.f, 0.f, "Fan mode",   { "Parallel", "Mirrored" });
         configSwitch(MUTE_PARAM + 0, 0.f, 1.f, 0.f, "Stir mute",  { "On", "Muted" });
         configSwitch(MUTE_PARAM + 1, 0.f, 1.f, 0.f, "Shabu mute", { "On", "Muted" });
         configSwitch(MUTE_PARAM + 2, 0.f, 1.f, 0.f, "Fan mute",   { "On", "Muted" });
@@ -1149,7 +1162,7 @@ struct HotPot : Module {
         configInput(HAZE_CV_INPUT,  "Steam CV");
         configInput(DAMP_CV_INPUT,  "Lid CV");
         configInput(SIZE_CV_INPUT,  "Pot CV");
-        configInput(CUES_CV_INPUT,  "Spice CV (10 V spans the full 0-300%)");
+        configInput(CUES_CV_INPUT,  "Spice CV");
         configInput(MAIN_CV_INPUT,  "Simmer CV");
 
         configOutput(OUT_L_OUTPUT, "Left");
@@ -1277,12 +1290,11 @@ struct HotPot : Module {
         outputs[OUT_R_OUTPUT].setVoltage(right);
     }
 
-    // Motion waveform in [-1, 1] for a phase in cycles.
+    // Motion waveform in [-1, 1] for a phase in cycles, already in [0, 1).
     float motionShapeValue(int shape, float phase) const {
-        phase -= floorf(phase);
         if (shape == SHAPE_TRIANGLE) {
             float shifted = phase + 0.25f;
-            shifted -= floorf(shifted);
+            if (shifted >= 1.f) shifted -= 1.f;
             return 1.f - 4.f * fabsf(shifted - 0.5f);
         }
         if (shape == SHAPE_STEPPED) phase = hotPotSteppedPhase(phase);
@@ -1295,13 +1307,13 @@ struct HotPot : Module {
     void controlUpdate() {
         const float sr        = sampleRate;
         const float tickSec   = (float)CONTROL_DIV / sr;
-        const float sizeKnob  = clamp(params[SIZE_PARAM].getValue()
+        const float sizeKnob  = hotPotClamp(params[SIZE_PARAM].getValue()
                                     + params[SIZE_ATT_PARAM].getValue() * inputs[SIZE_CV_INPUT].getVoltage() * 0.1f, 0.f, 1.f);
         const float sceneScale = SCENE_SCALE_MIN * powf(SCENE_SCALE_RANGE, sizeKnob);
         sceneScaleCurrent = sceneScale;
-        const float cues      = clamp(params[CUES_PARAM].getValue()
+        const float cues      = hotPotClamp(params[CUES_PARAM].getValue()
                                     + params[CUES_ATT_PARAM].getValue() * inputs[CUES_CV_INPUT].getVoltage() * 0.3f, 0.f, 3.f);
-        const float roomAmount = clamp(params[ROOM_PARAM].getValue()
+        const float roomAmount = hotPotClamp(params[ROOM_PARAM].getValue()
                                      + params[ROOM_ATT_PARAM].getValue() * inputs[ROOM_CV_INPUT].getVoltage() * 0.1f, 0.f, 1.f);
 
         // Haas (context menu) stretches the far-ear maximum from natural ITD to HAAS_MAX_SEC.
@@ -1328,7 +1340,7 @@ struct HotPot : Module {
 
         if (cues != shelfCachedCues) {
             shelfCachedCues = cues;
-            const float shelfSlide = clamp((cues - 1.f) * 0.5f, 0.f, 1.f);
+            const float shelfSlide = hotPotClamp((cues - 1.f) * 0.5f, 0.f, 1.f);
             const float shelfHz    = REAR_SHELF_HZ + (REAR_SHELF_HZ_LOW - REAR_SHELF_HZ) * shelfSlide;
             const float shelfW     = 2.f * float(M_PI) * shelfHz / sr;
             shelfCos   = cosf(shelfW);
@@ -1354,17 +1366,19 @@ struct HotPot : Module {
             // MOVE is the rate: off at the bottom, then exponential across the
             // whole slider. Rails fade their motion in and out; Stir keeps a
             // running turn that winds back home the short way when stopped.
-            const float moveValue = clamp(params[MOVE_PARAM + r].getValue()
+            const float moveValue = hotPotClamp(params[MOVE_PARAM + r].getValue()
                                         + params[MOVE_ATT_PARAM + r].getValue() * inputs[MOVE_CV_INPUT + r].getVoltage() * 0.1f,
                                           0.f, 1.f);
             const bool moving = (moveValue > MOVE_OFF) && !skimming[r];
             if (moving) {
                 const float hz = MOVE_RATE_MIN_HZ * powf(MOVE_RATE_RANGE, (moveValue - MOVE_OFF) / (1.f - MOVE_OFF));
+                // Each tick moves well under a cycle, so one conditional wrap
+                // keeps the phase in [0, 1) and the turn in [-0.5, 0.5).
                 motionPhase[r] += hz * tickSec;
-                motionPhase[r] -= floorf(motionPhase[r]);
+                if (motionPhase[r] >= 1.f) motionPhase[r] -= 1.f;
                 if (r == 0) {
                     ringTurn += hz * tickSec;
-                    ringTurn -= floorf(ringTurn + 0.5f);   // a whole turn is invisible
+                    if (ringTurn >= 0.5f) ringTurn -= 1.f;   // a whole turn is invisible
                 }
             }
             const float settleCoeff = skimming[r] ? skimCoeff : fadeCoeff;
@@ -1392,7 +1406,7 @@ struct HotPot : Module {
             lights[MUTE_LIGHT + r].setBrightness(muted ? 1.f : 0.f);
 
             // -- Placement inputs ----------------------------------------------
-            const float spreadTarget = clamp(params[SPREAD_PARAM + r].getValue()
+            const float spreadTarget = hotPotClamp(params[SPREAD_PARAM + r].getValue()
                                          + params[SPREAD_ATT_PARAM + r].getValue() * inputs[SPREAD_CV_INPUT + r].getVoltage() * 0.1f,
                                            0.f, 1.f);
             if (!spreadPrimed[r]) { spreadSmoothed[r] = spreadTarget; spreadPrimed[r] = true; }
@@ -1417,7 +1431,6 @@ struct HotPot : Module {
             // Shabu and Fan sweep position, the same for every source on the rail.
             const float swing = (r == 0) ? 0.f : motionShapeValue(shape, motionPhase[r]);
 
-            // Scratch per source, loaded into float_4 groups below.
             // Scratch per source, loaded into float_4 groups below. Only the
             // groups in use are loaded, so only their slots are filled; the
             // unused lanes of the last group get neutral values.
@@ -1455,7 +1468,7 @@ struct HotPot : Module {
                 if (levelCvChannels == 1)     levelVolts = levelCv.getVoltage(0);
                 else if (i < levelCvChannels) levelVolts = levelCv.getVoltage(i);
                 const float sourceLevel = levelSliderGain
-                                        * (1.f - levelDepth + levelDepth * clamp(levelVolts * 0.1f, 0.f, 1.f));
+                                        * (1.f - levelDepth + levelDepth * hotPotClamp(levelVolts * 0.1f, 0.f, 1.f));
 
                 // Fan splits its sources between the left and right tracks: A
                 // left and B right, or alternating when only A is patched. Each
@@ -1484,7 +1497,7 @@ struct HotPot : Module {
                 if (r == 0) {
                     // Stir: spacing = span / (n - 1), crossfading to span / n at full circle.
                     const float spanDeg   = spreadNorm * 360.f;
-                    const float wrapBlend = clamp((spreadNorm - 0.9f) * 10.f, 0.f, 1.f);
+                    const float wrapBlend = hotPotClamp((spreadNorm - 0.9f) * 10.f, 0.f, 1.f);
                     const float divisor   = std::max((float)(n - 1) + wrapBlend, 1.f);
                     const float offsetDeg = ((float)i - 0.5f * (float)(n - 1)) * spanDeg / divisor;
 
@@ -1509,7 +1522,7 @@ struct HotPot : Module {
                     // reached. Pushed toward an end, the formation bunches up
                     // softly rather than piling into the end stop.
                     // Past +-2 everything is already pressed into the padding.
-                    const float home      = clamp(posHome, -2.f, 2.f);
+                    const float home      = hotPotClamp(posHome, -2.f, 2.f);
                     const float formation = centered * 2.f;               // -1 .. +1 across this side's sources
 
                     const float restOpen = home + formation * spreadNorm;
@@ -1561,7 +1574,7 @@ struct HotPot : Module {
                 const float cosTheta = y / safeDist;    // +1 = front
 
                 // In-head fade: directional cues go neutral near the center.
-                float headRatio = clamp(distance / inHeadRadius, 0.f, 1.f);
+                float headRatio = hotPotClamp(distance / inHeadRadius, 0.f, 1.f);
                 const float headFade = headRatio * headRatio * (3.f - 2.f * headRatio);
 
                 const float lateral   = sinTheta * headFade;
@@ -1574,7 +1587,7 @@ struct HotPot : Module {
                 levelGain[i] = distanceGain * sourceLevel;
 
                 // Air absorption, absolute meters.
-                float airHz = clamp(20000.f / (1.f + cues * distance / AIR_DISTANCE_M), AIR_MIN_HZ, 20000.f);
+                float airHz = hotPotClamp(20000.f / (1.f + cues * distance / AIR_DISTANCE_M), AIR_MIN_HZ, 20000.f);
                 airCoeff[i] = (airHz >= 19999.f) ? 0.f : expf(-2.f * float(M_PI) * airHz / sr);
 
                 // Front/back tone: presence peak in front, high shelf behind.
@@ -1622,21 +1635,21 @@ struct HotPot : Module {
                 // Past 100% Spice, distance also sets the wet/dry balance (at or
                 // below 100% that factor is exactly 1, so it is skipped).
                 const float wetTilt   = (spiceExtra > 0.f)
-                                      ? clamp(powf(distanceRatio, SPICE_WET_EXPONENT * spiceExtra), 0.25f, 4.f) : 1.f;
+                                      ? hotPotClamp(powf(distanceRatio, SPICE_WET_EXPONENT * spiceExtra), 0.25f, 4.f) : 1.f;
                 const float rearBoost = (1.f + REAR_SEND_BOOST * cues * std::max(0.f, -frontness)) * wetTilt;
                 sendL[i] = sourceLevel * roomAmount * panL * rearBoost;
                 sendR[i] = sourceLevel * roomAmount * panR * rearBoost;
 
                 // Head shadow (Brown-Duda), angle from each ear's axis. The ears
                 // face opposite ways, so the left angle is pi minus the right.
-                const float thetaEarR = acosf(clamp(sinTheta, -1.f, 1.f));
+                const float thetaEarR = acosf(hotPotClamp(sinTheta, -1.f, 1.f));
                 const float thetaEarL = float(M_PI) - thetaEarR;
                 const float alphaBase = 1.f + 0.5f * SHADOW_ALPHA_MIN;
                 const float alphaSwing = 1.f - 0.5f * SHADOW_ALPHA_MIN;
                 float alphaR = alphaBase + alphaSwing * cosf(thetaEarR * SHADOW_THETA_SCALE);
                 float alphaL = alphaBase + alphaSwing * cosf(thetaEarL * SHADOW_THETA_SCALE);
-                alphaR = clamp(1.f + (alphaR - 1.f) * cues * headFade, SHADOW_ALPHA_LOW, SHADOW_ALPHA_HIGH);
-                alphaL = clamp(1.f + (alphaL - 1.f) * cues * headFade, SHADOW_ALPHA_LOW, SHADOW_ALPHA_HIGH);
+                alphaR = hotPotClamp(1.f + (alphaR - 1.f) * cues * headFade, SHADOW_ALPHA_LOW, SHADOW_ALPHA_HIGH);
+                alphaL = hotPotClamp(1.f + (alphaL - 1.f) * cues * headFade, SHADOW_ALPHA_LOW, SHADOW_ALPHA_HIGH);
                 shadowB0L[i] = (1.f + alphaL * shadowT) * shadowNorm;
                 shadowB1L[i] = (1.f - alphaL * shadowT) * shadowNorm;
                 shadowA1L[i] = (1.f - shadowT) * shadowNorm;
@@ -1738,7 +1751,7 @@ struct HotPot : Module {
             // Linear ramp to the new gain across the next block.
             potGainStep = (powf(10.f, -reductionDb / 20.f) - potGain) / (float)CONTROL_DIV;
         }
-        const float mainKnob = clamp(params[MAIN_PARAM].getValue()
+        const float mainKnob = hotPotClamp(params[MAIN_PARAM].getValue()
                                    + params[MAIN_ATT_PARAM].getValue() * inputs[MAIN_CV_INPUT].getVoltage() * 0.1f, 0.f, 1.f);
         // Lower half: volume, square law to unity. Upper half: tube drive in dB,
         // with the bias and the warmth rolloff following it.
@@ -1756,13 +1769,13 @@ struct HotPot : Module {
         warmCoeff = (driveNorm < 1e-3f) ? 0.f
                   : expf(-2.f * float(M_PI) * 20000.f * powf(TUBE_WARM_HZ / 20000.f, driveNorm) / sr);
 
-        const float decayKnob = clamp(params[DECAY_PARAM].getValue()
+        const float decayKnob = hotPotClamp(params[DECAY_PARAM].getValue()
                                     + params[DECAY_ATT_PARAM].getValue() * inputs[DECAY_CV_INPUT].getVoltage() * 0.1f, 0.f, 1.f);
-        const float hazeKnob  = clamp(params[HAZE_PARAM].getValue()
+        const float hazeKnob  = hotPotClamp(params[HAZE_PARAM].getValue()
                                     + params[HAZE_ATT_PARAM].getValue()  * inputs[HAZE_CV_INPUT].getVoltage()  * 0.1f, 0.f, 1.f);
         const float diffuseAmount = std::min(hazeKnob * HAZE_DIFFUSE_SCALE, 1.f);
         const float modAmount     = std::max(0.f, (hazeKnob - HAZE_MOD_START) / (1.f - HAZE_MOD_START));
-        const float dampKnob  = clamp(params[DAMP_PARAM].getValue()
+        const float dampKnob  = hotPotClamp(params[DAMP_PARAM].getValue()
                                     + params[DAMP_ATT_PARAM].getValue()  * inputs[DAMP_CV_INPUT].getVoltage()  * 0.1f, 0.f, 1.f);
         // The room's coefficients only need rebuilding when one of its inputs moves.
         const float roomArgs[5] = { sizeKnob, decayKnob, dampKnob, diffuseAmount, modAmount };

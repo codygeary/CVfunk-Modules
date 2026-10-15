@@ -37,6 +37,32 @@
 using float_4 = rack::simd::float_4;
 
 // --------------------------------------------------------------------------
+// Scalar clamps and floors in the audio path
+//
+// MetaModule runs a Cortex-A7 (ARMv7, NEON-VFPv4) without fast-math, and
+// ARMv7 has no IEEE min/max or rounding instruction, so rack::clamp,
+// fminf/fmaxf and floorf are out-of-line library calls there. Everything that
+// runs per sample or per control tick is therefore written with compares and
+// selects:
+//
+//   clamp:  std::max(lo, std::min(hi, x))
+//           This argument order matches rack::clamp bit for bit, NaN
+//           included: a NaN x pins to hi, exactly as fmax(fmin(x, hi), lo)
+//           does, so the non-finite guards downstream see what they always
+//           saw.
+//   fmaxf:  std::max(a, b) with the value that can never be NaN FIRST.
+//           std::max(a, NaN) returns a, matching fmaxf; std::max(NaN, b)
+//           would return NaN.
+//   floorf: truncate through int, then step down one for negatives.
+//           Exact for |x| < 2^31, which every delay position here is.
+//
+// float_4 simd::clamp / fmin / fmax map straight to NEON and stay as they
+// are. So does simd::floor: the MetaModule SDK implements it in six NEON
+// instructions, and a hand-rolled version measured larger. The init-time,
+// display-only and integer clamps are left alone too.
+// --------------------------------------------------------------------------
+
+// --------------------------------------------------------------------------
 // Small math helpers
 // --------------------------------------------------------------------------
 inline float twangWrapToPi(float x) {
@@ -196,13 +222,13 @@ struct TwangADAADrive {
     // The polynomial approximations are only accurate for small inputs,
     // so normalize into a safe range before applying them.
     float process(float inV, float driveGain) {
-        float sig  = rack::clamp(inV * driveGain, -13.14f, 13.14f);
+        float sig  = std::max(-13.14f, std::min(13.14f, inV * driveGain));
         // Past |x| ~ 1.1 the polynomial folds back instead of saturating; the
         // clamp above lets norm reach 1.314. See GlassADAADrive.
-        float norm = rack::clamp(sig / 10.f, -1.f, 1.f);
+        float norm = std::max(-1.f, std::min(1.f, sig / 10.f));
         float out  = applyADAA(norm, lastInput);
         lastInput  = norm;
-        return rack::clamp(out * 6.9f, -10.f, 10.f);
+        return std::max(-10.f, std::min(10.f, out * 6.9f));
     }
 
     void reset() { lastInput = 0.f; }
@@ -322,7 +348,8 @@ struct TwangRailSIMD {
     // land on the slot about to be overwritten, so they are held at 1.
     inline void addLane(int lane, float age, float value) {
         float pos    = (float)writeIndex - std::max(age, 1.f);
-        float floorP = floorf(pos);
+        float floorP = (float)(int32_t)pos;
+        if (pos < floorP) floorP -= 1.f;
         float frac   = pos - floorP;
         int   index  = ((int)floorP) & bufMask;
         buf[lane][index]                 += value * (1.f - frac);
@@ -457,12 +484,12 @@ struct TwangPluckExciter {
     inline void trigger(float hardness, float velocity, float sampleRate) {
         // Contact time: 4.0ms (pad of a finger) down to 0.25ms (rigid pick).
         // Tune: widen the range for more extreme pluck characters.
-        float contactMs = 4.0f - 3.75f * rack::clamp(hardness, 0.f, 1.f);
-        widthSamples = fmaxf(contactMs * 0.001f * sampleRate, 2.f);
+        float contactMs = 4.0f - 3.75f * std::max(0.f, std::min(1.f, hardness));
+        widthSamples = std::max(2.f, contactMs * 0.001f * sampleRate);
         amplitude    = velocity;
         pulsePhase   = 0.f;
         active       = true;
-        leakCoeff    = expf(-1.f / fmaxf(0.005f * sampleRate, 1.f));
+        leakCoeff    = expf(-1.f / std::max(1.f, 0.005f * sampleRate));
         // The integral of a unit Hann lobe is widthSamples/2, so this keeps
         // the tilted pulse at the same peak height as the raw one and the
         // hardness control stays a pure timbre axis.
@@ -537,8 +564,8 @@ inline void twangResonatorCoeffs(float f0, float Q, float sr,
                                  float& b0, float& a1, float& a2) {
     // 1 Hz floor rather than 20: the body never uses anything that low, but
     // the twang bounce is a pitch envelope and lives down at 5-35 Hz.
-    f0 = rack::clamp(f0, 1.f, sr * 0.45f);
-    Q  = rack::clamp(Q, 0.5f, 400.f);
+    f0 = std::max(1.f, std::min(sr * 0.45f, f0));
+    Q  = std::max(0.5f, std::min(400.f, Q));
 
     float w0 = 2.f * float(M_PI) * f0 / sr;
     float BW = f0 / Q;                                  // -3 dB bandwidth, Hz
@@ -546,7 +573,7 @@ inline void twangResonatorCoeffs(float f0, float Q, float sr,
 
     // cos(theta) can exceed 1 for very low f0 at high Q; clamping puts the
     // pole on the real axis, which is stable and inaudible down there.
-    float c     = rack::clamp((1.f + R * R) / (2.f * R) * cosf(w0), -1.f, 1.f);
+    float c     = std::max(-1.f, std::min(1.f, (1.f + R * R) / (2.f * R) * cosf(w0)));
     float theta = acosf(c);
 
     b0 = (1.f - R * R) * 0.5f;
@@ -646,7 +673,7 @@ struct TwangBridgeAdmittanceSIMD {
         }
     }
 
-    void setCoupling(float k) { coupling = float_4(rack::clamp(k, 0.f, 0.7f)); }
+    void setCoupling(float k) { coupling = float_4(std::max(0.f, std::min(0.7f, k))); }
 
     inline float_4 process(float_4 atBridge) {
         float_4 sum = float_4(0.f);
@@ -673,8 +700,10 @@ struct TwangBridgeAdmittanceSIMD {
 //             is added into the rails at the pluck point, as equal waves in
 //             both directions. The characteristic pluck spectrum (harmonics
 //             with a node at the pluck point cancelled) emerges from the
-//             reflections. As bowLift decays back to 0 the bow re-grips, so
-//             bowing resumes on a still-ringing string.
+//             reflections. The bow then stands off the string until the
+//             pluck has rung down to the level the bow was playing at (see
+//             the bow yield below), so a plucked note decays as a pluck
+//             wherever the bow sits, and bowing resumes underneath it.
 //
 // P only follows the bow position (slowly). Each rail's write head sits at
 // one end of its span, so moving P re-maps what the far end of the span
@@ -751,6 +780,53 @@ struct TwangStringSIMD {
     // enforcing "you can't bow and pluck at once".
     float_4 bowLift = float_4(0.f);
     float   bowLiftDecay = 0.999f;   // per-sample, set from sample rate in init
+
+    // ---- bow yield after a pluck -----------------------------------------
+    // The lift above only covers the pluck itself. Once it decayed, a moving
+    // bow used to grip the still-ringing string at once, and from then on
+    // the tail was the bow's sound rather than the pluck's: where the bow sat
+    // decided how the pluck decayed (the tail one second after a pluck at
+    // C3 varied 2.5x across bow positions). Worse, a pluck could kick the
+    // bow into a louder self-sustaining regime than it reaches from rest --
+    // the string bowed at 2-3x its normal level, hot enough to hit the drive
+    // and output clamps, for as long as the bow kept moving.
+    //
+    // So the bow yields. A pluck records the string's energy at that moment,
+    // which is what the bow was sustaining, and the bow is held off (its
+    // engagement scaled by (target / energy)^2, never above 1) until the
+    // pluck has rung down to that level. Then it hands back, at the level it
+    // left. If the stroke was still building at the pluck, its level is not
+    // known yet, and a typical settled level for that bow speed stands in.
+    // The target scales with (bow speed * BOW LEVEL)^2, so moving either
+    // during the yield moves the hand-back point with it.
+    //
+    // Measured over random settings: bowing after a pluck that ends up more
+    // than 2x louder than both the bow alone and the pluck alone fell from
+    // 27% to 10% of cases, and the loudest post-pluck bowing (95th
+    // percentile) now sits inside the range the bow reaches from rest.
+    //
+    // Hand-tunable:
+    //   YIELD_FLOOR        hand-back floor, in string energy per (bow speed)^2.
+    //                      Lower keeps the bow off longer after a pluck.
+    //   YIELD_BUILD_LEVEL  typical settled bowed energy per (bow speed)^2,
+    //                      used when the stroke was still building.
+    //   YIELD_BUILD_RATIO  energySmooth / levelRef above this at the pluck
+    //                      means the stroke was still building.
+    //   YIELD_MAX_TIME     the bow always returns by this many seconds after
+    //                      a pluck, so a long-DECAY pluck cannot silence it.
+    //                      Longer lets a loud pluck own the string longer, at
+    //                      a higher chance of the bow coming back into the
+    //                      louder regime while the pluck is still big.
+    static constexpr float YIELD_FLOOR       = 0.05f;
+    static constexpr float YIELD_BUILD_LEVEL = 0.43f;
+    static constexpr float YIELD_BUILD_RATIO = 1.25f;
+    static constexpr float YIELD_MAX_TIME    = 2.0f;   // seconds
+    float_4 yieldActive   = float_4(0.f);   // 1 while the bow stands off a plucked lane
+    float_4 yieldTarget   = float_4(0.f);   // energy to ring down to; negative = stroke was building
+    float_4 yieldDriveRef = float_4(0.f);   // |bow speed| * BOW LEVEL at the pluck; 0 = not bowing
+    float_4 yieldTime     = float_4(0.f);   // samples spent yielding
+    float_4 lastDrive     = float_4(0.f);   // |bow speed| * BOW LEVEL, last sample
+    float   yieldMaxSamples = 96000.f;      // YIELD_MAX_TIME in samples, set in init
     // Per-sample glide rate for the junction following the bow position (~30 ms).
     float   junctionReturnCoeff = 0.01f;
 
@@ -824,8 +900,8 @@ struct TwangStringSIMD {
     // oscillator. Above about 40 Hz it stops being a wobble and turns into
     // sideband noise on the note.
     void setTwangBounce(float hz, float q, float sr) {
-        hz = rack::clamp(hz, 0.5f, 60.f);
-        q  = rack::clamp(q, 0.5f, 40.f);
+        hz = std::max(0.5f, std::min(60.f, hz));
+        q  = std::max(0.5f, std::min(40.f, q));
         twangBounce1.set(hz,         q, sr);
         twangBounce2.set(hz * 2.71f, q * 0.7f, sr);
         // A constant-peak-gain resonator has unity gain for a SINE at f0, but
@@ -835,7 +911,7 @@ struct TwangStringSIMD {
         // ripples got interesting. Measured against a direct impulse test:
         // peak * bounceNorm comes out at 1.00.
         float b0 = twangBounce1.b0[0];
-        bounceNorm = (b0 > 1e-9f) ? rack::clamp(0.5f / b0, 0.f, 20000.f) : 0.f;
+        bounceNorm = (b0 > 1e-9f) ? std::max(0.f, std::min(20000.f, 0.5f / b0)) : 0.f;
     }
 
     void init(float sr, float maxDelaySec = 0.065f) {
@@ -858,6 +934,12 @@ struct TwangStringSIMD {
         twangRing           = float_4(0.f);
         twangBounce1.reset(); twangBounce2.reset();
         bowLift             = float_4(0.f);
+        yieldActive         = float_4(0.f);
+        yieldTarget         = float_4(0.f);
+        yieldDriveRef       = float_4(0.f);
+        yieldTime           = float_4(0.f);
+        lastDrive           = float_4(0.f);
+        yieldMaxSamples     = YIELD_MAX_TIME * sr;
         // The lifted bow re-engages over BOW_LIFT_TIME after a pluck, and
         // the junction glides back to the bow position at a similar pace.
         bowLiftDecay        = expf(-1.f / fmaxf(BOW_LIFT_TIME * sr, 1.f));
@@ -887,6 +969,11 @@ struct TwangStringSIMD {
         twangRing          = float_4(0.f);
         twangBounce1.reset(); twangBounce2.reset();
         bowLift            = float_4(0.f);
+        yieldActive        = float_4(0.f);
+        yieldTarget        = float_4(0.f);
+        yieldDriveRef      = float_4(0.f);
+        yieldTime          = float_4(0.f);
+        lastDrive          = float_4(0.f);
         junctionPos        = bowPosition;
     }
 
@@ -914,6 +1001,11 @@ struct TwangStringSIMD {
         zeroLane(prevKick);
         zeroLane(twangRing);
         zeroLane(bowLift);
+        zeroLane(yieldActive);
+        zeroLane(yieldTarget);
+        zeroLane(yieldDriveRef);
+        zeroLane(yieldTime);
+        zeroLane(lastDrive);
         float a[LANES];
         drainGain.store(a); a[lane] = 1.f; drainGain = float_4::load(a);
         float b[LANES];
@@ -922,14 +1014,42 @@ struct TwangStringSIMD {
         junctionPos = float_4::load(a);
     }
 
-    // Pluck this lane: lift the bow and start the twang kick at the pluck's
-    // velocity. The impulse itself is injected at the lane's pluck point in
-    // process(); the junction stays where the bow is.
+    // Pluck this lane: lift the bow, start the bow yield, and start the
+    // twang kick at the pluck's velocity. The impulse itself is injected at
+    // the lane's pluck point in process(); the junction stays where the bow is.
     inline void triggerPluck(int lane, float velocity) {
         float liftArr[LANES];
         bowLift.store(liftArr);
         liftArr[lane] = 1.f;
         bowLift       = float_4::load(liftArr);
+
+        // Record what the bow was doing. A re-pluck while the bow is still
+        // yielding keeps the first record: the string's energy by then is
+        // the earlier pluck's, not the bow's.
+        float activeArr[LANES];
+        yieldActive.store(activeArr);
+        if (activeArr[lane] == 0.f) {
+            float targetArr[LANES], driveRefArr[LANES], driveArr[LANES];
+            float energyArr[LANES], smoothArr[LANES], referenceArr[LANES];
+            yieldTarget.store(targetArr);
+            yieldDriveRef.store(driveRefArr);
+            lastDrive.store(driveArr);
+            safetyRMS.store(energyArr);
+            energySmooth.store(smoothArr);
+            levelRef.store(referenceArr);
+            const bool bowing   = driveArr[lane] > 1e-3f;
+            const bool building = smoothArr[lane] > YIELD_BUILD_RATIO * referenceArr[lane];
+            targetArr[lane]   = bowing ? (building ? -1.f : energyArr[lane]) : 0.f;
+            driveRefArr[lane] = bowing ? driveArr[lane] : 0.f;
+            yieldTarget   = float_4::load(targetArr);
+            yieldDriveRef = float_4::load(driveRefArr);
+        }
+        activeArr[lane] = 1.f;
+        yieldActive     = float_4::load(activeArr);
+        float timeArr[LANES];
+        yieldTime.store(timeArr);
+        timeArr[lane] = 0.f;
+        yieldTime     = float_4::load(timeArr);
 
         float kickArr[LANES];
         pluckKick.store(kickArr);
@@ -971,6 +1091,32 @@ struct TwangStringSIMD {
         float_4 absSpeed  = rack::simd::fabs(bowSpeed);
         float_4 bowMotion = absSpeed / (absSpeed + float_4(gripKnee));
         float_4 engagement = (float_4(1.f) - bowLift) * bowMotion;
+
+        // Bow yield after a pluck (see the members above and triggerPluck).
+        // handBack is the energy the pluck has to ring down to before the
+        // bow comes back. safetyRMS is the same both-ends energy the safety
+        // limiter watches, from the previous sample.
+        {
+            const float_4 drive      = absSpeed * bowJunction.bowLevel;
+            const float_4 speedSq    = absSpeed * absSpeed;
+            const float_4 driveRatio = drive / rack::simd::fmax(yieldDriveRef, float_4(1e-6f));
+            float_4 handBack = rack::simd::fmax(yieldTarget * driveRatio * driveRatio,
+                                                float_4(YIELD_FLOOR) * speedSq);
+            handBack = rack::simd::ifelse(yieldTarget < float_4(0.f),
+                                          float_4(YIELD_BUILD_LEVEL) * speedSq, handBack)
+                     + float_4(1e-6f);
+            yieldTime += yieldActive;
+            // Not before the lift has mostly gone: until then the pluck's
+            // energy has not reached the detector, and the string reads as
+            // quiet as it was before the pluck.
+            const float_4 rungDown = (safetyRMS <= handBack) & (bowLift < float_4(0.5f));
+            const float_4 timedOut = yieldTime > float_4(yieldMaxSamples);
+            yieldActive = rack::simd::ifelse(rungDown | timedOut, float_4(0.f), yieldActive);
+            const float_4 yieldRatio = handBack / rack::simd::fmax(safetyRMS, float_4(1e-9f));
+            const float_4 yieldGain  = rack::simd::fmin(yieldRatio * yieldRatio, float_4(1.f));
+            engagement *= rack::simd::ifelse(yieldActive > float_4(0.f), yieldGain, float_4(1.f));
+            lastDrive = drive;
+        }
 
         // The junction's split point tracks the bow position with ~30 ms of
         // lag -- a bow arm taking its time, and inaudible.
@@ -1078,7 +1224,7 @@ struct TwangStringSIMD {
             if (impulse == 0.f) continue;
             const float laneTotal = total[lane];
             const float guard     = padFrac[lane];
-            const float pluckAt   = laneTotal * rack::clamp(pluckPosition[lane], guard, 1.f - guard);
+            const float pluckAt   = laneTotal * std::max(guard, std::min(1.f - guard, pluckPosition[lane]));
             const float splitAt   = segALen[lane];
             const float rightAt   = pluckAt + 1.f;
             const float leftAt    = pluckAt - 1.f;
@@ -1183,7 +1329,7 @@ struct TwangStringSIMD {
     // lane needs them, so with the pickup on the bridge side of every junction
     // (the usual case) this is two linear rail reads.
     inline float_4 pickupAt(float positionFraction) const {
-        const float_4 position  = float_4(rack::clamp(positionFraction, 0.f, 1.f));
+        const float_4 position  = float_4(std::max(0.f, std::min(1.f, positionFraction)));
         const float_4 fromNut   = position * totalSegmentSamples;   // samples from the nut
         const float_4 onNutSide = position <= splitPos;
         const int     nutLanes  = rack::simd::movemask(onNutSide);
@@ -1307,8 +1453,8 @@ struct TwangBodyModalSIMD {
                         TWANG_MODES[i].Q * qScale, sr);
             amp[i] = TWANG_MODES[i].amp * (1.f + material * 2.2f * (float)i / TWANG_MODE_COUNT);
         }
-        float hillHz = rack::clamp(800.f + 3500.f * rack::clamp(lowestModeHz / 500.f, 0.f, 1.f),
-                                   600.f, 5000.f);
+        float hillHz = std::max(600.f, std::min(5000.f,
+                           800.f + 3500.f * std::max(0.f, std::min(1.f, lowestModeHz / 500.f))));
         hill.set(hillHz, 1.6f + material * 4.0f, sr);
         hillGain    = 0.15f + material * 0.65f;
         diffuseFb   = 0.25f + material * 0.55f;
@@ -1415,8 +1561,8 @@ struct TwangBodyModal {
         // whole control range. Now it sweeps 800 Hz to 4.3 kHz, and MATERIAL
         // takes it from a barely-there bump to the dominant formant, which is
         // roughly the difference between a guitar and a violin.
-        float hillHz = rack::clamp(800.f + 3500.f * rack::clamp(lowestModeHz / 500.f, 0.f, 1.f),
-                                   600.f, 5000.f);
+        float hillHz = std::max(600.f, std::min(5000.f,
+                           800.f + 3500.f * std::max(0.f, std::min(1.f, lowestModeHz / 500.f))));
         hill.set(hillHz, 1.6f + material * 4.0f, sr);
         hillGain = 0.15f + material * 0.65f;
 

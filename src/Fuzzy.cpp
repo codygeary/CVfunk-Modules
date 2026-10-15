@@ -545,7 +545,7 @@ struct Fuzzy : Module {
             params[SWITCH_PARAM].setValue(params[SWITCH_PARAM].getValue() > 0.5f ? 0.f : 1.f);
         float switchTarget = params[SWITCH_PARAM].getValue() > 0.5f ? 1.f : 0.f;
         if (!circuitsIdle && switchFade != switchTarget)
-            switchFade = clamp(switchFade + (switchTarget > switchFade ? switchStep : -switchStep), 0.f, 1.f);
+            switchFade = std::min(std::max(switchFade + (switchTarget > switchFade ? switchStep : -switchStep), 0.f), 1.f);
 
         float dry = emf * kDryGain;
         if (dryDelay > 0) {

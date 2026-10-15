@@ -598,7 +598,9 @@ struct Core {
                     }
                 }
                 dv[k] = vNew - v[k];
-                maxMove = std::fmax(maxMove, std::fabs(slope[k] * dv[k]));
+                // std::max, not std::fmax: a compare, where fmax is a library call on
+                // 32-bit ARM. Same result here (a NaN move is ignored by both).
+                maxMove = std::max(maxMove, std::fabs(slope[k] * dv[k]));
                 v[k] = vNew;
             }
             lastIterations = it + 1;

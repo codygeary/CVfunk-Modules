@@ -79,7 +79,7 @@ static constexpr float TWANG_PICKUP_GAIN = 0.45f;
 // wound hotter, as real bridge pickups are. Hand-tunable.
 static const float     TWANG_PICKUP_TRIM[TWANG_PICKUP_COUNT] = { 1.f, 1.f, 1.25f };
 
-// Baseline string damping. Expressed as a decay TIME 
+// Baseline string damping. Expressed as a decay TIME
 static constexpr float TWANG_STRING_STIFFNESS = 0.06f;
 
 // Phase delay the dispersion allpasses add to the loop, in samples.
@@ -165,7 +165,7 @@ struct Twang : Module {
 
     // 16 voices as 4 quads of 4 symmetric SIMD lanes. Voice v lives in
     // quad v/4, lane v%4. Every lane runs identical physics -- only pitch
-    // and pluck state differ 
+    // and pluck state differ
     TwangStringSIMD voiceQuad[TWANG_QUADS];
     dsp::SchmittTrigger pluckTrigger[TWANG_MAX_POLY];
     float a_segmentSamples[TWANG_MAX_POLY];
@@ -178,11 +178,11 @@ struct Twang : Module {
     // independent resonators.
     TwangDCBlocker   dcBlocker;
     TwangADAADrive   outputDrive;
-    // Modal body. 
+    // Modal body.
     TwangBodyModal   body;
     TwangSpaceDelay  spaceL, spaceR;
     // Per-voice output chain for Poly Out, one quad at a time. The bodies
-    // share their coefficients across lanes 
+    // share their coefficients across lanes
     TwangDCBlockerSIMD  polyDC[TWANG_QUADS];
     TwangADAADriveSIMD  polyDrive[TWANG_QUADS];
     TwangBodyModalSIMD  polyBody[TWANG_QUADS];
@@ -210,7 +210,7 @@ struct Twang : Module {
     static constexpr int CTRL_SKIP = 32;
     int ctrlDivCounter = 0;
 
-    // Cached control-rate values. 
+    // Cached control-rate values.
     float_4 cachedToneCoeff[TWANG_QUADS];
     float_4 cachedLossPerSample[TWANG_QUADS];
     // Extra phase delay the loop's filters add on top of 2 * segmentSamples,
@@ -223,11 +223,11 @@ struct Twang : Module {
     float cachedDriveGain     = 1.f;
     float cachedVolume        = 0.8f;
     float cachedLowestMode    = 131.f;   // lowest body mode, Hz (RESONATOR SIZE)
-    
-    // Bridge admittance coupling: how hard the body loads the string termination. 
+
+    // Bridge admittance coupling: how hard the body loads the string termination.
     float bowLevel            = 0.7f;
     float pluckTilt           = 0.6f;
-    // Pluck level. 
+    // Pluck level.
     float pluckDrive          = 12.0f;   // now driven by the PLUCK LEVEL slider
     // Bow coupling. Moved off the panel to the context menu -- it is a voicing
     // constant more than a performance control. Stored as the final value, not
@@ -236,7 +236,7 @@ struct Twang : Module {
     // How much MATERIAL tilts body mode amplitude toward the upper modes.
     // 1.0 is the original behaviour; lower values hand brightness back to TONE.
     float bodyTilt            = 0.7f;
-    // How hard the body loads the string's bridge termination. 
+    // How hard the body loads the string's bridge termination.
     float bridgeCoupling      = TWANG_BRIDGE_COUPLING;
     // Per-voice bow speed. BOW SPEED CV is polyphonic so a MIDI-driven patch
     // can bow each note separately
@@ -402,8 +402,8 @@ struct Twang : Module {
         configParam(DRIVE_PARAM,                   0.f, 1.f, 0.f,   "Drive");
         configParam(DRIVE_TRIM_PARAM,             -1.f, 1.f, 0.f,   "Drive CV Trim");
 
-        configInput(VOCT_INPUT,       "V/Oct (polyphonic, sets voice count)");
-        configInput(PLUCK_TRIG_INPUT, "Pluck Trigger (polyphonic, voltage sets velocity)");
+        configInput(VOCT_INPUT,       "V/Oct");
+        configInput(PLUCK_TRIG_INPUT, "Pluck Trigger");
         configInput(FM_CV_INPUT,      "FM CV");
         configInput(BOW_SPEED_CV_INPUT,         "Bow Speed CV");
         configInput(MUTE_CV_INPUT,              "Mute CV");
@@ -539,7 +539,8 @@ struct Twang : Module {
         if (in.isConnected()) {
             int   nch = in.getChannels();
             float cv  = in.getVoltage(std::min(v, nch - 1)) * 0.1f;
-            base = clamp(base + params[trimId].getValue() * cv, 0.f, 1.f);
+            // Compare-based clamp; see the note at the top of FilterTwang.h.
+            base = std::max(0.f, std::min(1.f, base + params[trimId].getValue() * cv));
         }
         return base;
     }
@@ -549,7 +550,7 @@ struct Twang : Module {
         if (inputs[inputId].isConnected()) {
             float cv  = inputs[inputId].getVoltage(0) * 0.1f;
             float att = params[trimId].getValue();
-            base = clamp(base + att * cv, 0.f, 1.f);
+            base = std::max(0.f, std::min(1.f, base + att * cv));
         }
         return base;
     }
@@ -624,10 +625,9 @@ struct Twang : Module {
             for (int v = 0; v < nVoices; ++v) {
                 float d = muteBase;
                 if (muteCVConn)
-                    d = clamp(muteBase + muteAtt * 0.1f
-                              * inputs[MUTE_CV_INPUT].getVoltage(std::min(v, muteCVCh - 1)),
-                              0.f, 1.f);
-                loudestMute = fmaxf(loudestMute, d);
+                    d = std::max(0.f, std::min(1.f, muteBase + muteAtt * 0.1f
+                              * inputs[MUTE_CV_INPUT].getVoltage(std::min(v, muteCVCh - 1))));
+                loudestMute = std::max(loudestMute, d);
                 if (muteButton) d = 1.f;
                 muteDepthV[v] = d;
             }
@@ -659,14 +659,14 @@ struct Twang : Module {
                     float d = (v < nVoices) ? muteDepthV[v] : muteDepthV[0];
                     tc[lane] = toneCoeff + d * (mutedCoeff - toneCoeff);
                     float sec = stringDecaySeconds * (1.f - d * 0.85f);
-                    lp[lane] = 13.816f / fmaxf(sec * sampleRate, 1.f);
+                    lp[lane] = 13.816f / std::max(1.f, sec * sampleRate);
                     // The bridge filter is a one-pole y = a*y + (1-a)*x, whose
                     // phase delay at DC is a/(1-a) samples. That is nothing at
                     // a bright TONE and a lot at a dark one: 0.54 samples at
                     // 8 kHz, 1.72 at 3.5 kHz, 7.05 at 1 kHz, and 18.6 with the
                     // palm mute fully in. Add the allpasses and this is the
                     // whole error.
-                    float a = clamp(tc[lane], 0.f, 0.9995f);
+                    float a = std::max(0.f, std::min(0.9995f, tc[lane]));
                     ex[lane] = a / (1.f - a) + TWANG_DISPERSION_DELAY;
                 }
                 cachedToneCoeff[q]     = float_4::load(tc);
@@ -677,7 +677,7 @@ struct Twang : Module {
             // STRING IMPEDANCE: how hard the string resists the bow. Low
             // (light/gut-like) couples bow energy easily -- loud, easy to
             // excite, a bit of edge; high (heavy/steel-like) fights the bow,
-            // wants pressure and speed, but rings back harder. 
+            // wants pressure and speed, but rings back harder.
             // PLUCK LEVEL: pluck exciter drive, 1..30 (was the Pluck Drive menu float).
             pluckDrive = 1.f + 29.f * readSliderCV(ATTACK_PARAM, ATTACK_TRIM_PARAM,
                                                    ATTACK_CV_INPUT);
@@ -685,7 +685,7 @@ struct Twang : Module {
             // SLIP: how fast the bow friction collapses once the string
             // breaks free of the sticking region. Low = the bow keeps
             // dragging after it slips (lazy, buzzy, sustaining scrape);
-            // high = the slip dies fast (crisp, articulated, more stick slip bite). 
+            // high = the slip dies fast (crisp, articulated, more stick slip bite).
             float slipSlider = readSliderCV(SLIP_PARAM, SLIP_TRIM_PARAM,
                                             SLIP_CV_INPUT);
             float slipFalloff = 4.f + slipSlider * 56.f;
@@ -800,7 +800,7 @@ struct Twang : Module {
             // 0.3-5.3 puts Q between about 7 and 115 -- broad enough at the
             // bottom to read as a formant, narrow enough at the top to sing.
             // MATERIAL owns body RING TIME (mode Q, ~7..115): wood is lossy and
-            // thuds, glass is near-lossless and sings. 
+            // thuds, glass is near-lossless and sings.
             float bodyQScale = 0.3f + bodyMaterial * 5.0f;
             float bodyTiltAmt = bodyMaterial * bodyTilt;
             body.setBody(cachedLowestMode, bodyQScale, bodyTiltAmt, sampleRate);
@@ -813,7 +813,7 @@ struct Twang : Module {
             // to be stable. Past that the body keeps rising and the termination
             // holds, which costs a little realism at one end of one slider and
             // buys not feeding back.
-            const float bridgeBodyHz = fminf(cachedLowestMode, TWANG_BRIDGE_BODY_MAX_HZ);
+            const float bridgeBodyHz = std::min(TWANG_BRIDGE_BODY_MAX_HZ, cachedLowestMode);
             for (int q = 0; q < TWANG_QUADS; ++q) {
                 voiceQuad[q].bridgeAdmittance.setBody(bridgeBodyHz, bodyQScale, sampleRate);
                 voiceQuad[q].bridgeAdmittance.setCoupling(bridgeCoupling);
@@ -834,7 +834,7 @@ struct Twang : Module {
             // Below 12 the rebound is slow and heavily damped (one soft
             // overshoot); above it the rate climbs, the damping falls away and
             // the pitch rings through several visible aftershocks.
-            float weird = clamp((twangMaxBendSemitones - 12.f) / 12.f, 0.f, 1.f);
+            float weird = std::max(0.f, std::min(1.f, (twangMaxBendSemitones - 12.f) / 12.f));
             cachedBounceDepth = twangBounceAmount * (0.15f + weird * 0.35f);
             for (int q = 0; q < TWANG_QUADS; ++q)
                 voiceQuad[q].setTwangBounce(twangBounceHz * (1.f + weird * 4.f),
@@ -856,14 +856,14 @@ struct Twang : Module {
                                 std::min(v, bowCVChannels - 1));
                 // Scale 0.2 maps +-5V CV to a +-1.0 contribution, matching the
                 // knob's own range so the two sum naturally.
-                t_bowSpeedV[v] = clamp(bowKnob + bowTrim * bowCV * 0.2f, -2.f, 2.f);
+                t_bowSpeedV[v] = std::max(-2.f, std::min(2.f, bowKnob + bowTrim * bowCV * 0.2f));
             }
             t_bowSpeed = t_bowSpeedV[0];   // display / panel mirror
 
             cachedVolume = params[VOLUME_PARAM].getValue();
             if (inputs[VOLUME_CV_INPUT].isConnected())
                 cachedVolume += inputs[VOLUME_CV_INPUT].getVoltage() * 0.1f;
-            cachedVolume = clamp(cachedVolume, 0.f, 1.f);
+            cachedVolume = std::max(0.f, std::min(1.f, cachedVolume));
 
             cachedBaseVOct = params[FREQ_PARAM].getValue();
         }
@@ -878,7 +878,7 @@ struct Twang : Module {
                 a_bowSpeedV[v] += 0.002f * (t - a_bowSpeedV[v]);
             else
                 a_bowSpeedV[v] += 0.02f  * (t - a_bowSpeedV[v]);
-            loudestBow = fmaxf(loudestBow, fabsf(a_bowSpeedV[v]));
+            loudestBow = std::max(loudestBow, fabsf(a_bowSpeedV[v]));
         }
         // Panel display and the sleep gate follow the busiest string.
         a_bowSpeed = (nVoices > 0) ? a_bowSpeedV[0] : 0.f;
@@ -888,7 +888,7 @@ struct Twang : Module {
         // the pluck point with the bow lifted -- so the two can't stack.
         // Velocity comes from the MAX PLUCK VELOCITY trimmer, which is the
         // only velocity source the button has -- it was a hardcoded 0.8.
-        const float pluckVelMax = clamp(params[PLUCK_VELOCITY_PARAM].getValue(), 0.f, 10.f) * 0.1f;
+        const float pluckVelMax = std::max(0.f, std::min(10.f, params[PLUCK_VELOCITY_PARAM].getValue())) * 0.1f;
         bool pluckButtonDown = params[PLUCK_BUTTON_PARAM].getValue() > 0.5f;
         lights[PLUCK_LIGHT].setBrightness(pluckButtonDown ? 1.f : 0.f);
         if (pluckButtonDown && !pluckButtonWasDown) {
@@ -918,13 +918,13 @@ struct Twang : Module {
                 int lane = v % 4;
                 float trigVolts = inputs[PLUCK_TRIG_INPUT].getPolyVoltage(v);
                 if (pluckTrigger[v].process(trigVolts, 0.1f, 1.f)) {
-                    float velocity = clamp(trigVolts * 0.1f, 0.05f, 1.f) * pluckVelMax;
+                    float velocity = std::max(0.05f, std::min(1.f, trigVolts * 0.1f)) * pluckVelMax;
                     // A harder pluck engages more string stiffness and so comes
                     // out brighter, not just louder -- velocity nudges the
                     // effective hardness upward rather than needing its own knob.
                     float baseHardness = pluckHardPoly ? pluckHardnessV[v] : cachedPluckHardness;
-                    float effectiveHardness = clamp(
-                        baseHardness + velocity * TWANG_PLUCK_BRIGHTEN, 0.f, 1.f);
+                    float effectiveHardness = std::max(0.f, std::min(1.f,
+                        baseHardness + velocity * TWANG_PLUCK_BRIGHTEN));
                     voiceQuad[q].pluck[lane].trigger(effectiveHardness, velocity, sampleRate);
                     // Bow lifts, junction moves to the pluck point, twang
                     // kicks (see TwangStringSIMD).
@@ -1023,32 +1023,32 @@ struct Twang : Module {
                 // so every musical input folds exactly as before; only the
                 // pathological ones are caught.
                 if (!std::isfinite(vOct)) vOct = 0.f;
-                vOct = clamp(vOct, -20.f, 20.f);
+                vOct = std::max(-20.f, std::min(20.f, vOct));
                 while (vOct > 2.0f) vOct -= 1.f;
-                vOct = fmaxf(vOct, -3.5f);
+                vOct = std::max(-3.5f, vOct);
 
                 // TWANG: real string tension rises with displacement, so a
                 // pluck goes briefly sharp and the string settles back to its
-                // resting pitch as it rings. 
+                // resting pitch as it rings.
                 if (cachedTwangDepth > 0.f) {
                     float levelTransient = (voiceQuad[q].energySmooth[lane]
                                           - voiceQuad[q].levelRef[lane]) * 0.25f;
-                    float twangAmt = clamp(levelTransient + voiceQuad[q].pluckKick[lane],
-                                           0.f, 1.f);
+                    float twangAmt = std::max(0.f, std::min(1.f,
+                                         levelTransient + voiceQuad[q].pluckKick[lane]));
                     // The bounce is SIGNED -- the dips below the resting pitch
                     // are the point. The clamp is asymmetric because the
                     // physics is: tension can rise a long way above resting,
                     // but it cannot fall far below it without the string going
                     // slack, so a deep downward rebound is not a thing a real
                     // string does.
-                    float bend = clamp(twangAmt + cachedBounceDepth * voiceQuad[q].twangRing[lane],
-                                       -0.35f, 1.5f);
+                    float bend = std::max(-0.35f, std::min(1.5f,
+                                     twangAmt + cachedBounceDepth * voiceQuad[q].twangRing[lane]));
                     vOct += cachedTwangDepth * twangMaxBendSemitones * bend / 12.f;
 
                     // The bend is added AFTER the octave fold above, so at very
                     // large Max Bend it could push vOct several octaves past
-                    // anything the waveguide can represent: 
-                    vOct = clamp(vOct, -3.5f, 2.0f);
+                    // anything the waveguide can represent:
+                    vOct = std::max(-3.5f, std::min(2.0f, vOct));
                 }
 
                 // 16 rather than 4: at the bow/pluck position extremes one of
@@ -1063,9 +1063,8 @@ struct Twang : Module {
                 // measured -6 cents at C2 but -83 cents at C6, and it moved
                 // with the TONE slider (-33 cents at C4 bright, -80 dark).
                 // Halved because the correction applies to the one-way span.
-                float target = clamp(vOctToSegmentSamples(vOct)
-                                     - cachedLoopExtra[q][lane] * 0.5f,
-                                     16.f, (float)voiceQuad[q].nutToP.bufSize - 4.f);
+                float target = std::max(16.f, std::min((float)voiceQuad[q].nutToP.bufSize - 4.f,
+                                   vOctToSegmentSamples(vOct) - cachedLoopExtra[q][lane] * 0.5f));
                 // Short spans near the nut and bridge are guarded inside the
                 // string itself (TwangStringSIMD::MIN_SPAN_SAMPLES), where the
                 // split actually happens, so both contact points get the same
@@ -1234,7 +1233,7 @@ struct Twang : Module {
                         int v = q * 4 + lane;
                         if (v >= nVoices) break;
                         float y = pickupArr[lane] * pickupScale;
-                        y = std::isfinite(y) ? clamp(y, -10.f, 10.f) : 0.f;
+                        y = std::isfinite(y) ? std::max(-10.f, std::min(10.f, y)) : 0.f;
                         outputs[OUT_L].setVoltage(y, v);
                         outputs[OUT_R].setVoltage(y, v);
                     }
@@ -1244,7 +1243,7 @@ struct Twang : Module {
                 for (int q = 0; q < nQuads; ++q) pickupSum += pickupVoice[q];
                 float y = (pickupSum[0] + pickupSum[1] + pickupSum[2] + pickupSum[3])
                         * a_polyNormalize * pickupScale;
-                y = std::isfinite(y) ? clamp(y, -10.f, 10.f) : 0.f;
+                y = std::isfinite(y) ? std::max(-10.f, std::min(10.f, y)) : 0.f;
                 outputs[OUT_L].setChannels(1);
                 outputs[OUT_R].setChannels(1);
                 outputs[OUT_L].setVoltage(y);
@@ -1283,8 +1282,8 @@ struct Twang : Module {
         } else {
             outputs[OUT_L].setChannels(1);
             outputs[OUT_R].setChannels(1);
-            outputs[OUT_L].setVoltage(clamp(voiceOutL * cachedVolume, -10.f, 10.f));
-            outputs[OUT_R].setVoltage(clamp(voiceOutR * cachedVolume, -10.f, 10.f));
+            outputs[OUT_L].setVoltage(std::max(-10.f, std::min(10.f, voiceOutL * cachedVolume)));
+            outputs[OUT_R].setVoltage(std::max(-10.f, std::min(10.f, voiceOutR * cachedVolume)));
         }
     }
 };
@@ -1307,23 +1306,23 @@ struct AulosSlider : LightSlider<TwangSliderBase, VCVSliderLight<TL>> {
 // Widget
 // ==========================================================================
 struct TwangWidget : ModuleWidget {
- 
+
     struct WaveDisplay : TransparentWidget {
         Twang* module = nullptr;
- 
+
         void drawLayer(const DrawArgs& args, int layer) override {
             if (layer != 1) { TransparentWidget::drawLayer(args, layer); return; }
- 
+
             const float w   = box.size.x;
             const float h   = box.size.y;
             const float pad = 3.f;
             const int   pts = 64;
- 
+
             nvgBeginPath(args.vg);
             nvgRoundedRect(args.vg, 0, 0, w, h, 3.f);
             nvgFillColor(args.vg, nvgRGB(12, 12, 14));
             nvgFill(args.vg);
- 
+
             if (!module) {
                 nvgBeginPath(args.vg);
                 nvgMoveTo(args.vg, pad, h * 0.5f);
@@ -1334,26 +1333,26 @@ struct TwangWidget : ModuleWidget {
                 TransparentWidget::drawLayer(args, layer);
                 return;
             }
- 
+
             // Voice 0 (quad 0, lane 0), stitched at the junction's split point.
             float displayBuf[pts];
             for (int i = 0; i < pts; ++i) {
                 float positionFraction = (float)i / (float)(pts - 1);
                 displayBuf[i] = module->voiceQuad[0].sampleStringAt(0, positionFraction);
             }
- 
+
             float peak = 0.f;
             for (int i = 0; i < pts; ++i)
                 peak = fmaxf(peak, fabsf(displayBuf[i]));
             float scale = (peak > 0.01f) ? (0.5f / peak) : 0.f;
- 
+
             float driveSlider = module->params[Twang::DRIVE_PARAM].getValue();
             float bowAmt  = clamp(fabsf(module->a_bowSpeed) * 2.f, 0.f, 1.f);
             float heatAmt = clamp(driveSlider * 0.6f + bowAmt * 0.4f, 0.f, 1.f);
             float lineR = 0.55f + heatAmt * (1.00f - 0.55f);
             float lineG = 0.65f + heatAmt * (0.75f - 0.65f);
             float lineB = 0.75f + heatAmt * (0.20f - 0.75f);
- 
+
             nvgBeginPath(args.vg);
             for (int i = 0; i < pts; ++i) {
                 float xPos = pad + (float)i / (float)(pts - 1) * (w - 2.f * pad);
@@ -1364,7 +1363,7 @@ struct TwangWidget : ModuleWidget {
             nvgStrokeColor(args.vg, nvgRGBAf(lineR, lineG, lineB, 0.85f));
             nvgStrokeWidth(args.vg, 1.5f);
             nvgStroke(args.vg);
- 
+
             // Contact markers.
             //
             // The old pair was a warm sand line and a pale green line, both at
@@ -1476,30 +1475,30 @@ struct TwangWidget : ModuleWidget {
             TransparentWidget::drawLayer(args, layer);
         }
     };
- 
+
     TwangWidget(Twang* module) {
         setModule(module);
         setPanel(createPanel(
             asset::plugin(pluginInstance, "res/Twang.svg"),
             asset::plugin(pluginInstance, "res/Twang-dark.svg")
         ));
- 
+
         addChild(createWidget<ThemedScrew>(Vec(0, 0)));
         addChild(createWidget<ThemedScrew>(Vec(box.size.x - RACK_GRID_WIDTH, 0)));
         addChild(createWidget<ThemedScrew>(Vec(0, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
         addChild(createWidget<ThemedScrew>(Vec(box.size.x - RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
- 
+
         // 20HP = 101.6mm. Two left rails of controls, then six slider
         // columns spanning the rest of the panel.
         const float railA = 9.5f;    // knob + trim + CV trios
         const float railB = 22.0f;   // lighter, mixed-height controls
- 
+
         // -- Rail A: three knob/trim/jack trios ----------------------------
         // BOW SPEED
         addParam(createParamCentered<RoundSmallBlackKnob>(mm2px(Vec(railA, 18.f)), module, Twang::BOW_SPEED_PARAM));
         addParam(createParamCentered<Trimpot>            (mm2px(Vec(railA, 28.f)), module, Twang::BOW_SPEED_TRIM_PARAM));
         addInput(createInputCentered<ThemedPJ301MPort>   (mm2px(Vec(railA, 37.f)), module, Twang::BOW_SPEED_CV_INPUT));
- 
+
         // MUTE
         addParam(createLightParamCentered<VCVLightBezelLatch<GreenLight>>(
             mm2px(Vec(railA, 52.f)), module, Twang::MUTE_BUTTON_PARAM, Twang::MUTE_LIGHT));
@@ -1514,16 +1513,16 @@ struct TwangWidget : ModuleWidget {
         addParam(createParamCentered<RoundSmallBlackKnob>(mm2px(Vec(railA, 62.f)), module, Twang::MUTE_PARAM));
         addParam(createParamCentered<Trimpot>            (mm2px(Vec(railA, 72.f)), module, Twang::MUTE_TRIM_PARAM));
         addInput(createInputCentered<ThemedPJ301MPort>   (mm2px(Vec(railA, 81.f)), module, Twang::MUTE_CV_INPUT));
- 
+
         // TWANG
         addParam(createParamCentered<RoundSmallBlackKnob>(mm2px(Vec(railA, 96.f)), module, Twang::TWANG_PARAM));
         addParam(createParamCentered<Trimpot>            (mm2px(Vec(railA,106.f)), module, Twang::TWANG_TRIM_PARAM));
         addInput(createInputCentered<ThemedPJ301MPort>   (mm2px(Vec(railA,115.f)), module, Twang::TWANG_CV_INPUT));
- 
+
         // -- Rail B: lighter controls --------------------------------------
         addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(railB, 19.f)), module, Twang::FREQ_PARAM));
         addInput(createInputCentered<ThemedPJ301MPort>   (mm2px(Vec(railB, 32.f)), module, Twang::VOCT_INPUT));
- 
+
         // VOLUME and FM move up, which frees 15mm above the pluck button for the
         // velocity trimmer. FM and the pluck group sit on rail A's own rows --
         // 72/81 against the MUTE trim and jack, 96/106/115 against the TWANG
@@ -1537,16 +1536,16 @@ struct TwangWidget : ModuleWidget {
         // the same 15mm of clear space below it that FM has below its own jack.
         addParam(createParamCentered<RoundSmallBlackKnob>(mm2px(Vec(railB, 47.f)), module, Twang::VOLUME_PARAM));
         addInput(createInputCentered<ThemedPJ301MPort>   (mm2px(Vec(railB, 57.f)), module, Twang::VOLUME_CV_INPUT));
- 
+
         addParam(createParamCentered<Trimpot>         (mm2px(Vec(railB, 72.f)), module, Twang::FM_TRIM_PARAM));
         addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(railB, 81.f)), module, Twang::FM_CV_INPUT));
- 
+
         addParam(createParamCentered<Trimpot>              (mm2px(Vec(railB,  96.f)), module, Twang::PLUCK_VELOCITY_PARAM));
         addParam(createParamCentered<LEDButton>            (mm2px(Vec(railB, 106.f)), module, Twang::PLUCK_BUTTON_PARAM));
         addChild(createLightCentered<SmallLight<BlueLight>>(mm2px(Vec(railB, 106.f)), module, Twang::PLUCK_LIGHT));
         addInput(createInputCentered<ThemedPJ301MPort>     (mm2px(Vec(railB, 115.f)), module, Twang::PLUCK_TRIG_INPUT));
- 
- 
+
+
         // -- Display -------------------------------------------------------
         // Narrower than the panel, sitting over the slider region only, so
         // the left rails can run the full panel height.
@@ -1554,11 +1553,11 @@ struct TwangWidget : ModuleWidget {
         wd->box.size = mm2px(Vec(40.f, 17.f));
         wd->module   = module;
         addChild(wd);
- 
+
         // -- Slider columns ------------------------------------------------
         // Six columns at 12mm pitch, matching the GLASS/AULOS slider bank.
         const float col[6] = { 36.f, 48.f, 60.f, 72.f, 84.f, 96.f };
- 
+
         // Slider handle colour, same scheme as GLASS and AULOS:
         //   1 blue   contact / excitation controls
         //   2 white  amount and string-property controls
@@ -1568,7 +1567,7 @@ struct TwangWidget : ModuleWidget {
         // read as a pair and TONE/DRIVE close each row the way WOOD closes
         // AULOS and DAMP closes GLASS.
         struct SlSpec { int param, att, cv, color; };
- 
+
         auto addSliderColumn = [&](const SlSpec& s, float x, float ys, float yt, float yj) {
             if (s.color == 1)
                 addParam(createParamCentered<AulosSlider<BlueLight>>  (mm2px(Vec(x, ys)), module, s.param));
@@ -1581,7 +1580,7 @@ struct TwangWidget : ModuleWidget {
             addParam(createParamCentered<Trimpot>         (mm2px(Vec(x, yt)), module, s.att));
             addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(x, yj)), module, s.cv));
         };
- 
+
         // Bow row (top): level, position, pressure, slip, material, tone.
         // Column 3 was String Impedance, now a context-menu voicing constant;
         // RESONATOR SIZE moved up into it so PLUCK LEVEL could take bottom-left,
@@ -1593,18 +1592,18 @@ struct TwangWidget : ModuleWidget {
         const float bowSliderY = 52.f;
         const float bowTrimY   = bowSliderY + 11.f;
         const float bowJackY   = bowSliderY + 19.f;
- 
+
         const SlSpec bowRow[6] = {
-            { Twang::BOW_LEVEL_PARAM,        Twang::BOW_LEVEL_TRIM_PARAM,        Twang::BOW_LEVEL_CV_INPUT,        1 },  
-            { Twang::BOW_POSITION_PARAM,     Twang::BOW_POSITION_TRIM_PARAM,     Twang::BOW_POSITION_CV_INPUT,     1 },  
-            { Twang::BOW_PRESSURE_PARAM,     Twang::BOW_PRESSURE_TRIM_PARAM,     Twang::BOW_PRESSURE_CV_INPUT,     1 },  
-            { Twang::SLIP_PARAM,             Twang::SLIP_TRIM_PARAM,             Twang::SLIP_CV_INPUT,             1 },  
-            { Twang::RESONATOR_MATERIAL_PARAM, Twang::RESONATOR_MATERIAL_TRIM_PARAM, Twang::RESONATOR_MATERIAL_CV_INPUT, 3 },  
-            { Twang::TONE_PARAM,             Twang::TONE_TRIM_PARAM,             Twang::TONE_CV_INPUT,             4 },  
+            { Twang::BOW_LEVEL_PARAM,        Twang::BOW_LEVEL_TRIM_PARAM,        Twang::BOW_LEVEL_CV_INPUT,        1 },
+            { Twang::BOW_POSITION_PARAM,     Twang::BOW_POSITION_TRIM_PARAM,     Twang::BOW_POSITION_CV_INPUT,     1 },
+            { Twang::BOW_PRESSURE_PARAM,     Twang::BOW_PRESSURE_TRIM_PARAM,     Twang::BOW_PRESSURE_CV_INPUT,     1 },
+            { Twang::SLIP_PARAM,             Twang::SLIP_TRIM_PARAM,             Twang::SLIP_CV_INPUT,             1 },
+            { Twang::RESONATOR_MATERIAL_PARAM, Twang::RESONATOR_MATERIAL_TRIM_PARAM, Twang::RESONATOR_MATERIAL_CV_INPUT, 3 },
+            { Twang::TONE_PARAM,             Twang::TONE_TRIM_PARAM,             Twang::TONE_CV_INPUT,             4 },
         };
         for (int i = 0; i < 6; ++i)
             addSliderColumn(bowRow[i], col[i], bowSliderY, bowTrimY, bowJackY);
- 
+
         // Pluck row (bottom): pluck level, position, decay, hardness, size, drive.
         // PLUCK LEVEL leads the row as the pluck's input stage. POSITION sits in
         // column 1 so it lands directly under BOW POSITION -- the two contact
@@ -1614,31 +1613,31 @@ struct TwangWidget : ModuleWidget {
         const float pluckSliderY = 96.f;
         const float pluckTrimY   = pluckSliderY + 11.f;
         const float pluckJackY   = pluckSliderY + 19.f;
- 
+
         const SlSpec pluckRow[6] = {
-            { Twang::ATTACK_PARAM,              Twang::ATTACK_TRIM_PARAM,              Twang::ATTACK_CV_INPUT,              2 },  
-            { Twang::PLUCK_POSITION_PARAM,      Twang::PLUCK_POSITION_TRIM_PARAM,      Twang::PLUCK_POSITION_CV_INPUT,      2 },  
-            { Twang::DECAY_PARAM,               Twang::DECAY_TRIM_PARAM,               Twang::DECAY_CV_INPUT,               2 },  
-            { Twang::PLUCK_HARDNESS_PARAM,      Twang::PLUCK_HARDNESS_TRIM_PARAM,      Twang::PLUCK_HARDNESS_CV_INPUT,      2 },  
-            { Twang::RESONATOR_SIZE_PARAM,      Twang::RESONATOR_SIZE_TRIM_PARAM,      Twang::RESONATOR_SIZE_CV_INPUT,      3 },  
-            { Twang::DRIVE_PARAM,               Twang::DRIVE_TRIM_PARAM,               Twang::DRIVE_CV_INPUT,               4 },  
+            { Twang::ATTACK_PARAM,              Twang::ATTACK_TRIM_PARAM,              Twang::ATTACK_CV_INPUT,              2 },
+            { Twang::PLUCK_POSITION_PARAM,      Twang::PLUCK_POSITION_TRIM_PARAM,      Twang::PLUCK_POSITION_CV_INPUT,      2 },
+            { Twang::DECAY_PARAM,               Twang::DECAY_TRIM_PARAM,               Twang::DECAY_CV_INPUT,               2 },
+            { Twang::PLUCK_HARDNESS_PARAM,      Twang::PLUCK_HARDNESS_TRIM_PARAM,      Twang::PLUCK_HARDNESS_CV_INPUT,      2 },
+            { Twang::RESONATOR_SIZE_PARAM,      Twang::RESONATOR_SIZE_TRIM_PARAM,      Twang::RESONATOR_SIZE_CV_INPUT,      3 },
+            { Twang::DRIVE_PARAM,               Twang::DRIVE_TRIM_PARAM,               Twang::DRIVE_CV_INPUT,               4 },
         };
         for (int i = 0; i < 6; ++i)
             addSliderColumn(pluckRow[i], col[i], pluckSliderY, pluckTrimY, pluckJackY);
- 
- 
+
+
         // -- Outputs -------------------------------------------------------
         addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(col[4], 23.5f)), module, Twang::OUT_L));
         addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(col[5], 23.5f)), module, Twang::OUT_R));
     }
- 
+
     void appendContextMenu(Menu* menu) override {
         ModuleWidget::appendContextMenu(menu);
         Twang* m = dynamic_cast<Twang*>(module);
         if (!m) return;
- 
+
         menu->addChild(new MenuSeparator());
- 
+
         struct FloatQuantity : Quantity {
             float* target; float lo, hi, def; std::string label;
             FloatQuantity(float* t, float lo, float hi, float def, std::string lbl)
@@ -1661,7 +1660,7 @@ struct TwangWidget : ModuleWidget {
             sl->box.size.x = 200.f;
             menu->addChild(sl);
         };
- 
+
         struct BoolItem : MenuItem {
             bool* target = nullptr;
             void onAction(const event::Action& e) override { *target = !*target; }
@@ -1673,7 +1672,7 @@ struct TwangWidget : ModuleWidget {
             it->target = v;
             menu->addChild(it);
         };
- 
+
         // Flat, with section labels instead of submenus. The set here is
         // deliberately small: everything else that used to be exposed
         // (velocity brightening, bow contact range, tone compensation, output
@@ -1681,7 +1680,7 @@ struct TwangWidget : ModuleWidget {
         // rather than a performance control, and now just keeps its tuned
         // default. The members and their patch keys are still there, so a
         // saved patch that moved one of them still loads and sounds the same.
- 
+
         menu->addChild(createMenuLabel("Pluck"));
         addFSlider(menu, &m->stringImpedance, 0.30f, 1.40f, 0.641f, "String Impedance (bow coupling)");
         addFSlider(menu, &m->bodyTilt,        0.f,   1.f,   0.7f,   "Material Brightness Tilt");
@@ -1694,7 +1693,7 @@ struct TwangWidget : ModuleWidget {
         // top of the range is as far as the reflection stays under unity.
         addFSlider(menu, &m->bridgeCoupling, 0.f, 0.7f, TWANG_BRIDGE_COUPLING,
                    "Bridge Coupling");
- 
+
         menu->addChild(new MenuSeparator());
         menu->addChild(createMenuLabel("Twang"));
         // Labels stay under the width of "Tone Compensation Gain", the longest
@@ -1703,11 +1702,11 @@ struct TwangWidget : ModuleWidget {
         addFSlider(menu, &m->twangMaxBendSemitones, 0.f, 24.f, 3.f,  "Max Bend (semitones)");
         addFSlider(menu, &m->twangBounceAmount,     0.f, 2.f,  0.5f, "Twang Bounce");
         addFSlider(menu, &m->twangBounceHz,         0.5f, 30.f, 7.f, "Bounce Rate (Hz)");
- 
+
         menu->addChild(new MenuSeparator());
         menu->addChild(createMenuLabel("Pitch"));
         addFSlider(menu, &m->fmDepthSemitones, 0.f, 24.f, 1.f, "FM Depth (semitones)");
- 
+
         menu->addChild(new MenuSeparator());
         menu->addChild(createMenuLabel("Output"));
         addToggle(menu, &m->polyOutput, "Poly Out");
@@ -1731,5 +1730,5 @@ struct TwangWidget : ModuleWidget {
         menu->addChild(new PanicItem(m));
     }
 };
- 
+
 Model* modelTwang = createModel<Twang, TwangWidget>("Twang");

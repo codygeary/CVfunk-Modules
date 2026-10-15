@@ -260,8 +260,6 @@ struct Vega : Module {
         configParam<VegaQuantity>(STRIP_PARAM + STRIP_FILTER, 0.f, 1.f, 0.4f, "Filter", " Hz", kFootTopHz / kCutoffMinHz, kCutoffMinHz);
         configParam<VegaQuantity>(STRIP_PARAM + STRIP_GRIT, 0.f, 1.f, 0.5f, "Grit", "x", kGritRange * kGritRange, 1.f / kGritRange);
         configParam<VegaQuantity>(STRIP_PARAM + STRIP_SNARL, 0.f, 1.f, 0.f, "Snarl", "%", 0.f, 100.f);
-        getParamQuantity(STRIP_PARAM + STRIP_GRIT)->description = "Operating level of the circuit; noon is stock";
-        getParamQuantity(STRIP_PARAM + STRIP_SNARL)->description = "Osc B sweeps the filter, then a sub-octave growl";
         const char* stripNames[NUM_STRIPS] = {
             "Glide", "B-A mix", "Osc B", "Volume attack", "Volume sustain", "Volume decay",
             "Cutoff", "Emphasis", "Filter amount", "Filter attack", "Filter decay",
@@ -287,7 +285,6 @@ struct Vega : Module {
         configSwitch(OVERSAMPLE_PARAM, 0.f, 2.f, 1.f, "Oversampling", { "Off (1x)", "2x", "4x" });
         getParamQuantity(OVERSAMPLE_PARAM)->randomizeEnabled = false;
         configSwitch(AUX_MODE_PARAM, 0.f, 1.f, 0.f, "Aux mode", { "Mix", "Filter only" });
-        getParamQuantity(AUX_MODE_PARAM)->description = "Filter only: oscillators off, VOLUME opens the VCA";
         getParamQuantity(AUX_MODE_PARAM)->randomizeEnabled = false;
         configSwitch(PEDAL_RANGE_PARAM, 0.f, 1.f, 0.f, "V/Oct range", { "Folded onto the pedals", "Full range" });
         getParamQuantity(PEDAL_RANGE_PARAM)->randomizeEnabled = false;
