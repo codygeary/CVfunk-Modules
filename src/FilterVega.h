@@ -72,6 +72,19 @@ inline void pairLawSlope(float v, float& value, float& slope) {
 }
 
 // ==========================================================================
+// Cutoff warp
+// ==========================================================================
+// tan(x) for 0 <= x <= 0.45 pi, the TPT cutoff warp, without a library call
+// (std::tan is one on 32-bit ARM). x P(x^2) / (pi^2/4 - x^2): the pole sits
+// at pi/2 like tan's, and P is a minimax fit on relative error. Max error
+// 9e-7 relative, 0.0015 cents of cutoff. For float and float_4.
+template <typename T>
+inline T cutoffWarp(T x) {
+    const T x2 = x * x;
+    return x * (2.4674025f + x2 * (-0.17755216f + x2 * (-0.0043007559f + x2 * -0.00020647077f))) / (2.4674011f - x2);
+}
+
+// ==========================================================================
 // Sawtooth with a two-sample polynomial band-limited step at the wrap.
 // Measured at 2x: non-harmonic energy -62 (C5) to -74 dB (C1).
 // ==========================================================================
@@ -354,7 +367,7 @@ struct Voice {
     float process(const VoiceControls& c) {
         // Keep the cutoff below the substep rate's Nyquist.
         const float cutoff = std::min(c.cutoffHz, 0.45f * rate);
-        const float cutoffG = std::tan(3.14159265f * cutoff / rate);
+        const float cutoffG = cutoffWarp(3.14159265f * cutoff / rate);
         const float startG = (lastCutoffG > 0.f) ? lastCutoffG : cutoffG;
         const float stepG = (cutoffG - startG) / oversample;
         const float stepLoudness = (c.loudness - lastLoudness) / oversample;
@@ -673,10 +686,10 @@ struct VoiceGroup {
     // module's output gain). Lanes from `lanes` on are unused: their cutoff
     // warp, saws and noise are skipped, and they stay silent.
     float_4 process(const GroupControls& c, int lanes = 4) {
-        float_4 cutoff = rack::simd::fmin(c.cutoffHz, float_4(0.45f * rate));
+        const float_4 cutoff = rack::simd::fmin(c.cutoffHz, float_4(0.45f * rate));
         float cutoffLanes[4];
-        cutoff.store(cutoffLanes);
-        for (int lane = 0; lane < 4; ++lane) cutoffLanes[lane] = (lane < lanes) ? std::tan(3.14159265f * cutoffLanes[lane] / rate) : 0.01f;
+        cutoffWarp(cutoff * (3.14159265f / rate)).store(cutoffLanes);
+        for (int lane = lanes; lane < 4; ++lane) cutoffLanes[lane] = 0.01f;
         const float_4 cutoffG = float_4::load(cutoffLanes);
         const float_4 startG = rack::simd::ifelse(lastCutoffG > 0.f, lastCutoffG, cutoffG);
         const float_4 stepG = (cutoffG - startG) / (float)oversample;

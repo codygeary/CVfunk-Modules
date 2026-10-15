@@ -99,6 +99,9 @@ static const float kSnarlSubDepth = 0.6f;        // how far the cutoff's modulat
 static const float kSnarlIndex = 0.2f;           // the sub-octave's FM of osc A at full travel
 
 // ---- Engine -----------------------------------------------------------------------
+// The audio path avoids scalar clamp(), std::fmin/fmax, floor, ceil and round:
+// on 32-bit ARM (MetaModule) they are library calls. Compares, std::min /
+// std::max and truncation through int compile to instructions instead.
 static const float kLimitKnee = 7.f, kLimitCeiling = 10.f;   // output limiter, volts
 static const float kSmoothSec = 0.01f;           // panel control smoothing
 static const int kControlBlock = 32;
@@ -299,7 +302,6 @@ struct Vega : Module {
         configInput(AUX_INPUT, "Aux");
         configInput(TUNE_CV_INPUT, "Tune CV");
         configInput(BEAT_CV_INPUT, "Beat CV");
-        configInput(MODE_CV_INPUT, "Mode CV")->description = "1 V per preset: 0 Variable, 1 Vega, 2 Tuba, 3 Bass";
         configOutput(OUT_OUTPUT, "Audio");
         configOutput(VOCT_OUTPUT, "Pitch (V/Oct)");
         configOutput(GATE_OUTPUT, "Gate");
@@ -325,10 +327,12 @@ struct Vega : Module {
     // polyphonic preset CV gives each voice its own.
     int preset(int v) {
         if (inputs[MODE_CV_INPUT].isConnected()) {
-            const int step = (int)std::round(inputs[MODE_CV_INPUT].getPolyVoltage(v));
+            // Nearest volt, halves away from zero.
+            const float volts = inputs[MODE_CV_INPUT].getPolyVoltage(v);
+            const int step = (int)(volts + (volts < 0.f ? -0.5f : 0.5f));
             return ((step % 4) + 4) % 4;
         }
-        return clamp((int)std::round(params[PRESET_PARAM].getValue()), 0, 3);
+        return clamp((int)(params[PRESET_PARAM].getValue() + 0.5f), 0, 3);
     }
 
     void reinit(float sampleRate) {
@@ -351,7 +355,7 @@ struct Vega : Module {
             const float depth = (strip >= kSliderStrips) ? params[STRIP_TRIM_PARAM + (strip - kSliderStrips)].getValue() : 1.f;
             value += depth * inputs[STRIP_CV_INPUT + strip].getPolyVoltage(v) * 0.1f;
         }
-        return clamp(value, 0.f, 1.f);
+        return std::min(std::max(value, 0.f), 1.f);
     }
 
     // One voice's coefficients from its preset, the panel and its CVs.
@@ -378,7 +382,7 @@ struct Vega : Module {
             // The slider's 0..10 scale, threshold at 8 (bulletin 4.6).
             emphasisGain = kEmphasisAt8 * 10.f * stripValue(STRIP_EMPHASIS, v) / 8.f;
             cutoffOffsetTarget[v] = kVariableCutoffOctaves * stripValue(STRIP_CUTOFF, v);
-            rangeVolts = (float)clamp((int)std::round(params[RANGE_PARAM].getValue()), 0, 2);
+            rangeVolts = (float)clamp((int)(params[RANGE_PARAM].getValue() + 0.5f), 0, 2);
         } else {
             const VegaPreset& p = kPresets[which - 1];
             weightATarget[v] = p.weightA;
@@ -403,8 +407,8 @@ struct Vega : Module {
         // Their CVs add a fifth of the knob's span per volt.
         const float beatCv = inputs[BEAT_CV_INPUT].isConnected() ? inputs[BEAT_CV_INPUT].getPolyVoltage(v) : 0.f;
         const float tuneCv = inputs[TUNE_CV_INPUT].isConnected() ? inputs[TUNE_CV_INPUT].getPolyVoltage(v) : 0.f;
-        const float beat = clamp(params[BEAT_PARAM].getValue() + beatCv * 0.2f, -1.f, 1.f);
-        const float tune = clamp(params[TUNE_PARAM].getValue() + tuneCv * 0.2f, -1.f, 1.f);
+        const float beat = std::min(std::max(params[BEAT_PARAM].getValue() + beatCv * 0.2f, -1.f), 1.f);
+        const float tune = std::min(std::max(params[TUNE_PARAM].getValue() + tuneCv * 0.2f, -1.f), 1.f);
         ratioB[v] *= std::exp2((kBeatCents * beat + vary * kSpreadBeatCents * tolerance[SPREAD_BEAT]) / 1200.f);
         tuneVolts[v] = kTuneSemitones * tune / 12.f + vary * kSpreadTuneCents * tolerance[SPREAD_TUNE] / 1200.f;
 
@@ -455,7 +459,7 @@ struct Vega : Module {
         // octave down.
         const float snarlKnob = stripValue(STRIP_SNARL, v);
         filterFmTarget[v] = kSnarlFilterOctaves * std::min(1.f, snarlKnob / kSnarlFilterReach);
-        const float subAmount = clamp((snarlKnob - kSnarlSubStart) / (1.f - kSnarlSubStart), 0.f, 1.f);
+        const float subAmount = std::min(std::max((snarlKnob - kSnarlSubStart) / (1.f - kSnarlSubStart), 0.f), 1.f);
         subBlendTarget[v] = kSnarlSubDepth * subAmount;
         crossFmTarget[v] = kSnarlIndex * subAmount * subAmount;
         outputGainTarget[v] = kOutputVolts * makeup;
@@ -495,7 +499,7 @@ struct Vega : Module {
         }
 
         // A new oversampling setting re-initializes on the next sample.
-        if (kOversampleFactors[clamp((int)std::round(params[OVERSAMPLE_PARAM].getValue()), 0, 2)] != oversample)
+        if (kOversampleFactors[clamp((int)(params[OVERSAMPLE_PARAM].getValue() + 0.5f), 0, 2)] != oversample)
             appliedSampleRate = 0.f;
 
         // Lights: every preset a voice is playing, the three switches, and the
@@ -572,12 +576,23 @@ struct Vega : Module {
     // below rises (a C lands on the lower C). Full range passes V/Oct through
     // and the octave transposes it.
     float pedalVolts(int v, float voct) {
-        const float volts = clamp(voct + 3.f, -20.f, 20.f);   // C1 = -3 V
+        const float volts = std::min(std::max(voct + 3.f, -20.f), 20.f);   // C1 = -3 V
         if (params[PEDAL_RANGE_PARAM].getValue() > 0.5f) return volts;
         const float low = octaveVolts[v], high = low + 1.f;
+        // Whole octaves past the range, rounded up (a ceil through int: the
+        // distance is positive and under 40).
         float sounding = volts;
-        if (volts > high + kFoldMarginVolts) sounding -= std::ceil(volts - high - kFoldMarginVolts);
-        else if (volts < low - kFoldMarginVolts) sounding += std::ceil(low - kFoldMarginVolts - volts);
+        if (volts > high + kFoldMarginVolts) {
+            const float past = volts - high - kFoldMarginVolts;
+            float octaves = (float)(int32_t)past;
+            if (octaves < past) octaves += 1.f;
+            sounding -= octaves;
+        } else if (volts < low - kFoldMarginVolts) {
+            const float past = low - kFoldMarginVolts - volts;
+            float octaves = (float)(int32_t)past;
+            if (octaves < past) octaves += 1.f;
+            sounding += octaves;
+        }
         return sounding - low;
     }
 
@@ -622,7 +637,9 @@ struct Vega : Module {
             loud[v] = loudContour[v].process(gate, loudLevel[v], loudAttackCoeff[v], loudReleaseCoeff[v]);
             filterEnv[v] = filterContour[v].process(gate, filterLevel[v], filterAttackCoeff[v], filterReleaseCoeff[v]);
             if (gate) {
-                const int nearest = (int)std::round(targetVolts[v] * 12.f);
+                // Nearest pedal, halves away from zero.
+                const float semitones = targetVolts[v] * 12.f;
+                const int nearest = (int)(semitones + (semitones < 0.f ? -0.5f : 0.5f));
                 if (nearest >= 0 && nearest < kKeys) lit |= 1u << nearest;
             }
         }
@@ -649,7 +666,7 @@ struct Vega : Module {
             m.crossFm += smoothK * (crossFmTarget[0] - m.crossFm);
 
             vega::VoiceControls c;
-            c.frequencyA = kLowCHz * dsp::exp2_taylor5(clamp(pitch[0] + tuneVolts[0], -4.f, 8.f));
+            c.frequencyA = kLowCHz * dsp::exp2_taylor5(std::min(std::max(pitch[0] + tuneVolts[0], -4.f), 8.f));
             c.frequencyB = c.frequencyA * ratioB[0] * dsp::exp2_taylor5(beatCentsPerOctave[0] * (1.f - pitch[0]) / 1200.f);
             c.weightA = m.weightA;
             c.weightB = m.weightB;
