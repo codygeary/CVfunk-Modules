@@ -48,14 +48,9 @@ static bool stringsChordIsMinorish(const std::string& name) {
     return name[i] == 'm' || name.compare(i, 3, "dim") == 0;
 }
 
-const float baseFrequencies[6] =  { -1.666f, // E2
-                                    -1.25f, // A2
-                                    -0.833f, // D3
-                                    -0.417f,  // G3
-                                    -0.084f, // B3
-                                     0.3333f};// E4
-
 // Open strings in semitones relative to C4, low to high: E2 A2 D3 G3 B3 E4.
+// This is the single source of string pitch: the V/oct output of an open
+// string is kOpenStringSemi[i] / 12.
 static const int kOpenStringSemi[6] = { -20, -15, -10, -5, -1, 4 };
 
 // Slash chords placed on only lower two strings, with preference to the lower string.
@@ -207,7 +202,7 @@ struct Strings : Module {
              {"101211", "131211", "113311", "103013"}
         }};
         // Define root notes for row 1
-        const std::array<float, 7> Row1_Roots = {0.917f, 0.3333f, 0.75f, 0.1667f, 0.5833f, 0.0f, 0.4167f};
+        const std::array<float, 7> Row1_Roots = {11.f/12.f, 4.f/12.f, 9.f/12.f, 2.f/12.f, 7.f/12.f, 0.f, 5.f/12.f};   // B E A D G C F
 
         const std::array<std::array<std::string, 4>, 7> Row2_Names = {{
             {"A" ,"A-Bar" ,"Amaj7" ,"Aaug"}, 
@@ -227,7 +222,7 @@ struct Strings : Module {
             {"X10331", "X13331", "X10231", "X10332"}, 
             {"XX1343", "X68886", "XX1333", "XX1443"} 
         }};
-        const std::array<float, 7> Row2_Roots = { 0.75f, 0.167f, 0.583f, 0.0f, 0.417f, 0.833f ,0.25f };
+        const std::array<float, 7> Row2_Roots = {9.f/12.f, 2.f/12.f, 7.f/12.f, 0.f, 5.f/12.f, 10.f/12.f, 3.f/12.f};  // A D G C F Bb Eb
 
         const std::array<std::array<std::string, 4>, 7> Row3_Names = {{
             {"Em" ,"Em-Bar" ,"Em7"    ,"Em6"},    
@@ -247,7 +242,7 @@ struct Strings : Module {
             {"X10131", "X13134", "X13124", "X13314"},
             {"431114", "466544", "431112", "411142"}
         }};
-        const std::array<float, 7> Row3_Roots = {0.333f, 0.75f, 0.1667f, 0.583f, 0.0f, 0.833f, 0.667f };
+        const std::array<float, 7> Row3_Roots = {4.f/12.f, 9.f/12.f, 2.f/12.f, 7.f/12.f, 0.f, 10.f/12.f, 8.f/12.f};  // E A D G C Bb Ab
 
         const std::array<std::array<std::string, 4>, 7> Row4_Names = {{
             {"Asus2" ,"A6" ,"A7sus4" ,"Am9"}, 
@@ -255,8 +250,8 @@ struct Strings : Module {
             {"Gsus2" ,"G6" ,"G7sus4" ,"Gm9"}, 
             {"Csus2" ,"C6" ,"C7sus4" ,"Cm9"}, 
             {"Fsus2" ,"F6" ,"F7sus4" ,"Fm9"}, 
-            {"Bbsus2","Bb6","Bb7sus4","Bm9"}, 
-            {"Ebsus2","Eb6","Eb7sus4","Em9"} 
+            {"Bbsus2","Bb6","Bb7sus4","Bbm9"},
+            {"Ebsus2","Eb6","Eb7sus4","Ebm9"}
         }};
         const std::array<std::array<std::string, 4>, 7> Row4_Chords = {{
             {"X02200", "X02222", "X02030", "X02413"},
@@ -267,7 +262,7 @@ struct Strings : Module {
             {"X13311", "X13031", "X13141", "XX8698"},
             {"XX1341", "X65586", "XX1324", "X64666"}
         }};
-        const std::array<float, 7> Row4_Roots = {0.75f, 0.1667f, 0.583f, 0.0f, 0.417f, 0.833f, 0.25f};
+        const std::array<float, 7> Row4_Roots = {9.f/12.f, 2.f/12.f, 7.f/12.f, 0.f, 5.f/12.f, 10.f/12.f, 3.f/12.f};  // A D G C F Bb Eb
 
         // Direct initialization of Chords Arrays
         // Define chord names for row 1
@@ -291,7 +286,7 @@ struct Strings : Module {
              {"101211", "131211", "103013", "100211"}
         }};
         // Define root notes for row 1
-        const std::array<float, 7> Row1_RootsB = {0.917f, 0.3333f, 0.75f, 0.1667f, 0.5833f, 0.0f, 0.4167f};
+        const std::array<float, 7> Row1_RootsB = {11.f/12.f, 4.f/12.f, 9.f/12.f, 2.f/12.f, 7.f/12.f, 0.f, 5.f/12.f};   // B E A D G C F
 
         const std::array<std::array<std::string, 4>, 7> Row2_NamesB = {{
             {"A" ,"A-Bar" ,"Amaj7" ,"A7+5"}, 
@@ -311,7 +306,7 @@ struct Strings : Module {
             {"X10331", "X13331", "X10231", "X10132"}, 
             {"XX1343", "X68886", "XX1333", "XX1423"} 
         }};
-        const std::array<float, 7> Row2_RootsB = { 0.75f, 0.167f, 0.583f, 0.0f, 0.417f, 0.833f ,0.25f };
+        const std::array<float, 7> Row2_RootsB = {9.f/12.f, 2.f/12.f, 7.f/12.f, 0.f, 5.f/12.f, 10.f/12.f, 3.f/12.f};  // A D G C F Bb Eb
 
         const std::array<std::array<std::string, 4>, 7> Row3_NamesB = {{
             {"Em" ,"Em-Bar" ,"Em7"    ,"Em6"},    
@@ -331,7 +326,7 @@ struct Strings : Module {
             {"X10131", "X13134", "X13124", "X13314"},
             {"431114", "466544", "431112", "431141"}
         }};
-        const std::array<float, 7> Row3_RootsB = {0.333f, 0.75f, 0.1667f, 0.583f, 0.0f, 0.833f, 0.667f };
+        const std::array<float, 7> Row3_RootsB = {4.f/12.f, 9.f/12.f, 2.f/12.f, 7.f/12.f, 0.f, 10.f/12.f, 8.f/12.f};  // E A D G C Bb Ab
 
         const std::array<std::array<std::string, 4>, 7> Row4_NamesB = {{
             {"Adim" ,"Adim7" ,"A9" ,"Aaug"}, 
@@ -351,7 +346,7 @@ struct Strings : Module {
             {"X12320", "X1202X", "X10314", "X10332"},
             {"XX1242", "XX1212", "X63643", "XX1403"}
         }};
-        const std::array<float, 7> Row4_RootsB = {0.75f, 0.1667f, 0.583f, 0.0f, 0.417f, 0.833f, 0.25f};
+        const std::array<float, 7> Row4_RootsB = {9.f/12.f, 2.f/12.f, 7.f/12.f, 0.f, 5.f/12.f, 10.f/12.f, 3.f/12.f};  // A D G C F Bb Eb
 
     //Load Digital Displays
     DigitalDisplay* digitalDisplay = nullptr;
@@ -398,11 +393,15 @@ struct Strings : Module {
     int lastDisplayedRowIndex = -1;
     int lastFingering = -1;
 
-    // Define a small tolerance value for comparison
-    const float capoTolerance = 0.01f; // Adjust tolerance as needed
+    // Total transposition last shown on the fingering display, in semitones
+    int lastCapoSemitones = -9999; // Unreachable value forces the first refresh
 
-    // Keep track of the last CapoAmount for comparison
-    float lastCapoAmount = -1.0f; // Initialize with an unlikely value
+    // In CHORD V/oct mode a chord button overrides the CV until the CV note or
+    // the row knob moves. While it holds, the CV's octave and in-between-note
+    // offsets are not applied, since they were worked out for a different chord.
+    bool buttonHoldsChord = false;
+    int  lastVOctNoteIndex = -9999;
+
     // Identity of the current slash placement, so the display refreshes when the
     // bass moves even though chord, row, fingering and capo have not.
     int lastSlashKey = -999;
@@ -474,7 +473,7 @@ struct Strings : Module {
         // Initialize inputs
         configInput(CHORD_SELECTOR_CV, "Chord Selector CV");
         configInput(ROW_SELECTOR_CV, "Row Selector CV");
-        configInput(CAPO_CV, "Capo CV");
+        configInput(CAPO_CV, "Capo (V/oct)");
 
         configInput(BARRE_CHORD_GATE, "Chord Bank I");
         configInput(ALT_CHORD_GATE, "Chord Bank II");
@@ -560,7 +559,12 @@ struct Strings : Module {
 
             // Calculate the whammy bar effect if connected
             float whammyBarEffect = inputs[WHAMMY_BAR_CV].isConnected() ? std::abs(inputs[WHAMMY_BAR_CV].getVoltage() * (0.2f / 12.0f)) : 0.f;
-            float CapoAmount = inputs[CAPO_CV].isConnected() ? (floor(inputs[CAPO_CV].getVoltage() + params[CAPO_PARAM].getValue()) * (1.f/12.f)) : floor(params[CAPO_PARAM].getValue()) * (1.f/12.f); 
+            // Total transposition in whole semitones. Knob plus Capo CV (1V/oct,
+            // rounded to the nearest semitone); the V/oct chord offsets are added
+            // further down. Everything downstream derives from this one integer.
+            int capoSemitones = static_cast<int>(std::floor(params[CAPO_PARAM].getValue()));
+            if (inputs[CAPO_CV].isConnected())
+                capoSemitones += static_cast<int>(std::roundf(inputs[CAPO_CV].getVoltage() * 12.f));
             float PitchBend[6] = {0.0f};
 
             // Determine the current chord and row selections
@@ -586,7 +590,8 @@ struct Strings : Module {
             );    
 
             int semitoneDifference = 0;
-            float octavesDifference = 0.0f;
+            int octavesDifference = 0;
+            int vOctNoteIndex = 0;
 
             // Define the noteToChordPosition arrays 
             //            //                                             C      D       E   F      G      A       B
@@ -600,22 +605,13 @@ struct Strings : Module {
                 //param chord_selector has no effect in V/Oct mode
                 float chordInputVal = (inputs[CHORD_SELECTOR_CV].isConnected() ? inputs[CHORD_SELECTOR_CV].getVoltage() : 0);
 
-                if (chordInputVal >= 2.0f) {
-                    octavesDifference = 2.0f;  // 2 octaves up
-                } else if (chordInputVal >= 1.0f) {
-                    octavesDifference = 1.0f;  // 1 octave up
-                } else if (chordInputVal >= 0.0f) {
-                    octavesDifference = 0.0f;  // No octave shift
-                } else if (chordInputVal >= -1.0f) {
-                    octavesDifference = -1.0f; // 1 octave down
-                } else if (chordInputVal >= -2.0f) {
-                    octavesDifference = -2.0f; // 2 octaves down
-                } else if (chordInputVal < -2.0f) {
-                    octavesDifference = -2.0f; // max is 2 octaves down
-                }       
-                
-                int noteIndex = static_cast<int>(std::roundf(chordInputVal * 12)); // Total semitones from C
-                int noteRelativeToC = (noteIndex % 12 + 12) % 12; // Ensuring a positive result
+                vOctNoteIndex = static_cast<int>(std::roundf(chordInputVal * 12)); // Total semitones from C4
+                int noteRelativeToC = (vOctNoteIndex % 12 + 12) % 12; // Ensuring a positive result
+
+                // Octave taken from the same rounded semitone count as the note,
+                // so a slightly flat C5 stays C5 instead of dropping to C4.
+                // Range is limited to +/-2 octaves.
+                octavesDifference = clamp((vOctNoteIndex - noteRelativeToC) / 12, -2, 2);
 
                 // Dynamically select the appropriate noteToChordPosition array based on knobRowPosition
                 const std::array<int, 12>* noteToChordPosition;
@@ -654,9 +650,7 @@ struct Strings : Module {
                 knobChordPosition = computedChordPosition;
             }
 
-            // Clamp and adjust CapoAmount based on semitoneDifference and octavesDifference
             semitoneDifference = clamp(semitoneDifference, 0, 10);
-            CapoAmount += semitoneDifference / 12.f + octavesDifference;
 
             // Check for button presses
             bool buttonPressed = false;
@@ -673,16 +667,30 @@ struct Strings : Module {
             if (buttonPressed) {
                 currentChordIndex = latchedChordIndex;
                 currentRowIndex = latchedRowIndex;
+                buttonHoldsChord = true;
                 triggerPulse.trigger(0.001f); // 1ms pulse
             } else {
-                // Update based on knobs if no button is currently latched
-                if (knobChordPosition != lastKnobChordPosition || knobRowPosition != lastKnobRowPosition) {
+                // Update based on knobs if no button is currently latched. In V/oct
+                // mode a new CV note also counts as movement, even when it lands on
+                // the same chord position (C -> C#, or the same note an octave up).
+                bool selectionMoved = knobChordPosition != lastKnobChordPosition || knobRowPosition != lastKnobRowPosition;
+                if (VOctCV && vOctNoteIndex != lastVOctNoteIndex)
+                    selectionMoved = true;
+                if (selectionMoved) {
                     currentChordIndex = static_cast<int>(floor(clamp(knobChordPosition, 0, 6)));
                     currentRowIndex = static_cast<int>(floor(clamp(knobRowPosition, 0, 3)));
                     lastKnobChordPosition = knobChordPosition;
                     lastKnobRowPosition = knobRowPosition;
+                    lastVOctNoteIndex = vOctNoteIndex;
+                    buttonHoldsChord = false;
                 }
             }
+
+            // The V/oct chord offsets belong to the chord the CV picked, so they
+            // only apply while the CV is in charge of the selection.
+            if (VOctCV && !buttonHoldsChord)
+                capoSemitones += semitoneDifference + octavesDifference * 12;
+            const float CapoAmount = capoSemitones / 12.f;
 
             // Reset all chord selection lights
             for (int k = 0; k < NUM_PARAMS - CHORD_BUTTON_1; k++) {
@@ -776,17 +784,16 @@ struct Strings : Module {
             // position exactly as before.
             SlashBass slash;
             if (inputs[SLASH_BASS_CV].isConnected()) {
-                const int capoSemi =
-                    static_cast<int>(std::roundf(CapoAmount * 12.f));
                 int pc = static_cast<int>(
-                             std::roundf(inputs[SLASH_BASS_CV].getVoltage() * 12.f)) - capoSemi;
+                             std::roundf(inputs[SLASH_BASS_CV].getVoltage() * 12.f)) - capoSemitones;
                 pc = ((pc % 12) + 12) % 12;
                 slash = placeSlashBass(semitoneShifts, pc);
             }
 
-            // CHORD CHANGE TRIGGER. Fired in the audio path, on the exact sample the voicing changes 
+            // CHORD CHANGE TRIGGER. Fired on the control tick where the voicing changes;
+            // the pulse itself is clocked every sample at the end of process().
             {
-                int voicingKey = static_cast<int>(std::roundf(CapoAmount * 12.f));
+                int voicingKey = capoSemitones;
                 for (int i = 0; i < 6; ++i) {
                     int eff;
                     if (slash.valid && i == slash.string)      eff = slash.fret;
@@ -805,7 +812,7 @@ struct Strings : Module {
             for (int stringIdx = 0; stringIdx < 6; ++stringIdx) {
             
                 PitchBend[stringIdx] = (0.1f / 12.f) * (inputs[ENVELOPE_IN_1 + stringIdx].isConnected() ? inputs[ENVELOPE_IN_1 + stringIdx].getVoltage() : 0);
-                PitchBend[stringIdx] = abs(PitchBend[stringIdx]);
+                PitchBend[stringIdx] = std::abs(PitchBend[stringIdx]);
             
                 // The slash bass re-frets one bass string and silences anything
                 // still sounding below it; every other string is untouched.
@@ -822,7 +829,7 @@ struct Strings : Module {
                 float pitchVoltage;
                 float muteVoltage;
                 if (isSlashString || (shift >= 0 && !forcedMute)) {
-                    pitchVoltage = baseFrequencies[stringIdx] + (shift * (1.0f / 12.0f)) + whammyBarEffect + CapoAmount + PitchBend[stringIdx];
+                    pitchVoltage = (kOpenStringSemi[stringIdx] + shift) / 12.f + whammyBarEffect + CapoAmount + PitchBend[stringIdx];
                     if (!InvertMutes){muteVoltage = 0.0f;} else {muteVoltage = 10.0f;} // Not muted
                 } else {
                     // Mute this string
@@ -888,11 +895,7 @@ struct Strings : Module {
                 // Update display logic
                 if (digitalDisplay && fingeringDisplay) {
 
-                    // Define a small tolerance value for comparison
-                    const float capoTolerance = 0.01f; // Adjust tolerance as needed
-
-                    // Determine if CapoAmount has "effectively" changed using the tolerance
-                    bool capoAmountChanged = std::abs(CapoAmount - lastCapoAmount) > capoTolerance;
+                    bool capoAmountChanged = capoSemitones != lastCapoSemitones;
 
                     // Proceed with checking if an update is needed
                     const int slashKey = slash.valid ? (slash.string * 100 + slash.fret) : -1;
@@ -905,10 +908,7 @@ struct Strings : Module {
                         lastDisplayedRowIndex = currentRowIndex;
                         lastFingering = fingeringVersion;
     
-                        // Only update lastCapoAmount if it has effectively changed
-                        if (capoAmountChanged) {
-                            lastCapoAmount = CapoAmount;
-                        }
+                        lastCapoSemitones = capoSemitones;
                         // Retrieve the current chord name based on the selection for the digital display
                         std::string currentChordName = currentNames[currentChordIndex][fingeringVersion];
                         std::string currentFingeringPattern = currentChords[currentChordIndex][fingeringVersion];
@@ -955,23 +955,20 @@ struct Strings : Module {
                         digitalDisplay->text = currentChordName;
                         // Update the fingering display text with the current fingering pattern
 
-                        int capoAmountInt = static_cast<int>(std::roundf(CapoAmount*12)); // Round to the nearest whole number if necessary
-                        std::string capoAmountStr = std::to_string(capoAmountInt); // Convert the integer to a string
+                        std::string capoAmountStr = std::to_string(capoSemitones);
 
-                        // Compute the note name of the capoed root
-                        float pitchVoltage = currentRoots[currentChordIndex] + CapoAmount;
-                        double fractionalPart = fmod(pitchVoltage, 1.0);
-                        int semitone = round(fractionalPart * 12);
-                        semitone = (semitone % 12 + 12) % 12;
+                        // Note name of the capoed root
+                        const int shapeRootSemi =
+                            static_cast<int>(std::roundf(currentRoots[currentChordIndex] * 12.f));
                         // Spelled to match the chord the capo is transposing, so
                         // capoing Am up eleven reads "G#" rather than "Ab".
-                        const char* noteName = stringsNoteName(semitone, chordMinorish);
+                        const char* noteName = stringsNoteName(shapeRootSemi + capoSemitones, chordMinorish);
 
-                        if (CapoAmount ==0){
+                        if (capoSemitones == 0){
                             fingeringDisplay->text = currentFingeringPattern;
                         } else {
                             // Update the fingering display text with the current fingering pattern and capo setting
-                            if (CapoAmount > -0.01){
+                            if (capoSemitones > 0){
                                 fingeringDisplay->text = currentFingeringPattern + " +" + capoAmountStr + " " + noteName;    
                             } else {
                                 fingeringDisplay->text = currentFingeringPattern + "  " + capoAmountStr + " " + noteName;    
@@ -1096,13 +1093,11 @@ struct Strings : Module {
                     }
                 }
             }
-            
-            if (triggerPulse.process(args.sampleTime)) {
-                outputs[TRIGGER_OUT].setVoltage(10.f); // High voltage of the pulse
-            } else {
-                outputs[TRIGGER_OUT].setVoltage(0.f); // Low voltage, pulse off
-            }
         }
+
+        // Clocked every sample, outside the control-rate block above, so the
+        // 1ms pulse really lasts 1ms rather than 1ms times (process_skip + 1).
+        outputs[TRIGGER_OUT].setVoltage(triggerPulse.process(args.sampleTime) ? 10.f : 0.f);
     }
     
     int getFingeringVersion(float barreVoltage, float altVoltage) {
