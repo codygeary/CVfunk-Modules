@@ -8,7 +8,7 @@ The collection spans everything you might need for a synthesizer signal chain: e
 
 ## Documentation
 
-> **[CV funk User Manual Website](https://cvfunk.com/manual)** 
+> **[CV funk User Manual Website](https://codygeary.github.io/CV-Funk-Manual/)** 
 > 
 > **[Extended CV funk User Manual (PDF-format)](/img/CV_funk_Manual.pdf)**
 
