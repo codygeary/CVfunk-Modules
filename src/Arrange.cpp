@@ -924,6 +924,21 @@ struct ArrangeWidget : ModuleWidget {
  
             addOutput(createOutputCentered<ThemedPJ301MPort>    (Vec(157 + 45, yPos), module, Arrange::CHAN_1_OUTPUT + i));
         }
+
+        // Rack knobs glide to new values by default, and the engine glides only one param at a time
+        // across the whole patch. process() writes these knobs itself (stage recall, CV follow, playhead,
+        // stage count), so a glide would leave the knob between two values while it is being recorded:
+        // in Edit mode the last channel recorded part of the previous step into each new step, and a
+        // glide still finishing after a drag could pull a freshly written knob back. Writes are made
+        // immediate instead. Rack enables smoothing when the knob widget is created, so this has to
+        // come after the knobs are added.
+        if (module) {
+            module->paramQuantities[Arrange::STAGE_SELECT]->smoothEnabled = false;
+            module->paramQuantities[Arrange::MAX_STAGES]->smoothEnabled = false;
+            for (int i = 0; i < 7; i++) {
+                module->paramQuantities[Arrange::CHAN_1_KNOB + i]->smoothEnabled = false;
+            }
+        }
     }
 
     void step() override {
