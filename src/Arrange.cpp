@@ -64,11 +64,27 @@ struct Arrange : Module {
     float outputValues[2048][7] = {{0.0f}}; // 2D array to store output values for each stage and channel
                                             // array size is defaulted to the largest possible size used in the module.
     int lengthMultiplier = 1.0f;
-    bool initializingFlag = true;
+    bool initializingFlag = true;   // set at construction and on every JSON load; process() rebuilds stage state once
+    bool stageRestored = false;     // true when dataFromJson found a saved currentStage
     int maxSequenceLength = 128;  //default to 128
     int prevMaxSequenceLength = 128;
-    bool resizeEvent = false;
-    
+    int requestedMaxStages = -1;    // >= 0 asks process() to set the Max Stages knob to this stage count
+
+    // Context menu edits are queued here and applied at the top of process(), so the stage
+    // data is never rewritten from the UI thread while the audio thread is reading it.
+    enum EditAction {
+        EDIT_NONE,
+        EDIT_COPY_STAGE,
+        EDIT_COPY_ALL,
+        EDIT_PASTE,
+        EDIT_CLONE,
+        EDIT_CLEAR,
+        EDIT_ADD,
+        EDIT_DELETE,
+        EDIT_ROTATE
+    };
+    std::atomic<int> pendingEdit{EDIT_NONE};
+
     // To store the current state for the latch es   
     bool resetLatched = false;     
     bool forwardLatched = false;  
@@ -100,9 +116,19 @@ struct Arrange : Module {
         }
         json_object_set_new(rootJ, "channelButton", channelButtonJ);
     
-        // Store outputValues 2D array as a JSON array of arrays
+        // Store outputValues 2D array as a JSON array of arrays. Only the stages in use are saved: the
+        // active stages, plus any stages past Max that still hold data (they come back if Max is raised).
+        // Loading treats missing rows as zero, so a 4-step sequence saves 4 rows instead of 2048.
+        int savedStages = maxStages;
+        for (int stage = 2047; stage >= savedStages; stage--) {
+            bool stageHasData = false;
+            for (int channel = 0; channel < 7; channel++) {
+                if (outputValues[stage][channel] != 0.f) { stageHasData = true; break; }
+            }
+            if (stageHasData) { savedStages = stage + 1; break; }
+        }
         json_t* outputValuesJ = json_array();
-        for (int stage = 0; stage < 2048; stage++) {
+        for (int stage = 0; stage < savedStages; stage++) {
             json_t* stageArrayJ = json_array();
             for (int channel = 0; channel < 7; channel++) {
                 json_array_append_new(stageArrayJ, json_real(outputValues[stage][channel]));
@@ -130,8 +156,11 @@ struct Arrange : Module {
         json_object_set_new(rootJ, "computedProb", computedProbJ);
     
         // Store maxSequenceLength as a JSON integer
-        json_object_set_new(rootJ, "maxSequenceLength", json_integer(maxSequenceLength)); 
-   
+        json_object_set_new(rootJ, "maxSequenceLength", json_integer(maxSequenceLength));
+
+        // Store the playhead so the patch reopens on the same stage
+        json_object_set_new(rootJ, "currentStage", json_integer(currentStage));
+
         return rootJ;
     }
         
@@ -146,17 +175,15 @@ struct Arrange : Module {
             }
         }
     
-        // Load outputValues 2D array
+        // Load outputValues 2D array. Patches only store the stages in use (older ones store all 2048),
+        // so any stage or channel not in the file is cleared rather than left over from before the load.
         json_t* outputValuesJ = json_object_get(rootJ, "outputValues");
         if (outputValuesJ) {
             for (int stage = 0; stage < 2048; stage++) {
                 json_t* stageArrayJ = json_array_get(outputValuesJ, stage);
-                if (stageArrayJ) {
-                    for (int channel = 0; channel < 7; channel++) {
-                        json_t* valueJ = json_array_get(stageArrayJ, channel);
-                        if (valueJ)
-                            outputValues[stage][channel] = json_number_value(valueJ);
-                    }
+                for (int channel = 0; channel < 7; channel++) {
+                    json_t* valueJ = stageArrayJ ? json_array_get(stageArrayJ, channel) : nullptr;
+                    outputValues[stage][channel] = valueJ ? json_number_value(valueJ) : 0.f;
                 }
             }
         }
@@ -207,9 +234,19 @@ struct Arrange : Module {
         // Load maxSequenceLength
         json_t* maxSequenceLengthJ = json_object_get(rootJ, "maxSequenceLength");
         if (maxSequenceLengthJ) {
-            // onReset() loops `stage < maxSequenceLength` over outputValues[2048].
-            maxSequenceLength = clamp((int)json_integer_value(maxSequenceLengthJ), 128, 2048);
-        }     
+            // Snapped up to one of the menu lengths (128..2048) so the Max knob multiplier stays a
+            // power of two and stage counts round-trip exactly through the knob.
+            maxSequenceLength = getNextSequenceLength(clamp((int)json_integer_value(maxSequenceLengthJ), 128, 2048), 0);
+        }
+
+        // Load the playhead. It is clamped to the restored stage count in process(); patches
+        // saved before this key existed fall back to the saved Stage knob position there.
+        json_t* currentStageJ = json_object_get(rootJ, "currentStage");
+        stageRestored = (currentStageJ != nullptr);
+        if (currentStageJ) {
+            currentStage = clamp((int)json_integer_value(currentStageJ), 0, 2047);
+        }
+        initializingFlag = true;
     }
 
     Arrange() {
@@ -281,7 +318,9 @@ struct Arrange : Module {
     }
 
     void onReset(const ResetEvent& e) override {
-        for (int stage = 0; stage < maxSequenceLength; stage++) {  // Reset values only
+        // Clear every stage, not just up to the current length: data past it is still saved with the
+        // patch and would reappear if the length were raised again.
+        for (int stage = 0; stage < 2048; stage++) {  // Reset values only
             for (int channel = 0; channel < 7; channel++) {
                 outputValues[stage][channel] = 0.0f;  // Reset each element to 0.0f
             }
@@ -305,45 +344,175 @@ struct Arrange : Module {
 
     void process(const ProcessArgs &args) override {    
 
+        // Runs once after construction and after every JSON load (patch, preset, duplicate).
+        // Rebuilds the stage count from the restored knobs and puts the playhead back where it was saved,
+        // with the change-detect state primed so nothing below mistakes the load for a resize.
         if (initializingFlag) {
+            lengthMultiplier = maxSequenceLength / 128;
+            paramQuantities[MAX_STAGES]->displayMultiplier = lengthMultiplier;
+            prevMaxSequenceLength = maxSequenceLength;
+
+            maxNumStages = params[MAX_STAGES].getValue() * lengthMultiplier;
+            if (maxNumStages < 1) { maxNumStages = 1; }
+            maxStages = static_cast<int>(maxNumStages);
+            prevMaxStages = maxStages;
+            paramQuantities[STAGE_SELECT]->displayMultiplier = (maxStages - 1);
+
+            // Older patches have no saved stage: read it back from the saved Stage knob instead
+            if (!stageRestored) {
+                currentStage = static_cast<int>(std::roundf(params[STAGE_SELECT].getValue() * (maxStages - 1)));
+            }
+            currentStage = clamp(currentStage, 0, maxStages - 1);
+            params[STAGE_SELECT].setValue((maxStages > 1) ? (float)currentStage / (maxStages - 1) : 0.f);
+
             for (int i = 0; i < 7; i++) {
                 // Recall the output values for the current stage and set them to the knobs
                 float recalledValue = outputValues[currentStage][i]; // Get the stored value for the current stage
-                paramQuantities[CHAN_1_KNOB + i]->setDisplayValue(recalledValue); 
+                paramQuantities[CHAN_1_KNOB + i]->setDisplayValue(recalledValue);
             }
+            stageRestored = false;
             initializingFlag = false;
         }
 
         // Store the current stage before processing the buttons
         int previousStage = currentStage;
-        bool resizeEvent = false;
+        bool stageDataChanged = false;  // an edit rewrote stage data, so the knobs must recall it
+
+        // Follow the Stage knob. Its value was written against last sample's stage count, so it is read
+        // back with that count; a Max change this sample can't reinterpret it as a different stage.
+        currentStage = clamp(static_cast<int>(std::roundf(params[STAGE_SELECT].getValue() * (maxStages - 1))), 0, maxStages - 1);
+
+        // Apply a queued context menu edit. These work on last sample's stage count; any new
+        // count goes through requestedMaxStages so the Max knob is updated in one place below.
+        if (pendingEdit.load(std::memory_order_relaxed) != EDIT_NONE) {
+            int edit = pendingEdit.exchange(EDIT_NONE);
+
+            if (edit == EDIT_COPY_STAGE) {
+                for (int j = 0; j < 7; ++j)
+                    arrangeCopy[0][j] = outputValues[currentStage][j];
+                copiedStages = 1;
+
+            } else if (edit == EDIT_COPY_ALL) {
+                // Copies stages 0..currentStage
+                copiedStages = currentStage + 1;
+                for (int i = 0; i < copiedStages; ++i)
+                    for (int j = 0; j < 7; ++j)
+                        arrangeCopy[i][j] = outputValues[i][j];
+
+            } else if (edit == EDIT_PASTE && copiedStages > 0 && currentStage < 2047) {
+                // Inserts the copied stages after the current stage. Every later stage, including hidden ones
+                // past Max, is pushed back to make room; only what would be pushed past stage 2048 is trimmed.
+                int insertStage = currentStage + 1;
+                int pasteCount = std::min(copiedStages, 2048 - insertStage);
+                int newMaxStages = std::min(maxStages + pasteCount, 2048);
+                for (int i = 2047; i >= insertStage + pasteCount; --i)
+                    for (int j = 0; j < 7; ++j)
+                        outputValues[i][j] = outputValues[i - pasteCount][j];
+                for (int i = 0; i < pasteCount; ++i)
+                    for (int j = 0; j < 7; ++j)
+                        outputValues[insertStage + i][j] = arrangeCopy[i][j];
+                if (newMaxStages > maxSequenceLength)
+                    maxSequenceLength = getNextSequenceLength(newMaxStages, 0);
+                requestedMaxStages = newMaxStages;
+                currentStage = insertStage + pasteCount - 1;    // land on the last pasted stage
+                for (int i = 0; i < copiedStages; ++i)
+                    for (int j = 0; j < 7; ++j)
+                        arrangeCopy[i][j] = 0.0f;
+                copiedStages = 0;
+                stageDataChanged = true;
+
+            } else if (edit == EDIT_CLONE && copiedStages > 0) {
+                // Writes the first copied stage into every active stage
+                for (int s = 0; s < maxStages; ++s)
+                    for (int j = 0; j < 7; ++j)
+                        outputValues[s][j] = arrangeCopy[0][j];
+                for (int i = 0; i < copiedStages; ++i)
+                    for (int j = 0; j < 7; ++j)
+                        arrangeCopy[i][j] = 0.0f;
+                copiedStages = 0;
+                stageDataChanged = true;
+
+            } else if (edit == EDIT_CLEAR) {
+                for (int j = 0; j < 7; ++j)
+                    outputValues[currentStage][j] = 0.0f;
+                stageDataChanged = true;
+
+            } else if (edit == EDIT_ADD && maxStages < 2048) {
+                // Inserts a blank stage after the current one and moves onto it. Every later stage, including
+                // hidden ones past Max, moves back one; only a stage pushed past stage 2048 is trimmed.
+                int insertStage = currentStage + 1;
+                for (int i = 2047; i > insertStage; --i)
+                    for (int j = 0; j < 7; ++j)
+                        outputValues[i][j] = outputValues[i - 1][j];
+                for (int j = 0; j < 7; ++j)
+                    outputValues[insertStage][j] = 0.0f;
+                if (maxStages + 1 > maxSequenceLength)
+                    maxSequenceLength = clamp(getNextSequenceLength(maxSequenceLength, 1), 128, 2048);
+                requestedMaxStages = maxStages + 1;
+                currentStage = insertStage;
+                stageDataChanged = true;
+
+            } else if (edit == EDIT_DELETE && maxStages > 1) {
+                // Removes the current stage. Every later stage, including hidden ones past Max, moves up one
+                // so raising Max still reveals them in order. The playhead is clamped below if it was the last one.
+                for (int i = currentStage; i < 2047; ++i)
+                    for (int j = 0; j < 7; ++j)
+                        outputValues[i][j] = outputValues[i + 1][j];
+                for (int j = 0; j < 7; ++j)
+                    outputValues[2047][j] = 0.0f;
+                requestedMaxStages = maxStages - 1;
+                stageDataChanged = true;
+
+            } else if (edit == EDIT_ROTATE) {
+                // Rotates the active stages so the current stage becomes the first one, wrapping the
+                // earlier stages to the end: 1,2,(3),4 -> (3),4,1,2. Done in place with three reversals
+                // (reverse the head, reverse the tail, reverse the whole span) so no scratch buffer is needed.
+                int firstStage = currentStage;
+                if (firstStage > 0) {
+                    const int reverseStart[3] = {0, firstStage, 0};
+                    const int reverseEnd[3] = {firstStage, maxStages, maxStages};
+                    for (int pass = 0; pass < 3; pass++) {
+                        for (int low = reverseStart[pass], high = reverseEnd[pass] - 1; low < high; low++, high--) {
+                            for (int j = 0; j < 7; ++j)
+                                std::swap(outputValues[low][j], outputValues[high][j]);
+                        }
+                    }
+                }
+                currentStage = 0;
+                stageDataChanged = true;
+            }
+        }
+
+        // Sequence length changed (menu, or an edit that needed more room): rescale the Max knob
+        // so the stage count is held rather than multiplied by the new range
+        int sequenceLength = maxSequenceLength;
+        if (prevMaxSequenceLength != sequenceLength) {
+            lengthMultiplier = sequenceLength / 128;
+            paramQuantities[MAX_STAGES]->displayMultiplier = lengthMultiplier;
+            if (requestedMaxStages < 0) { requestedMaxStages = maxStages; }
+            prevMaxSequenceLength = sequenceLength;
+        }
+
+        // lengthMultiplier is always a power of two, so this division is exact and the knob
+        // decodes back to exactly the requested count
+        if (requestedMaxStages >= 0) {
+            params[MAX_STAGES].setValue(clamp(requestedMaxStages / (float)lengthMultiplier, 0.f, 128.f));
+            requestedMaxStages = -1;
+        }
 
         // Calculate maxNumStages
         maxNumStages = params[MAX_STAGES].getValue()*lengthMultiplier;
-        if (maxNumStages < 1) { maxNumStages = 1; } // Fewest stages allowed is 1 
-        
-        // Check if maxSequenceLength has changed
-        if (prevMaxSequenceLength != maxSequenceLength) {
-            // Sequence length has changed 
-            lengthMultiplier = static_cast<int>(maxSequenceLength / 128);
-            paramQuantities[MAX_STAGES]->displayMultiplier = lengthMultiplier;
-            if (currentStage < maxNumStages) {currentStage = static_cast<int>(maxNumStages);}
-            prevMaxSequenceLength = maxSequenceLength;
-            resizeEvent = true;
-        } 
-
+        if (maxNumStages < 1) { maxNumStages = 1; } // Fewest stages allowed is 1
         maxStages = static_cast<int>(maxNumStages);
-        
-        currentStage = std::roundf(params[STAGE_SELECT].getValue() * (maxStages - 1));
-        
-        // Dynamically reconfigure the Stage knob based on the Max, if Max changes
+
+        // When the stage count changes, hold the playhead on the same stage. If the sequence
+        // shrank past it, it lands on the new last stage. The Stage knob is rewritten below.
         if (maxStages != prevMaxStages) {
-            paramQuantities[STAGE_SELECT]->setDisplayValue(0.f);
-            paramQuantities[STAGE_SELECT]->displayMultiplier = (maxStages - 1);            
-            prevMaxStages = maxStages;        
-            resizeEvent = true;
+            currentStage = std::min(currentStage, maxStages - 1);
+            paramQuantities[STAGE_SELECT]->displayMultiplier = (maxStages - 1);
+            prevMaxStages = maxStages;
         }
-    
+
         // Handle button press for Forward
         if (forwardTrigger.process(params[FORWARD_BUTTON].getValue())) {
             currentStage++; // Increment stage
@@ -353,7 +522,6 @@ struct Arrange : Module {
                     recordLatched = false;
                 }
             }
-            paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage+1);
         } else if (inputs[FORWARD_INPUT].isConnected()) {
             bool forwardCurrentState = forwardInput.process(inputs[FORWARD_INPUT].getVoltage());
             if (forwardCurrentState && !prevForwardState) { // Rising edge detected
@@ -365,7 +533,6 @@ struct Arrange : Module {
                         recordLatched = false;
                     }
                 }
-                paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage+1);
             }
             prevForwardState = forwardCurrentState; // Update previous state
         }
@@ -376,7 +543,6 @@ struct Arrange : Module {
             if (currentStage < 0) {
                 currentStage = maxStages - 1;  // Wrap around to the last stage
             }
-            paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage+1);
         } else if (inputs[BACKWARDS_INPUT].isConnected()) {
             bool backwardCurrentState = backwardInput.process(inputs[BACKWARDS_INPUT].getVoltage());
             if (backwardCurrentState && !prevBackwardState) { // Rising edge detected
@@ -384,7 +550,6 @@ struct Arrange : Module {
                 if (currentStage < 0) {
                     currentStage = maxStages - 1;  // Wrap around to the last stage
                 }
-                paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage+1);
             }
             prevBackwardState = backwardCurrentState; // Update previous state
         } 
@@ -392,19 +557,25 @@ struct Arrange : Module {
         // Handle button press for Reset last
         if (resetTrigger.process(params[RESET_BUTTON].getValue())) {
             currentStage = 0;  // Reset to the first stage
-            paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage+1);
         } else if (inputs[RESET_INPUT].isConnected()) {
             bool resetCurrentState = resetInput.process(inputs[RESET_INPUT].getVoltage());
             if (resetCurrentState && !prevResetState) { // Rising edge detected
                 currentStage = 0;  // Reset to the first stage
-                paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage+1);
             }
             prevResetState = resetCurrentState; // Update previous state
         }
-                    
-        // If the current stage has changed, recall values for the knobs
-        if ( (currentStage != previousStage) || resizeEvent){
-            if (editModeLatched || !recordLatched){  //recall on stage change if not recording, or when edit mode is on
+
+        // Keep the Stage knob on the playhead. Only written when the two disagree, so a knob that is
+        // being dragged is never snapped back to the nearest stage while it moves.
+        if (static_cast<int>(std::roundf(params[STAGE_SELECT].getValue() * (maxStages - 1))) != currentStage) {
+            params[STAGE_SELECT].setValue((maxStages > 1) ? (float)currentStage / (maxStages - 1) : 0.f);
+        }
+
+        // If the current stage has changed, recall values for the knobs.
+        // A menu edit always recalls, even while recording, so the knobs show the edited data
+        // instead of immediately recording the old knob positions back over it.
+        if ( (currentStage != previousStage) || stageDataChanged){
+            if (editModeLatched || !recordLatched || stageDataChanged){  //recall on stage change if not recording, or when edit mode is on
                 for (int i = 0; i < 7; i++) {
                     // Recall the output values for the current stage and set them to the knobs
                     float recalledValue = outputValues[currentStage][i]; // Get the stored value for the current stage
@@ -542,9 +713,13 @@ struct Arrange : Module {
                                 
             } 
         } else {
-            for (int i = 0; i < 7; i++){         
-                float inputVal = params[CHAN_1_KNOB + i].getValue(); //else we recall the values and set the knobs       
-                
+            for (int i = 0; i < 7; i++){
+                // Knob moves are not stored while not recording, so a Shift-drag here has nothing
+                // to copy. Drop it rather than letting it fire later when recording starts.
+                if (smartKnobStates[i].load(std::memory_order_relaxed)) smartKnobStates[i].store(false);
+
+                float inputVal = params[CHAN_1_KNOB + i].getValue(); //else we recall the values and set the knobs
+
                 if (channelButton[i]==0){
                     outputs[CHAN_1_OUTPUT + i].setVoltage(inputVal);//output the unmodified value
                 } else if (channelButton[i]==1){               
@@ -564,20 +739,9 @@ struct Arrange : Module {
             }                    
         } 
         
-        // Check if the polyphonyChannels value has changed
-        if (polyphonyChannels != prevPolyphonyChannels) {
-            // Update tooltip to reflect polyphonic output
-            if (polyphonyChannels > 1) {
-                configOutput(CHAN_1_OUTPUT, "Polyphonic Channel 1 (" + std::to_string(polyphonyChannels) + " channels)");
-            } else {
-                // Revert tooltip to reflect monophonic output
-                configOutput(CHAN_1_OUTPUT, "Monophonic Channel 1");
-            }
-        
-            // Update the previous state to the current state
-            prevPolyphonyChannels = polyphonyChannels;
-        }
-        
+        // The Chan. 1 output tooltip is updated from ArrangeWidget::step(). configOutput() here would
+        // delete the PortInfo on the audio thread while the UI thread may be drawing its tooltip.
+
         // Set the number of channels and voltages for CHAN_1_OUTPUT
         outputs[CHAN_1_OUTPUT].setChannels(polyphonyChannels);
         
@@ -595,6 +759,7 @@ struct ArrangeWidget : ModuleWidget {
     //Define screens
     DigitalDisplay* stageDisplay = nullptr;
     DigitalDisplay* chanDisplays[7] = {nullptr};
+    int tooltipPolyphony = -1;  // polyphony count the Chan. 1 output tooltip currently describes
 
     struct ProgressDisplay : TransparentWidget {
         Arrange* module;
@@ -768,6 +933,14 @@ struct ArrangeWidget : ModuleWidget {
         ModuleWidget::step();
         if (!module) return;
 
+        // Keep the Chan. 1 output tooltip in step with the polyphony setting (UI thread only)
+        if (module->polyphonyChannels != tooltipPolyphony) {
+            tooltipPolyphony = module->polyphonyChannels;
+            module->outputInfos[Arrange::CHAN_1_OUTPUT]->name = (tooltipPolyphony > 1)
+                ? "Polyphonic Channel 1 (" + std::to_string(tooltipPolyphony) + " channels)"
+                : "Chan. 1";
+        }
+
         // Update Stage progress display
         if (stageDisplay) {
             stageDisplay->text =  std::to_string(module->currentStage + 1) + " / " + std::to_string(module->maxStages);
@@ -794,12 +967,11 @@ struct ArrangeWidget : ModuleWidget {
                 } else if (module->channelButton[i]==1){
                     // Compute the note name of the note and the octave
                     float pitchVoltage = module->outputs[Arrange::CHAN_1_OUTPUT + i].getVoltage();
-                    int octave = static_cast<int>(pitchVoltage + 4);  // The integer part represents the octave
-                    
-                    // Calculate the semitone
-                    double fractionalPart = fmod(pitchVoltage, 1.0);
-                    int semitone = std::roundf(fractionalPart * 12);
-                    semitone = (semitone % 12 + 12) % 12;  // Ensure it's a valid semitone (0 to 11)
+                    // Round to the nearest semitone first, then split into note and octave, so negative
+                    // voltages and values just under an octave boundary get the right octave (0V = C4)
+                    int semitonesFromC4 = static_cast<int>(std::roundf(pitchVoltage * 12.f));
+                    int semitone = (semitonesFromC4 % 12 + 12) % 12;  // Ensure it's a valid semitone (0 to 11)
+                    int octave = 4 + (semitonesFromC4 - semitone) / 12;
             
                     // Define the note names
                     const char* noteNames[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
@@ -990,9 +1162,7 @@ struct ArrangeWidget : ModuleWidget {
         struct CopyStageMenuItem : MenuItem {
             Arrange* arrangeModule;
             void onAction(const event::Action& e) override {
-                for (int j = 0; j < 7; ++j)
-                    arrangeModule->arrangeCopy[0][j] = arrangeModule->outputValues[arrangeModule->currentStage][j];
-                arrangeModule->copiedStages = 1;
+                arrangeModule->pendingEdit.store(Arrange::EDIT_COPY_STAGE);
             }
             void step() override {
                 rightText = (arrangeModule->copiedStages > 0) ? "✔" : "";
@@ -1008,11 +1178,7 @@ struct ArrangeWidget : ModuleWidget {
         struct CopyAllStagesMenuItem : MenuItem {
             Arrange* arrangeModule;
             void onAction(const event::Action& e) override {
-                int stagesToCopy = clamp(arrangeModule->currentStage + 1, 0, 2048);
-                for (int i = 0; i < stagesToCopy; ++i)
-                    for (int j = 0; j < 7; ++j)
-                        arrangeModule->arrangeCopy[i][j] = arrangeModule->outputValues[i][j];
-                arrangeModule->copiedStages = stagesToCopy;
+                arrangeModule->pendingEdit.store(Arrange::EDIT_COPY_ALL);
             }
             void step() override {
                 rightText = (arrangeModule->copiedStages > 1) ? "✔" : "";
@@ -1028,29 +1194,7 @@ struct ArrangeWidget : ModuleWidget {
         struct PasteStagesMenuItem : MenuItem {
             Arrange* arrangeModule;
             void onAction(const event::Action& e) override {
-                if (arrangeModule->copiedStages == 0) return;
-                int cs = arrangeModule->currentStage;
-                int newMax = cs + 1 + arrangeModule->copiedStages;
-                if (newMax > arrangeModule->maxSequenceLength)
-                    arrangeModule->maxSequenceLength = clamp(arrangeModule->getNextSequenceLength(arrangeModule->maxSequenceLength, arrangeModule->copiedStages), 128, 2048);
-                if (newMax > 2048) {
-                    arrangeModule->copiedStages = 2048 - (cs + 1);
-                    newMax = cs + 1 + arrangeModule->copiedStages;
-                }
-                for (int i = arrangeModule->copiedStages - 1; i >= 0; --i) {
-                    int tgt = cs + 1 + i;
-                    if (tgt < 2048)
-                        for (int j = 0; j < 7; ++j)
-                            arrangeModule->outputValues[tgt][j] = arrangeModule->arrangeCopy[i][j];
-                }
-                arrangeModule->maxNumStages = fmax((float)newMax, arrangeModule->maxNumStages);
-                arrangeModule->paramQuantities[Arrange::MAX_STAGES]->setDisplayValue(arrangeModule->maxNumStages);
-                arrangeModule->currentStage = cs + arrangeModule->copiedStages;
-                arrangeModule->paramQuantities[Arrange::STAGE_SELECT]->setDisplayValue(arrangeModule->currentStage + 1);
-                for (int i = 0; i < arrangeModule->copiedStages; ++i)
-                    for (int j = 0; j < 7; ++j)
-                        arrangeModule->arrangeCopy[i][j] = 0.0f;
-                arrangeModule->copiedStages = 0;
+                arrangeModule->pendingEdit.store(Arrange::EDIT_PASTE);
             }
             void step() override {
                 rightText = (arrangeModule->copiedStages > 0) ? "Ready" : "Empty";
@@ -1066,16 +1210,7 @@ struct ArrangeWidget : ModuleWidget {
         struct CloneToAllMenuItem : MenuItem {
             Arrange* arrangeModule;
             void onAction(const event::Action& e) override {
-                if (arrangeModule->copiedStages == 0) return;
-                for (int s = 0; s < arrangeModule->maxStages; ++s)
-                    for (int j = 0; j < 7; ++j)
-                        arrangeModule->outputValues[s][j] = arrangeModule->arrangeCopy[0][j];
-                for (int j = 0; j < 7; ++j)
-                    arrangeModule->paramQuantities[Arrange::CHAN_1_KNOB + j]->setDisplayValue(arrangeModule->arrangeCopy[0][j]);
-                for (int i = 0; i < arrangeModule->copiedStages; ++i)
-                    for (int j = 0; j < 7; ++j)
-                        arrangeModule->arrangeCopy[i][j] = 0.0f;
-                arrangeModule->copiedStages = 0;
+                arrangeModule->pendingEdit.store(Arrange::EDIT_CLONE);
             }
             void step() override {
                 rightText = (arrangeModule->copiedStages > 0) ? "Ready" : "Empty";
@@ -1093,10 +1228,7 @@ struct ArrangeWidget : ModuleWidget {
         struct ClearStageMenuItem : MenuItem {
             Arrange* arrangeModule;
             void onAction(const event::Action& e) override {
-                for (int j = 0; j < 7; ++j) {
-                    arrangeModule->outputValues[arrangeModule->currentStage][j] = 0.0f;
-                    arrangeModule->paramQuantities[Arrange::CHAN_1_KNOB + j]->setDisplayValue(0.0f);
-                }
+                arrangeModule->pendingEdit.store(Arrange::EDIT_CLEAR);
             }
         };
         ClearStageMenuItem* clearItem = new ClearStageMenuItem();
@@ -1108,22 +1240,7 @@ struct ArrangeWidget : ModuleWidget {
         struct AddStageMenuItem : MenuItem {
             Arrange* arrangeModule;
             void onAction(const event::Action& e) override {
-                if (arrangeModule->maxStages >= 2048) return;
-                int ins = arrangeModule->currentStage + 1;
-                for (int i = arrangeModule->maxStages; i > ins; --i)
-                    for (int j = 0; j < 7; ++j)
-                        arrangeModule->outputValues[i][j] = arrangeModule->outputValues[i - 1][j];
-                for (int j = 0; j < 7; ++j)
-                    arrangeModule->outputValues[ins][j] = 0.0f;
-                int newMax = clamp(arrangeModule->maxStages + 1, 0, 2048);
-                if (newMax > arrangeModule->maxSequenceLength)
-                    arrangeModule->maxSequenceLength = clamp(arrangeModule->getNextSequenceLength(arrangeModule->maxSequenceLength, 1), 128, 2048);
-                arrangeModule->maxNumStages = (float)newMax;
-                arrangeModule->paramQuantities[Arrange::MAX_STAGES]->setDisplayValue(arrangeModule->maxNumStages);
-                arrangeModule->currentStage = ins;
-                arrangeModule->paramQuantities[Arrange::STAGE_SELECT]->setDisplayValue(ins + 1);
-                for (int j = 0; j < 7; ++j)
-                    arrangeModule->paramQuantities[Arrange::CHAN_1_KNOB + j]->setDisplayValue(0.0f);
+                arrangeModule->pendingEdit.store(Arrange::EDIT_ADD);
             }
         };
         AddStageMenuItem* addItem = new AddStageMenuItem();
@@ -1135,29 +1252,25 @@ struct ArrangeWidget : ModuleWidget {
         struct DeleteStageMenuItem : MenuItem {
             Arrange* arrangeModule;
             void onAction(const event::Action& e) override {
-                if (arrangeModule->maxStages <= 1) return;
-                int del = arrangeModule->currentStage;
-                for (int i = del; i < arrangeModule->maxStages - 1; ++i)
-                    for (int j = 0; j < 7; ++j)
-                        arrangeModule->outputValues[i][j] = arrangeModule->outputValues[i + 1][j];
-                for (int j = 0; j < 7; ++j)
-                    arrangeModule->outputValues[arrangeModule->maxStages - 1][j] = 0.0f;
-                int newMax = clamp(arrangeModule->maxStages - 1, 1, 2048);
-                arrangeModule->maxNumStages = (float)newMax;
-                arrangeModule->paramQuantities[Arrange::MAX_STAGES]->setDisplayValue(arrangeModule->maxNumStages);
-                if (arrangeModule->currentStage >= newMax) {
-                    arrangeModule->currentStage = newMax - 1;
-                    arrangeModule->paramQuantities[Arrange::STAGE_SELECT]->setDisplayValue(arrangeModule->currentStage + 1);
-                }
-                for (int j = 0; j < 7; ++j)
-                    arrangeModule->paramQuantities[Arrange::CHAN_1_KNOB + j]->setDisplayValue(
-                        arrangeModule->outputValues[arrangeModule->currentStage][j]);
+                arrangeModule->pendingEdit.store(Arrange::EDIT_DELETE);
             }
         };
         DeleteStageMenuItem* deleteItem = new DeleteStageMenuItem();
         deleteItem->text = "Delete Stage";
         deleteItem->arrangeModule = arrangeModule;
         menu->addChild(deleteItem);
+
+        // Rotate the active sequence so the current stage becomes stage 1, wrapping earlier stages to the end
+        struct RotateSequenceMenuItem : MenuItem {
+            Arrange* arrangeModule;
+            void onAction(const event::Action& e) override {
+                arrangeModule->pendingEdit.store(Arrange::EDIT_ROTATE);
+            }
+        };
+        RotateSequenceMenuItem* rotateItem = new RotateSequenceMenuItem();
+        rotateItem->text = "Rotate Sequence to Start Here";
+        rotateItem->arrangeModule = arrangeModule;
+        menu->addChild(rotateItem);
 
     }
     
