@@ -363,7 +363,7 @@ struct Arrange : Module {
                 currentStage = static_cast<int>(std::roundf(params[STAGE_SELECT].getValue() * (maxStages - 1)));
             }
             currentStage = clamp(currentStage, 0, maxStages - 1);
-            params[STAGE_SELECT].setValue((maxStages > 1) ? (float)currentStage / (maxStages - 1) : 0.f);
+            paramQuantities[STAGE_SELECT]->setImmediateValue((maxStages > 1) ? (float)currentStage / (maxStages - 1) : 0.f);
 
             for (int i = 0; i < 7; i++) {
                 // Recall the output values for the current stage and set them to the knobs
@@ -496,7 +496,7 @@ struct Arrange : Module {
         // lengthMultiplier is always a power of two, so this division is exact and the knob
         // decodes back to exactly the requested count
         if (requestedMaxStages >= 0) {
-            params[MAX_STAGES].setValue(clamp(requestedMaxStages / (float)lengthMultiplier, 0.f, 128.f));
+            paramQuantities[MAX_STAGES]->setImmediateValue(clamp(requestedMaxStages / (float)lengthMultiplier, 0.f, 128.f));
             requestedMaxStages = -1;
         }
 
@@ -566,9 +566,10 @@ struct Arrange : Module {
         }
 
         // Keep the Stage knob on the playhead. Only written when the two disagree, so a knob that is
-        // being dragged is never snapped back to the nearest stage while it moves.
+        // being dragged is never snapped back to the nearest stage while it moves. setImmediateValue()
+        // also cancels any glide left over from a mouse drag, which would otherwise pull the knob back.
         if (static_cast<int>(std::roundf(params[STAGE_SELECT].getValue() * (maxStages - 1))) != currentStage) {
-            params[STAGE_SELECT].setValue((maxStages > 1) ? (float)currentStage / (maxStages - 1) : 0.f);
+            paramQuantities[STAGE_SELECT]->setImmediateValue((maxStages > 1) ? (float)currentStage / (maxStages - 1) : 0.f);
         }
 
         // If the current stage has changed, recall values for the knobs.
@@ -923,21 +924,6 @@ struct ArrangeWidget : ModuleWidget {
             addChild(chanDisplays[i]);
  
             addOutput(createOutputCentered<ThemedPJ301MPort>    (Vec(157 + 45, yPos), module, Arrange::CHAN_1_OUTPUT + i));
-        }
-
-        // Rack knobs glide to new values by default, and the engine glides only one param at a time
-        // across the whole patch. process() writes these knobs itself (stage recall, CV follow, playhead,
-        // stage count), so a glide would leave the knob between two values while it is being recorded:
-        // in Edit mode the last channel recorded part of the previous step into each new step, and a
-        // glide still finishing after a drag could pull a freshly written knob back. Writes are made
-        // immediate instead. Rack enables smoothing when the knob widget is created, so this has to
-        // come after the knobs are added.
-        if (module) {
-            module->paramQuantities[Arrange::STAGE_SELECT]->smoothEnabled = false;
-            module->paramQuantities[Arrange::MAX_STAGES]->smoothEnabled = false;
-            for (int i = 0; i < 7; i++) {
-                module->paramQuantities[Arrange::CHAN_1_KNOB + i]->smoothEnabled = false;
-            }
         }
     }
 
