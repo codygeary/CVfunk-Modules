@@ -1023,8 +1023,34 @@ struct StepWaveWidget : ModuleWidget {
             // Draw non-illuminating elements if any
         }
     
+        // Browser and library preview (no module): draw a made-up trace instead of a blank screen.
+        CircularBuffer<float, 1024> preview[2];
+        bool previewReady = false;
+        void fillPreview() {
+            const float steps[8] = {3.f, -1.f, 2.f, 4.f, -2.f, 1.f, -3.5f, 0.f};
+            float y = steps[7];
+            for (int i = 0; i < 1024; i++) {
+                float s = steps[i * 8 / 1024];
+                y += (s - y) * 0.03f;
+                preview[0].push(s);
+                preview[1].push(y);
+            }
+            previewReady = true;
+        }
+
         void drawLayer(const DrawArgs& args, int layer) override {
-            if (!module) return;
+            if (!module) {
+                if (layer == 1) {
+                    centerX = box.size.x / 2.0f;
+                    centerY = box.size.y / 2.0f;
+                    heightScale = centerY / 5;
+                    if (!previewReady) fillPreview();
+                    drawWaveform(args, preview[0], nvgRGBAf(0.3, 0.3, 0.3, 0.8));
+                    drawWaveform(args, preview[1], nvgRGBAf(0, 0.4, 1, 0.8));
+                }
+                TransparentWidget::drawLayer(args, layer);
+                return;
+            }
     
             if (layer == 1) {
                 centerX = box.size.x / 2.0f;

@@ -98,6 +98,7 @@ struct Onion : Module {
     }
 
     void onReset(const ResetEvent& e) override {
+        Module::onReset(e);   // reset the panel controls to their defaults
         for (int layer = 0; layer < ONION_LAYERS; layer++) {
             paramQuantities[LAYER_1_PARAM + layer]->setDisplayValue(0.f);
         }        

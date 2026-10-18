@@ -318,6 +318,7 @@ struct Arrange : Module {
     }
 
     void onReset(const ResetEvent& e) override {
+        Module::onReset(e);   // reset the panel controls to their defaults
         // Clear every stage, not just up to the current length: data past it is still saved with the
         // patch and would reappear if the length were raised again.
         for (int stage = 0; stage < 2048; stage++) {  // Reset values only

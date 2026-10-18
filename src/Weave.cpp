@@ -703,7 +703,7 @@ struct WeaveWidget : ModuleWidget {
 
         void drawLayer(const DrawArgs& args, int layer) override {
             if (layer != 1) { return; }
-            if (!module) { return; }
+            const bool playing = module && module->playingNotes[note];   // no module in the browser preview
 
             Rect r = box.zeroPos();
             const float margin = mm2px(1.0f);
@@ -716,7 +716,7 @@ struct WeaveWidget : ModuleWidget {
 
             nvgBeginPath(args.vg);
             nvgRect(args.vg, RECT_ARGS(r));
-            if (module->playingNotes[note]) {
+            if (playing) {
                 nvgFillColor(args.vg, nvgRGB(208, 140, 89));
             } else {
                 // Determine if it's a white or black key
@@ -763,7 +763,6 @@ struct WeaveWidget : ModuleWidget {
 
         void setModule(Weave* mod) {
             module = mod;
-            if (!module) {return; }
             float disp_offset_a = 3.7f-5.f;
             float disp_offset_b = 2.5f;
 
@@ -933,13 +932,11 @@ struct WeaveWidget : ModuleWidget {
         weaveDisplay->module = module;
         addChild(weaveDisplay);
 
-        if (module) {
-            // Quantizer display
-            keyboardDisplay = createWidget<KeyboardDisplay>(mm2px(Vec(10.7f-5.f, 87.5f)));
-            keyboardDisplay->box.size = mm2px(Vec(50.501f, 16.168f));
-            keyboardDisplay->setModule(module);
-            addChild(keyboardDisplay);
-        }
+        // Quantizer display (also drawn in the browser preview, where module is null)
+        keyboardDisplay = createWidget<KeyboardDisplay>(mm2px(Vec(10.7f-5.f, 87.5f)));
+        keyboardDisplay->box.size = mm2px(Vec(50.501f, 16.168f));
+        keyboardDisplay->setModule(module);
+        addChild(keyboardDisplay);
     }
 
     void appendContextMenu(Menu* menu) override {

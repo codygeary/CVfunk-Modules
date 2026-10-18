@@ -531,9 +531,36 @@ struct EnvDisplay : TransparentWidget {
         // Draw non-illuminating elements if any
     }
 
+    // Browser and library preview (no module): draw a made-up trace instead of a blank screen.
+    CircularBuffer<float, 1024> preview[2];
+    bool previewReady = false;
+    void fillPreview() {
+        const float hits[2] = {0.05f, 0.55f};
+        const float taps[3] = {0.12f, 0.24f, 0.36f}, gains[3] = {0.6f, 0.4f, 0.25f};
+        for (int i = 0; i < 1024; i++) {
+            float t = i / 1024.f, dry = 0.f, wet = 0.f;
+            for (float h : hits) {
+                if (t >= h) dry += 4.f * std::exp(-(t - h) * 25.f);
+                for (int k = 0; k < 3; k++)
+                    if (t >= h + taps[k]) wet += 4.f * gains[k] * std::exp(-(t - h - taps[k]) * 25.f);
+            }
+            preview[0].push(dry);
+            preview[1].push(wet);
+        }
+        previewReady = true;
+    }
+
     void drawLayer(const DrawArgs& args, int layer) override {
         if (layer != 1) { TransparentWidget::drawLayer(args, layer); return; }
-        if (!module) return;
+        if (!module) {
+            centerX = box.size.x / 2.0f;
+            centerY = box.size.y / 2.0f;
+            heightScale = centerY / 5;
+            if (!previewReady) fillPreview();
+            drawWaveform(args, preview[0], nvgRGBAf(1, 0.4, 0, 0.8));
+            drawWaveform(args, preview[1], nvgRGBAf(0, 0.4, 1, 0.8));
+            return;
+        }
 
         centerX = box.size.x / 2.0f;
         centerY = box.size.y / 2.0f;

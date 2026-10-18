@@ -558,6 +558,7 @@ struct Alloy : Module {
         } // end per-voice loop
     }
 };
+const int Alloy::MAX_POLY;   // std::min takes it by reference, so C++11 needs a definition
 
 //////////////////////
 // Widget

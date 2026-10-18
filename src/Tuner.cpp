@@ -399,6 +399,7 @@ struct DecimatedFrequencyTracker {
         }
     }
 };
+constexpr int DecimatedFrequencyTracker::MAX_BUFFER_SIZE;   // std::min takes it by reference, so C++11 needs a definition
 
 
 // ---------------------------------------------------------------------------

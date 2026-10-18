@@ -208,11 +208,6 @@ struct FilterTritonSIMD {
     // Sharpness - target, previous, and active (interpolated)
     float sharp = 1.f, prevSharp = 1.f, activeSharp = 1.f;
 
-    static constexpr float qButter[TRITON_STAGES] = {
-        0.50979558f, 0.53104260f, 0.56672739f, 0.62689136f,
-        0.72537555f, 0.90100653f, 1.24722195f, 2.56291556f,
-    };
-
     // snapshot - call just before updating coefficients via setLane().
     void snapshot() {
         for (int k = 0; k < TRITON_STAGES; k++) {
@@ -230,6 +225,14 @@ struct FilterTritonSIMD {
         sharp = sharpness;
 
         auto makeFn = (mode == FilterTriton::LOWPASS) ? makeLowpass : makeHighpass;
+
+        // Butterworth Q values, as in FilterTriton. A function-local table: a
+        // static constexpr class member would need an out-of-class definition
+        // in C++11, which the Windows linker insists on.
+        static const float qButter[TRITON_STAGES] = {
+            0.50979558f, 0.53104260f, 0.56672739f, 0.62689136f,
+            0.72537555f, 0.90100653f, 1.24722195f, 2.56291556f,
+        };
 
         for (int k = 0; k < TRITON_STAGES; k++) {
             float q = (k == TRITON_STAGES - 1)
