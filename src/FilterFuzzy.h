@@ -29,6 +29,14 @@
 #include <cstdint>
 #include <algorithm>
 
+// MetaModule: the linear products of each substep run in float_4 (see
+// Core). Its Cortex-A7 does doubles one at a time and floats four at a time.
+// Measured against double: level identical, spectrum within 0.1 dB on every
+// model. Desktop stays double, where it makes no difference to speed.
+#if defined(METAMODULE) && !defined(FUZZY_LINEAR_FLOAT)
+#define FUZZY_LINEAR_FLOAT
+#endif
+
 namespace fuzzy {
 
 using rack::simd::float_4;
@@ -160,6 +168,24 @@ struct DKMatrices {
     bool   stateIsCap[S];
 };
 
+// buildDK's working arrays, and a spare set of matrices for a rebuild or the
+// DC solve. One per stage, allocated with the module rather than on the
+// stack: buildDK runs on the audio thread (a model starting, a pot moving),
+// and its arrays come to over 20 KB for the larger stages, too much for a
+// small real-time stack such as the MetaModule's.
+struct DKTap { int node, column; double gain; };
+template <int N, int S, int P, int I>
+struct DKWorkspace {
+    static const int SOLVED = S + P + 1;                // the S companions, the P ports, the output
+    static const int SOLVED_PAD = (SOLVED + 1) / 2 * 2;
+    double G[N][N], lower[N][N], invDiagonal[N];
+    alignas(16) double solved[N][SOLVED_PAD];
+    DKTap sources[MAX_ELEMENTS], injections[6 * MAX_ELEMENTS], portRows[4 * MAX_ELEMENTS];
+    int    stateA[S], stateB[S];
+    double stateSign[S];
+    DKMatrices<N, S, P, I> matrices;
+};
+
 // The nodal matrix G holds conductances only (resistors, companions, gmin),
 // so it is symmetric positive definite: Cholesky, G = L L^T, no pivoting.
 // Each row the step needs (a companion's terminals, a junction's terminals,
@@ -167,18 +193,19 @@ struct DKMatrices {
 // source columns, rather than inverting G and multiplying out in full.
 template <int N, int S, int P, int I>
 inline bool buildDK(const Netlist& net, int outputNode, double T, DKMatrices<N, S, P, I>& m,
-                    bool backwardEuler = false) {
-    double G[N][N] = {};
+                    DKWorkspace<N, S, P, I>& w, bool backwardEuler = false) {
+    auto& G = w.G;
+    std::memset(G, 0, sizeof(G));
     const double voltageGain = backwardEuler ? 1.0 : 2.0;
     // Sparse source columns: each companion's history current between its
     // two nodes, each current source into its node, each junction port's
     // injection into its terminals; and the rows that read each port.
-    struct Tap { int node, column; double gain; };
-    int    stateA[S], stateB[S];
-    double stateSign[S];
-    Tap sources[MAX_ELEMENTS];
-    Tap injections[6 * MAX_ELEMENTS];
-    Tap portRows[4 * MAX_ELEMENTS];
+    auto& stateA = w.stateA;
+    auto& stateB = w.stateB;
+    auto& stateSign = w.stateSign;
+    auto& sources = w.sources;
+    auto& injections = w.injections;
+    auto& portRows = w.portRows;
     int sourceCount = 0, injectionCount = 0, portRowCount = 0;
     auto inject = [&](int node, int port, double gain) { if (node != GND) injections[injectionCount++] = { node, port, gain }; };
     auto readPort = [&](int node, int port, double gain) { if (node != GND) portRows[portRowCount++] = { node, port, gain }; };
@@ -250,7 +277,8 @@ inline bool buildDK(const Netlist& net, int outputNode, double T, DKMatrices<N, 
     for (int node = 0; node < N; ++node) G[node][node] += 1e-12;   // gmin
 
     // Cholesky, lower triangle, with the reciprocal of its diagonal.
-    double lower[N][N], invDiagonal[N];
+    auto& lower = w.lower;
+    auto& invDiagonal = w.invDiagonal;
     for (int j = 0; j < N; ++j) {
         double d = G[j][j];
         for (int k = 0; k < j; ++k) d -= lower[j][k] * lower[j][k];
@@ -268,9 +296,8 @@ inline bool buildDK(const Netlist& net, int outputNode, double T, DKMatrices<N, 
     // Every row the step reads, solved against G together: as columns of
     // one right-hand side, so each elimination runs across all of them at
     // once (vectorizes). Columns: the S companions, the P ports, the output.
-    static const int SOLVED = S + P + 1;
-    static const int SOLVED_PAD = (SOLVED + 1) / 2 * 2;
-    alignas(16) double solved[N][SOLVED_PAD];
+    static const int SOLVED_PAD = DKWorkspace<N, S, P, I>::SOLVED_PAD;
+    auto& solved = w.solved;
     std::memset(solved, 0, sizeof(solved));
     for (int s = 0; s < S; ++s) {
         const double scale = voltageGain * m.stateG[s];
@@ -389,6 +416,31 @@ struct Core {
     double z = 0.0;
     int    lastIterations = 0;
 
+#ifdef FUZZY_LINEAR_FLOAT
+    // The linear products of a substep (the junction prediction p and the
+    // state update) in float_4: four lanes on NEON, where doubles do not
+    // vectorize at all on a 32-bit ARM. The state stays double between
+    // substeps, and the Newton solve, the glides and the DC solve stay
+    // double. A float copy of the packed columns, refreshed when they move.
+    static const int ROWS4 = (ROWS + 3) / 4 * 4;
+    static const int PORTS4 = (P + 3) / 4 * 4;
+    alignas(16) float linUpdate[S + P][ROWS4] = {};    // [A C; Dz Fz]
+    alignas(16) float linPort[S][PORTS4] = {};         // D
+    alignas(16) float linSignalUpdate[ROWS4] = {};     // the signal's column of [B; Ez]
+    alignas(16) float linSignalPort[PORTS4] = {};      // the signal's column of E
+    alignas(16) float linSampleUpdate[ROWS4] = {}, linSamplePort[PORTS4] = {};
+    bool linearFloat = false;   // set on the audio core; the DC solve's core stays double
+
+    void syncLinear() {
+        for (int c = 0; c < S + P; ++c)
+            for (int r = 0; r < ROWS4; ++r) linUpdate[c][r] = (r < ROWS) ? (float)packed.update[c][r] : 0.f;
+        for (int c = 0; c < S; ++c)
+            for (int r = 0; r < PORTS4; ++r) linPort[c][r] = (r < P) ? (float)packed.port[c][r] : 0.f;
+        for (int r = 0; r < ROWS4; ++r) linSignalUpdate[r] = (r < ROWS) ? (float)packed.inputUpdate[INPUT_SIGNAL][r] : 0.f;
+        for (int r = 0; r < PORTS4; ++r) linSignalPort[r] = (r < P) ? (float)packed.inputPort[INPUT_SIGNAL][r] : 0.f;
+    }
+#endif
+
     // Junction constants move with temperature (drain). Like the held
     // inputs they glide in over a control block; snap = true jumps.
     double glideSaturation[P] = {}, glideInvNVt[P] = {};
@@ -462,6 +514,9 @@ struct Core {
     void setHeldInputs(const double u[I], bool snap = false) {
         if (snap) {
             pack(m, packed);
+#ifdef FUZZY_LINEAR_FLOAT
+            syncLinear();
+#endif
             matrixGlideLeft = 0;
             for (int c = 0; c < I; ++c) { heldU[c] = heldTarget[c] = u[c]; glideU[c] = 0.0; }
             glideLeft = 0;
@@ -505,6 +560,9 @@ struct Core {
                 for (int k = 0; k < kPackedCount; ++k) entry[k] += step[k];
             }
             moved = true;
+#ifdef FUZZY_LINEAR_FLOAT
+            if (linearFloat) syncLinear();
+#endif
         }
         if (glideLeft > 0) {
             if (--glideLeft == 0) for (int c = INPUT_RAIL; c < I - 1; ++c) heldU[c] = heldTarget[c];
@@ -514,14 +572,37 @@ struct Core {
         if (moved) updateHeld();
         for (int r = 0; r < PORTS_PAD; ++r) samplePort[r] = heldPort[r] + packed.inputPort[I - 1][r] * noise;
         for (int r = 0; r < ROWS_PAD; ++r) sampleUpdate[r] = heldUpdate[r] + packed.inputUpdate[I - 1][r] * noise;
+#ifdef FUZZY_LINEAR_FLOAT
+        if (linearFloat) {
+            for (int r = 0; r < PORTS4; ++r) linSamplePort[r] = (r < P) ? (float)samplePort[r] : 0.f;
+            for (int r = 0; r < ROWS4; ++r) linSampleUpdate[r] = (r < ROWS) ? (float)sampleUpdate[r] : 0.f;
+        }
+#endif
     }
 
     inline double step(double signal) {
         double p[P];
-        for (int r = 0; r < P; ++r) p[r] = samplePort[r] + packed.inputPort[INPUT_SIGNAL][r] * signal;
-        for (int c = 0; c < S; ++c) {
-            const double state = x[c];
-            for (int r = 0; r < P; ++r) p[r] += packed.port[c][r] * state;
+#ifdef FUZZY_LINEAR_FLOAT
+        alignas(16) float xs[S];
+        if (linearFloat) {
+            for (int c = 0; c < S; ++c) xs[c] = (float)x[c];
+            float_4 acc[PORTS4 / 4];
+            const float_4 sig((float)signal);
+            for (int j = 0; j < PORTS4 / 4; ++j)
+                acc[j] = float_4::load(&linSamplePort[4 * j]) + float_4::load(&linSignalPort[4 * j]) * sig;
+            for (int c = 0; c < S; ++c) {
+                const float_4 state(xs[c]);
+                for (int j = 0; j < PORTS4 / 4; ++j) acc[j] += float_4::load(&linPort[c][4 * j]) * state;
+            }
+            for (int r = 0; r < P; ++r) p[r] = acc[r / 4][r % 4];
+        } else
+#endif
+        {
+            for (int r = 0; r < P; ++r) p[r] = samplePort[r] + packed.inputPort[INPUT_SIGNAL][r] * signal;
+            for (int c = 0; c < S; ++c) {
+                const double state = x[c];
+                for (int r = 0; r < P; ++r) p[r] += packed.port[c][r] * state;
+            }
         }
 
         // Tangent predictor.
@@ -610,6 +691,25 @@ struct Core {
         for (int k = 0; k < P; ++k) current[k] += slope[k] * dv[k];
 
         // New states and the output in one pass over the columns.
+#ifdef FUZZY_LINEAR_FLOAT
+        if (linearFloat) {
+            float_4 acc[ROWS4 / 4];
+            const float_4 sig((float)signal);
+            for (int j = 0; j < ROWS4 / 4; ++j)
+                acc[j] = float_4::load(&linSampleUpdate[4 * j]) + float_4::load(&linSignalUpdate[4 * j]) * sig;
+            for (int c = 0; c < S; ++c) {
+                const float_4 state(xs[c]);
+                for (int j = 0; j < ROWS4 / 4; ++j) acc[j] += float_4::load(&linUpdate[c][4 * j]) * state;
+            }
+            for (int c = 0; c < P; ++c) {
+                const float_4 junction((float)current[c]);
+                for (int j = 0; j < ROWS4 / 4; ++j) acc[j] += float_4::load(&linUpdate[S + c][4 * j]) * junction;
+            }
+            z = acc[S / 4][S % 4];
+            for (int r = 0; r < S; ++r) x[r] = acc[r / 4][r % 4];
+            return z;
+        }
+#endif
         alignas(16) double next[ROWS_PAD];
         for (int r = 0; r < ROWS_PAD; ++r) next[r] = sampleUpdate[r] + packed.inputUpdate[INPUT_SIGNAL][r] * signal;
         for (int c = 0; c < S; ++c) {
@@ -653,9 +753,10 @@ struct Core {
 // ==========================================================================
 template <int N, int S, int P, int I>
 inline bool solveOperatingPoint(const Netlist& net, int outputNode, const PortModel<P>& pm,
-                                const double u[I], Core<N, S, P, I>& scratch, bool warm) {
-    DKMatrices<N, S, P, I> dcm;
-    if (!buildDK<N, S, P, I>(net, outputNode, 10.0, dcm, true)) return false;
+                                const double u[I], Core<N, S, P, I>& scratch, bool warm,
+                                DKWorkspace<N, S, P, I>& work) {
+    DKMatrices<N, S, P, I>& dcm = work.matrices;
+    if (!buildDK<N, S, P, I>(net, outputNode, 10.0, dcm, work, true)) return false;
     if (!warm) {
         std::memset(scratch.x, 0, sizeof(scratch.x));
         std::memset(scratch.v, 0, sizeof(scratch.v));
@@ -693,7 +794,7 @@ inline void loadOperatingPoint(Core<N, S, P, I>& core, const Core<N, S, P, I>& d
 // of the base rate.
 // ==========================================================================
 static const int kMaxOversample = 8;
-static const int kDefaultOversample = 4;
+static const int kDefaultOversample = 2;    // matches the module's default
 static const int kResampleQuality = 16;                     // base samples per kernel
 static const int kMaxResampleTaps = kMaxOversample * kResampleQuality;
 
@@ -825,6 +926,13 @@ static const float kPinkGainAt1kHz = 4.66f;
 // Super-Fuzz is NPN silicon with a positive rail.
 // ==========================================================================
 
+// How far FUZZ or GUITAR must move before the circuit is rebuilt, and how far
+// the battery drain before the devices and rail are redone. Hardware knobs
+// and CV jitter by more than a hair; without a step, every control block
+// rebuilds the matrices and glides them in. Hand-tunable.
+static const double kRebuildStep = 1e-3;
+static const double kDrainStep = 1e-4;
+
 // Settings every model reads at control rate.
 struct ModelControls {
     double fuzz = 1.0;           // 0..1, the model's own gain control
@@ -907,14 +1015,21 @@ struct Stage {
     PortModel<P> ports;
     Core<N, S, P, I> core;
     Core<N, S, P, I> scratch;          // DC solve
+    DKWorkspace<N, S, P, I> work;      // buildDK's arrays, off the audio stack
+#ifdef FUZZY_LINEAR_FLOAT
+    bool linearFloat = true;           // false keeps this stage's linear products in double
+#endif
     double u[I] = {};                  // held inputs (rail, leakage)
     double rest = 0.0;                 // output at the operating point
 
     bool start(double T, double signalAtRest, bool warm) {
+#ifdef FUZZY_LINEAR_FLOAT
+        core.linearFloat = linearFloat;
+#endif
         u[INPUT_SIGNAL] = signalAtRest;
         u[I - 1] = 0.0;
-        if (!buildDK<N, S, P, I>(net, output, T, core.m)) return false;
-        if (!solveOperatingPoint<N, S, P, I>(net, output, ports, u, scratch, warm)) return false;
+        if (!buildDK<N, S, P, I>(net, output, T, core.m, work)) return false;
+        if (!solveOperatingPoint<N, S, P, I>(net, output, ports, u, scratch, warm, work)) return false;
         loadOperatingPoint(core, scratch);
         core.setPorts(ports, true);
         core.setHeldInputs(u, true);
@@ -924,9 +1039,8 @@ struct Stage {
     // New matrices after a pot moved. Only resistors move, so every
     // companion keeps its g and the state carries over unchanged.
     bool rebuild(double T) {
-        DKMatrices<N, S, P, I> next;
-        if (!buildDK<N, S, P, I>(net, output, T, next)) return false;
-        core.glideToMatrices(next);
+        if (!buildDK<N, S, P, I>(net, output, T, work.matrices, work)) return false;
+        core.glideToMatrices(work.matrices);
         core.setHeldInputs(u);
         return true;
     }
@@ -1010,8 +1124,8 @@ struct SingleStageModel : FuzzModel {
 
     bool configure(const ModelControls& c) override {
         // Nothing moved since the last block: netlists, ports and inputs stand.
-        bool moved = std::fabs(c.fuzz - builtFuzz) > 1e-4 || std::fabs(c.guitar - builtGuitar) > 1e-4;
-        if (!moved && c.drain == builtDrain) return false;
+        bool moved = std::fabs(c.fuzz - builtFuzz) > kRebuildStep || std::fabs(c.guitar - builtGuitar) > kRebuildStep;
+        if (!moved && std::fabs(c.drain - builtDrain) <= kDrainStep) return false;
         builtDrain = c.drain;
         stage.net.count = 0;
         Circuit::describe(c, stage.net, stage.output);
@@ -1375,8 +1489,8 @@ struct SuperFuzzModel : FuzzModel {
 
     bool configure(const ModelControls& c) override {
         // Nothing moved since the last block: netlists, ports and inputs stand.
-        bool moved = std::fabs(c.fuzz - builtFuzz) > 1e-4 || std::fabs(c.guitar - builtGuitar) > 1e-4;
-        if (!moved && c.drain == builtDrain) return false;
+        bool moved = std::fabs(c.fuzz - builtFuzz) > kRebuildStep || std::fabs(c.guitar - builtGuitar) > kRebuildStep;
+        if (!moved && std::fabs(c.drain - builtDrain) <= kDrainStep) return false;
         builtDrain = c.drain;
         static const double expander[11] = { 0.05, 0.10, 0.16, 0.23, 0.31, 0.40, 0.50, 0.61, 0.73, 0.86, 1.0 };
         double x = lookup11(expander, c.fuzz);
@@ -1527,6 +1641,11 @@ struct FetOctaveModel : FuzzModel {
     Stage<StageG::NODES, 3, 1, 3> stageG;
     Stage<StageB::NODES, 8, 6, 3> stageB;
     Stage<StageC::NODES, 3, 2, 3> stageC;
+#ifdef FUZZY_LINEAR_FLOAT
+    // The FET and octave stage is the one stage whose sound moves (about a
+    // decibel in places) with float rounding: it stays double.
+    FetOctaveModel() { stageB.linearFloat = false; }
+#endif
     double builtFuzz = -1.0, builtGuitar = -1.0, builtDrain = -1.0;
 
     // 2SK30A-Y, square law. Idss and Vp picked inside the grade's range so
@@ -1569,8 +1688,8 @@ struct FetOctaveModel : FuzzModel {
 
     bool configure(const ModelControls& c) override {
         // Nothing moved since the last block: netlists, ports and inputs stand.
-        bool moved = std::fabs(c.fuzz - builtFuzz) > 1e-4 || std::fabs(c.guitar - builtGuitar) > 1e-4;
-        if (!moved && c.drain == builtDrain) return false;
+        bool moved = std::fabs(c.fuzz - builtFuzz) > kRebuildStep || std::fabs(c.guitar - builtGuitar) > kRebuildStep;
+        if (!moved && std::fabs(c.drain - builtDrain) <= kDrainStep) return false;
         builtDrain = c.drain;
         // FUZZ DEPTH wiper, measured so each tenth of the knob is audible.
         static const double depth[11] = { 0.03, 0.06, 0.10, 0.15, 0.21, 0.28, 0.37, 0.48, 0.61, 0.78, 1.0 };
