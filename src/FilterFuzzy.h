@@ -41,6 +41,19 @@ namespace fuzzy {
 
 using rack::simd::float_4;
 
+// Finite tests on the bit pattern (an infinity or NaN has every exponent bit
+// set). std::isfinite would do, except that under -ffinite-math-only, which
+// this file may be built with for speed (MetaModule), the compiler is free to
+// fold it to true; the restart-on-divergence guards depend on these.
+inline bool finiteBits(float x) {
+    uint32_t u; std::memcpy(&u, &x, sizeof(u));
+    return (u & 0x7f800000u) != 0x7f800000u;
+}
+inline bool finiteBits(double x) {
+    uint64_t u; std::memcpy(&u, &x, sizeof(u));
+    return (u & 0x7ff0000000000000ull) != 0x7ff0000000000000ull;
+}
+
 static const int GND = -1;
 
 // The u vector, shared layout for every stage:
@@ -282,7 +295,7 @@ inline bool buildDK(const Netlist& net, int outputNode, double T, DKMatrices<N, 
     for (int j = 0; j < N; ++j) {
         double d = G[j][j];
         for (int k = 0; k < j; ++k) d -= lower[j][k] * lower[j][k];
-        if (!(d > 1e-300)) return false;
+        if (!(d > 1e-300) || !finiteBits(d)) return false;
         double pivot = std::sqrt(d);
         lower[j][j] = pivot;
         invDiagonal[j] = 1.0 / pivot;
@@ -622,7 +635,7 @@ struct Core {
                 if (vNew > vcrit[k] && vNew - v[k] > 2.0 * nVt[k])
                     vNew = (v[k] > 0.0) ? v[k] + nVt[k] * std::log(1.0 + (vNew - v[k]) / nVt[k])
                                         : nVt[k] * std::log(vNew / nVt[k]);
-                if (std::isfinite(vNew)) v[k] = vNew;
+                if (finiteBits(vNew)) v[k] = vNew;
             }
         }
         for (int r = 0; r < P; ++r) pPrev[r] = p[r];
@@ -733,9 +746,9 @@ struct Core {
     }
 
     bool finite() const {
-        if (!std::isfinite(z)) return false;
-        for (int k = 0; k < P; ++k) if (!std::isfinite(v[k])) return false;
-        for (int s = 0; s < S; ++s) if (!std::isfinite(x[s])) return false;
+        if (!finiteBits(z)) return false;
+        for (int k = 0; k < P; ++k) if (!finiteBits(v[k])) return false;
+        for (int s = 0; s < S; ++s) if (!finiteBits(x[s])) return false;
         return true;
     }
 };
@@ -1798,7 +1811,7 @@ struct FetOctaveModel : FuzzModel {
     }
     bool finite() const override {
         return stageG.core.finite() && stageB.core.finite() && stageC.core.finite()
-            && std::isfinite(sourceVolts) && std::isfinite(drainAmps);
+            && finiteBits(sourceVolts) && finiteBits(drainAmps);
     }
     double noiseScale() const override { return 0.3; }
     // Q1 (the JFET), Q2 Q3 Q4 (stage B), the diode pair (stage C).

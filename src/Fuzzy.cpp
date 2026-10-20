@@ -553,7 +553,7 @@ struct Fuzzy : Module {
         float targetGain = kTargetPeakVolts / std::max(levelEnvelope, kLevelFloorVolts);
         levelGain += (targetGain < levelGain ? levelDropK : levelAttackK) * (targetGain - levelGain);
         float emf = in * levelGain;
-        if (!std::isfinite(emf)) { emf = 0.f; levelEnvelope = kLevelFloorVolts; levelGain = 0.f; }
+        if (!fuzzy::finiteBits(emf)) { emf = 0.f; levelEnvelope = kLevelFloorVolts; levelGain = 0.f; }
 
         // ---- Footswitch --------------------------------------------------------------
         if (inputs[SWITCH_CV_INPUT].isConnected() && switchTrigger.process(inputs[SWITCH_CV_INPUT].getVoltage(), 0.1f, 1.f))
@@ -591,7 +591,9 @@ struct Fuzzy : Module {
             float over = (magnitude - kLimitKnee) * (1.f / room);
             out = std::copysign(kLimitKnee + room * over / std::sqrt(1.f + over * over), out);
         }
-        if (!std::isfinite(out)) out = 0.f;
+        // A non-finite sample here would stay in the DC blocker's state and
+        // silence everything after it: clear the blocker with it.
+        if (!fuzzy::finiteBits(out)) { out = 0.f; blockState1 = blockState2 = 0.f; }
         outputs[OUT_OUTPUT].setVoltage(out);
 
         meterPower += meterK * (out * out - meterPower);
@@ -642,9 +644,20 @@ struct Fuzzy : Module {
         // A diverged circuit is restarted at its operating point. Any
         // non-finite junction or state reaches the output within a substep,
         // so the output is checked each sample and the full state each block.
-        if (!std::isfinite(activeSum) || (controlCounter == 0 && !models[activeModel]->finite())) {
+        if (!fuzzy::finiteBits(activeSum) || (controlCounter == 0 && !models[activeModel]->finite())) {
             models[activeModel]->start(stepTime(sampleRate), false);
             highPassState[activeModel] = highPassInput[activeModel] = 0.f;
+            upsampler[activeModel].reset();
+        }
+        // Nothing non-finite may enter the downsampler's history: it would
+        // come back out for a whole kernel and poison the DC blocker after
+        // it. A circuit fading out that diverged is dropped with its fade.
+        bool mixedFinite = true;
+        for (int s = 0; s < oversample; ++s) mixedFinite = mixedFinite && fuzzy::finiteBits(mixed[s]);
+        if (!mixedFinite) {
+            if (fadingModel >= 0) { fadingModel = -1; fadePosition = 1.f; fadeIn = 1.f; fadeOut = 0.f; }
+            for (int s = 0; s < oversample; ++s) mixed[s] = 0.f;
+            resampler.reset();
         }
         senseDevices();
         return resampler.down(mixed);
